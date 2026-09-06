@@ -279,8 +279,8 @@ export const HowPowerGridWorksSection: React.FC<HowPowerGridWorksSectionProps> =
 
             <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
               {isBn
-                ? 'নোভাভেস্ট এনার্জি একটি আধুনিক ও পেশাদার ক্লিন এনার্জি অবকাঠামো পরিচালনাকারী প্রতিষ্ঠান। আমাদের বৃহৎ সৌর বিদ্যুৎ প্রকল্পসমূহে সূর্যালোককে উচ্চ ক্ষমতাসম্পন্ন ইনভার্টারের মাধ্যমে ব্যবহারযোগ্য এসি বিদ্যুতে রূপান্তর করা হয়। এরপর ১৩২কেভি/৩৩কেভি সাবস্টেশনের মাধ্যমে ভোল্টেজ বৃদ্ধি করে সরাসরি জাতীয় গ্রিড ও শিল্প জোনে সরবরাহ করা হয়। সরকারের বিদ্যুৎ ক্রয় চুক্তি (PPA) অনুযায়ী এই বিদ্যুৎ সরবরাহের বিপরীতে নির্দিষ্ট হারে রাজস্ব সংগৃহীত হয়, যা কোম্পানির টেকসই পরিচালনা এবং গ্রাহকদের প্রতিদিনের স্বচ্ছ লভ্যাংশ প্রদানের ভিত্তি।'
-                : 'NovaVest Energy operates utility-scale renewable power generation assets integrated directly into national transmission networks. Solar irradiance captured by bifacial photovoltaic panels is converted into AC power via high-efficiency inverters, stepped up to 132kV/33kV at on-site automated substations, and injected into the grid under regulated Power Purchase Agreements (PPAs) that deliver dependable daily yields.'}
+                ? 'নোভা টেরা এনার্জি (NVT) একটি আধুনিক ও পেশাদার জ্বালানী ও বিদ্যুৎ অবকাঠামো পরিচালনাকারী প্রতিষ্ঠান। আমাদের বৃহৎ সৌর ও জ্বালানী বিদ্যুৎ প্রকল্পসমূহে সূর্যালোক ও ফুয়েল এনার্জিকে উচ্চ ক্ষমতাসম্পন্ন ইনভার্টারের মাধ্যমে ব্যবহারযোগ্য বিদ্যুতে রূপান্তর করা হয়। এরপর ১৩২কেভি/৩৩কেভি সাবস্টেশনের মাধ্যমে ভোল্টেজ বৃদ্ধি করে সরাসরি জাতীয় গ্রিড ও শিল্প জোনে সরবরাহ করা হয়।'
+                : 'Nova Terra Energy (NVT) operates utility-scale renewable power generation assets integrated directly into national transmission networks. Solar irradiance captured by bifacial photovoltaic panels is converted into AC power via high-efficiency inverters, stepped up to 132kV/33kV at on-site automated substations, and injected into the grid under regulated Power Purchase Agreements (PPAs) that deliver dependable daily yields.'}
             </p>
           </div>
 
@@ -543,8 +543,8 @@ export const HowPowerGridWorksSection: React.FC<HowPowerGridWorksSectionProps> =
 
             <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
               {isBn
-                ? 'নোভাভেস্ট এনার্জি প্রতিটি কার্যক্রমে সর্বোচ্চ স্বচ্ছতা বজায় রাখে। জাতীয় গ্রিডে বিদ্যুৎ সরবরাহের তথ্য ডুয়াল-সার্টিফাইড ডিজিটাল এনার্জি মিটারের মাধ্যমে সরাসরি রেকর্ড হয়। কোনো কৃত্রিম অনুমান বা গোপন তথ্য ছাড়াই নিয়মিত অডিট রিপোর্ট ও দৈনিক উৎপাদন ব্রিফিং প্রদান করা হয়।'
-                : 'NovaVest enforces stringent corporate transparency. Every kilowatt-hour supplied to the grid is measured through dual utility-certified meters, verified against official dispatch sheets, and communicated openly through daily community town halls and annual audits.'}
+                ? 'নোভা টেরা এনার্জি (NVT) প্রতিটি কার্যক্রমে সর্বোচ্চ স্বচ্ছতা বজায় রাখে। জাতীয় গ্রিডে বিদ্যুৎ সরবরাহের তথ্য ডুয়াল-সার্টিফাইড ডিজিটাল এনার্জি মিটারের মাধ্যমে সরাসরি রেকর্ড হয়। কোনো কৃত্রিম অনুমান বা গোপন তথ্য ছাড়াই নিয়মিত অডিট রিপোর্ট ও দৈনিক উৎপাদন ব্রিফিং প্রদান করা হয়।'
+                : 'Nova Terra Energy (NVT) enforces stringent corporate transparency. Every kilowatt-hour supplied to the grid is measured through dual utility-certified meters, verified against official dispatch sheets, and communicated openly through daily community town halls and annual audits.'}
             </p>
 
             <div className="grid grid-cols-2 gap-2 text-xs">

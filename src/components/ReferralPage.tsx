@@ -154,11 +154,11 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
     if (navigator.share) {
       navigator
         .share({
-          title: 'NovaVest Energy Referral',
+          title: 'NVT • Nova Terra Energy Referral',
           text:
             currentLang === 'bn'
-              ? `নোভাভেস্ট এনার্জিতে যোগ দিন এবং ৩-স্তর কমিশন উপার্জন করুন! কোড: ${userCode}`
-              : `Join NovaVest Energy and earn 3-tier lifetime commissions! Code: ${userCode}`,
+              ? `নোভা টেরা এনার্জি (NVT)-তে যোগ দিন এবং ৩-স্তর কমিশন উপার্জন করুন! কোড: ${userCode}`
+              : `Join Nova Terra Energy (NVT) and earn 3-tier lifetime commissions! Code: ${userCode}`,
           url: referralLink,
         })
         .catch(() => {});

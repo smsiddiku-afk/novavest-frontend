@@ -232,8 +232,8 @@ export const PromoBonusScreen: React.FC<PromoBonusScreenProps> = ({
         background: 'radial-gradient(circle at 10% 0%, rgba(132, 204, 22, 0.12) 0%, #111317 40%, #0d0f12 100%)',
       }}
     >
-      {/* Centered Mobile-First Canvas (full-width on mobile, max-w-md mx-auto) */}
-      <div className="w-full max-w-md mx-auto px-3.5 sm:px-4 pt-3 flex flex-col">
+      {/* Centered Responsive Canvas (mobile-first on mobile, expands on desktop) */}
+      <div className="w-full max-w-md md:max-w-5xl lg:max-w-6xl mx-auto px-3.5 sm:px-4 pt-3 flex flex-col">
         {/* ========================================================================= */}
         {/* Top Header: '< Hosting level details' + Language Selector Pill '🇺🇸 English >' */}
         {/* ========================================================================= */}
@@ -342,9 +342,9 @@ export const PromoBonusScreen: React.FC<PromoBonusScreenProps> = ({
         </div>
 
         {/* ========================================================================= */}
-        {/* Tier Cards List (Spacious, Uncluttered, Matches Screenshot Exactly) */}
+        {/* Tier Cards List (Responsive: 1 col on mobile, 2 cols on desktop) */}
         {/* ========================================================================= */}
-        <div className="w-full flex flex-col space-y-3.5">
+        <div className="w-full grid grid-cols-1 md:grid-cols-2 gap-3.5">
           {TIER_LEVELS.map((tier) => {
             const isCompleted = !!claimedTiers[tier.id];
             // V1-V4 count from direct level 1; V5-V8 count from total team (L1 + L2 + L3)

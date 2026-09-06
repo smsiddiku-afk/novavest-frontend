@@ -34,7 +34,7 @@ export const LegalModal: React.FC<LegalModalProps> = ({ type, onClose }) => {
                 {isTerms ? 'Terms & Conditions' : 'Privacy & Security Policy'}
               </h2>
               <p className="text-xs text-slate-400">
-                NovaVest Global Investment Platform • Updated September 2026
+                Nova Terra Energy (NVT) Platform • Updated September 2026
               </p>
             </div>
           </div>
@@ -55,7 +55,7 @@ export const LegalModal: React.FC<LegalModalProps> = ({ type, onClose }) => {
               <div>
                 <h3 className="text-sm font-semibold text-white mb-1">1. Eligibility & Verification</h3>
                 <p className="text-xs text-slate-400">
-                  By creating an account on NovaVest, you confirm that you are at least 18 years of age and legally authorized to engage in capital investment activities. Each account is subject to AML (Anti-Money Laundering) and KYC identity validation.
+                  By creating an account on NVT (Nova Terra Energy), you confirm that you are at least 18 years of age and legally authorized to engage in capital investment activities. Each account is subject to AML (Anti-Money Laundering) and KYC identity validation.
                 </p>
               </div>
               <div>
@@ -73,7 +73,7 @@ export const LegalModal: React.FC<LegalModalProps> = ({ type, onClose }) => {
               <div>
                 <h3 className="text-sm font-semibold text-white mb-1">4. Account Security & Custody</h3>
                 <p className="text-xs text-slate-400">
-                  Users are strictly responsible for maintaining credential confidentiality, enabling two-factor authorization, and protecting withdrawal PINs. NovaVest will never ask for your private encryption keys or account passwords.
+                  Users are strictly responsible for maintaining credential confidentiality, enabling two-factor authorization, and protecting withdrawal PINs. NVT will never ask for your private encryption keys or account passwords.
                 </p>
               </div>
             </>

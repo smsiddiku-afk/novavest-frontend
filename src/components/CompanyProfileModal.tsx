@@ -294,7 +294,7 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-base sm:text-lg font-bold text-white tracking-wide">
-                  NovaVest Infrastructure Ltd.
+                  Nova Terra Energy Ltd. (NVT)
                 </h2>
                 <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
                   <CheckCircle2 className="w-3 h-3" />
@@ -411,8 +411,8 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
                 </span>
                 <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
                   {isBn
-                    ? '২০২১ সালে প্রতিষ্ঠিত, নোভাভেস্ট ইনফ্রাস্ট্রাকচার লিমিটেড দেশের অন্যতম শীর্ষস্থানীয় ক্লিন এনার্জি প্রযুক্তি প্রতিষ্ঠান। আমরা বৃহৎ পরিসরে গ্রিড-সংযুক্ত সৌর বিদ্যুৎ উৎপাদন, ব্যাটারি স্টোরেজ সিস্টেম (BESS) এবং কৃত্রিম বুদ্ধিমত্তাসম্পন্ন রিয়েল-টাইম গ্রিড ব্যালান্সিং অবকাঠামো পরিচালনা করে থাকি।'
-                    : 'Founded in 2021, NovaVest Energy Infrastructure Ltd. is a premier clean-energy technology company developing utility-scale renewable generation, battery storage systems (BESS), and digital grid balancing networks across South Asia.'}
+                    ? '২০২১ সালে প্রতিষ্ঠিত, নোভা টেরা এনার্জি লিমিটেড (NVT) দেশের অন্যতম শীর্ষস্থানীয় জ্বালানী, গ্যাস ও ক্লিন এনার্জি প্রযুক্তি প্রতিষ্ঠান। আমরা বৃহৎ পরিসরে গ্রিড-সংযুক্ত সৌর বিদ্যুৎ উৎপাদন, ব্যাটারি স্টোরেজ সিস্টেম (BESS) এবং রিয়েল-টাইম গ্রিড ব্যালান্সিং অবকাঠামো পরিচালনা করে থাকি।'
+                    : 'Founded in 2021, Nova Terra Energy Ltd. (NVT) is a premier clean-energy and fuel technology company developing utility-scale renewable generation, battery storage systems (BESS), and digital grid balancing networks across South Asia.'}
                 </p>
               </div>
 
@@ -918,7 +918,7 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
         {/* Modal Footer */}
         <div className="px-5 py-3 border-t border-slate-800/80 bg-[#070c18] flex items-center justify-between shrink-0">
           <span className="text-[11px] text-slate-500 font-mono">
-            NovaVest Infrastructure Ltd. • 2026
+            Nova Terra Energy (NVT) Ltd. • 2026
           </span>
           <button
             type="button"

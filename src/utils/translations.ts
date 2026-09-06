@@ -402,10 +402,10 @@ export const translations: Record<Language, TranslationStrings> = {
     myWallet: 'My Wallet',
     appDownload: 'Download App',
     customerService: 'Customer Support',
-    aboutUs: 'About NovaVest',
+    aboutUs: 'About NVT (Nova Terra Energy)',
     logOut: 'Log Out',
     logoutConfirmTitle: 'Confirm Sign Out',
-    logoutConfirmDesc: 'Are you sure you want to sign out of your NovaVest account?',
+    logoutConfirmDesc: 'Are you sure you want to sign out of your NVT account?',
     cancel: 'Cancel',
     confirm: 'Confirm',
 
@@ -426,7 +426,7 @@ export const translations: Record<Language, TranslationStrings> = {
 
     // Employee Modal
     employeeModalTitle: 'Engineering & Executive Leadership',
-    employeeModalSubtitle: 'Meet the certified engineers and energy specialists managing NovaVest facilities',
+    employeeModalSubtitle: 'Meet the certified engineers and energy specialists managing NVT facilities',
     employeeRole1: 'Chief Electrical Engineer & Grid Architect',
     employeeRole2: 'Head of Solar Infrastructure & Operations',
     employeeRole3: 'Director of BESS & Energy Storage Systems',

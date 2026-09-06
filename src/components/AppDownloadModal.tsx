@@ -34,9 +34,9 @@ export const AppDownloadModal: React.FC<AppDownloadModalProps> = ({
 
     // Create a dummy APK installer file to trigger real download in browser
     try {
-      const apkContent = `NovaVest Mobile Application Installer Package
+      const apkContent = `NVT - Nova Terra Energy Mobile Application Installer Package
 Version: 2.4.2 (Build 20240903)
-Package: com.novavest.official
+Package: com.nvt.energy.official
 Status: Certified & Signed Release
 This file serves as the official mobile client installer.`;
 
@@ -46,7 +46,7 @@ This file serves as the official mobile client installer.`;
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'NovaVest_v2.4.2.apk';
+      a.download = 'NVT_v2.4.2.apk';
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -179,13 +179,13 @@ This file serves as the official mobile client installer.`;
           <ol className="list-decimal list-inside space-y-0.5 text-slate-400 pl-1 text-[11px]">
             {currentLang === 'bn' ? (
               <>
-                <li>ডাউনলোড করা <span className="text-white font-medium">NovaVest_v2.4.2.apk</span> ফাইলটি ওপেন করুন।</li>
+                <li>ডাউনলোড করা <span className="text-white font-medium">NVT_v2.4.2.apk</span> ফাইলটি ওপেন করুন।</li>
                 <li>অনুরোধ করা হলে <span className="text-white font-medium">"Install from unknown sources"</span> সক্রিয় করুন।</li>
                 <li>ইনস্টলেশন সম্পূর্ণ করতে <span className="text-white font-medium">"ইনস্টল"</span> চাপুন।</li>
               </>
             ) : (
               <>
-                <li>Open downloaded <span className="text-white font-medium">NovaVest_v2.4.2.apk</span>.</li>
+                <li>Open downloaded <span className="text-white font-medium">NVT_v2.4.2.apk</span>.</li>
                 <li>Enable <span className="text-white font-medium">"Install from unknown sources"</span> if prompted.</li>
                 <li>Tap <span className="text-white font-medium">"Install"</span> to complete installation.</li>
               </>

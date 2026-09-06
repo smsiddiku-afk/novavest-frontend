@@ -52,7 +52,14 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [email, setEmail] = useState('');
   const [emailVerificationCode, setEmailVerificationCode] = useState('');
-  const [referralCode, setReferralCode] = useState('IZC4NR');
+  const [referralCode, setReferralCode] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const urlParams = new URLSearchParams(window.location.search);
+      const ref = urlParams.get('ref') || urlParams.get('referral');
+      if (ref) return ref.trim();
+    }
+    return 'IZC4NR';
+  });
 
   // OTP State
   const [sentOtpCode, setSentOtpCode] = useState<string | null>(null);

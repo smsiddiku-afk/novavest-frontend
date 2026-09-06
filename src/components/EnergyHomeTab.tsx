@@ -115,6 +115,40 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
   const [videoSeconds, setVideoSeconds] = useState(0);
   const videoElementRef = useRef<HTMLVideoElement | null>(null);
 
+  // Natural Human Speech Narration Queue & Voices
+  const speechQueueRef = useRef<{
+    sentences: string[];
+    index: number;
+    timeoutId: any;
+    isActive: boolean;
+  }>({
+    sentences: [],
+    index: 0,
+    timeoutId: null,
+    isActive: false,
+  });
+
+  const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
+
+  // Load and cache browser voices when ready
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      const loadVoices = () => {
+        try {
+          const v = window.speechSynthesis.getVoices();
+          if (v && v.length > 0) {
+            setAvailableVoices(v);
+          }
+        } catch {}
+      };
+      loadVoices();
+      window.speechSynthesis.addEventListener('voiceschanged', loadVoices);
+      return () => {
+        window.speechSynthesis.removeEventListener('voiceschanged', loadVoices);
+      };
+    }
+  }, []);
+
   const videoEpisodes = [
     {
       id: 'ep-1',
@@ -125,44 +159,44 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
       image: '/src/assets/images/solar_ai_substation_1788465992131.jpg',
       videoSrc: '/company-profile/videos/solar-park-grid.mp4',
       narration: lang === 'bn'
-        ? 'স্বাগতম নোভা ক্লিন পাওয়ার অবকাঠামো প্রকল্পে। আমাদের এই ৪৫০ মেগাওয়াট সৌর বিদ্যুৎ পার্ক এবং আধুনিক সাবস্টেশন সরাসরি জাতীয় গ্রিডের সাথে সংযুক্ত। সূর্য থেকে সংগৃহীত বিদ্যুৎ এআই ইনভার্টারের মাধ্যমে রূপান্তর হয়ে নিরবচ্ছিন্নভাবে বিদ্যুৎ সরবরাহ করছে। এই বিদ্যুৎ বিক্রির নিশ্চিত রাজস্ব থেকে প্রতিদিন বিনিয়োগকারীদের একাউন্টে লভ্যাংশ যোগ হয়।'
-        : 'Welcome to Nova Clean Energy infrastructure. Our 450 Megawatt solar power park and modern substation are interconnected directly to the national electric grid. AI-driven inverters deliver continuous clean electricity, generating dependable daily returns for our registered participants.',
+        ? 'নোভা টেরা এনার্জি প্রকল্পে আপনাকে স্বাগতম। আমাদের চারশত পঞ্চাশ মেগাওয়াট সৌর বিদ্যুৎ কেন্দ্র এবং সাবস্টেশন সরাসরি জাতীয় গ্রিডের সাথে যুক্ত। সূর্যের আলো থেকে উৎপাদিত পরিবেশবান্ধব বিদ্যুৎ নিরবচ্ছিন্নভাবে জাতীয় গ্রিডে সরবরাহ করা হচ্ছে। এই বিদ্যুৎ বিক্রির নিশ্চিত রাজস্ব থেকে প্রতিদিন আপনার অ্যাকাউন্টে লভ্যাংশ যুক্ত হয়।'
+        : 'Welcome to Nova Terra Energy infrastructure. Our four-hundred and fifty megawatt solar power park is interconnected directly to the national electric grid. Continuous clean electricity flows to the grid, generating dependable daily returns for all registered participants.',
       captions: lang === 'bn'
         ? [
-            { start: 0, end: 6, text: '☀️ অ্যাপেক্স হেলিওস সোলার পার্ক: ৪৫০ মেগাওয়াট পিক উৎপাদন ক্ষমতা' },
-            { start: 6, end: 12, text: '⚡ এআই ইনভার্টার ও ১৩২কেভি গ্রিড সাবস্টেশন রিয়েলটাইম মনিটরিং' },
-            { start: 12, end: 18, text: '📈 জাতীয় গ্রিডে নিরবচ্ছিন্ন বিদ্যুৎ বিক্রির আয় থেকে প্রতিদিন নিশ্চিত লভ্যাংশ' },
-            { start: 18, end: 999, text: '🔒 পরিবেশবান্ধব গ্রিন এনার্জি অবকাঠামো ও সম্পূর্ণ সুরক্ষিত ফান্ড' },
+            { start: 0, end: 6, text: '☀️ নোভা টেরা সোলার পার্ক: ৪৫০ মেগাওয়াট পিক উৎপাদন ক্ষমতা' },
+            { start: 6, end: 12, text: '⚡ ১৩২কেভি গ্রিড সাবস্টেশন ও সার্বক্ষণিক রিয়েলটাইম মনিটরিং' },
+            { start: 12, end: 18, text: '📈 জাতীয় গ্রিডে নিরবচ্ছিন্ন বিদ্যুৎ বিক্রির নিশ্চিত রাজস্ব' },
+            { start: 18, end: 999, text: '🔒 পরিবেশবান্ধব গ্রিন এনার্জি ও সম্পূর্ণ সুরক্ষিত ফান্ড' },
           ]
         : [
-            { start: 0, end: 6, text: '☀️ Apex Helios Solar Farm: 450 MW Peak Generation Capacity' },
-            { start: 6, end: 12, text: '⚡ AI Inverter & 132kV Substation Real-time Grid Interconnect' },
+            { start: 0, end: 6, text: '☀️ Nova Terra Solar Farm: 450 MW Peak Generation Capacity' },
+            { start: 6, end: 12, text: '⚡ 132kV Substation Real-time Grid Interconnect' },
             { start: 12, end: 18, text: '📈 Revenue from national power sales credited daily to investors' },
             { start: 18, end: 999, text: '🔒 Certified Clean Infrastructure with Guaranteed Output Payouts' },
           ]
     },
     {
       id: 'ep-2',
-      title: lang === 'bn' ? 'বিইএসএস ব্যাটারি এনার্জি স্টোরেজ ও টারবাইন হাব' : 'Industrial BESS Mega Storage & Turbines',
-      subtitle: lang === 'bn' ? '৮২০ MWh রিজার্ভ ও পিক-আওয়ার ব্যালেন্সিং' : '820 MWh Energy Reserve & Grid Balancing',
+      title: lang === 'bn' ? 'মেগা ব্যাটারি এনার্জি স্টোরেজ ও টারবাইন হাব' : 'Industrial Mega Battery Storage & Turbines',
+      subtitle: lang === 'bn' ? '৮২০ মেগাওয়াট রিজার্ভ ও পিক-আওয়ার ব্যালেন্সিং' : '820 MWh Energy Reserve & Grid Balancing',
       duration: '00:30',
       totalSec: 30,
       image: '/src/assets/images/bess_storage_facility_1788466008161.jpg',
       videoSrc: '/company-profile/videos/battery-storage-hub.mp4',
       narration: lang === 'bn'
-        ? 'এটি আমাদের অত্যাধুনিক বিইএসএস ইন্ডাস্ট্রিয়াল ব্যাটারি এনার্জি স্টোরেজ সিস্টেম। এই সুবিশাল লিথিয়াম-আয়রন ব্যাটারি মেগা স্টোরেজ পিক আওয়ারে বিদ্যুৎ সঞ্চয় এবং গ্রিড ফ্রিকোয়েন্সি স্থিতিশীল রাখে। আধুনিক প্রযুক্তির ফলে এটি বিদ্যুৎ অপচয় শূন্যের কোঠায় নামিয়ে এনেছে।'
-        : 'This is our advanced BESS Industrial Battery Energy Storage Facility. Massive lithium-iron storage modules stabilize national grid frequency within 20 milliseconds, capturing surplus daytime energy for peak evening dispatch.',
+        ? 'এটি আমাদের আধুনিক মেগা ব্যাটারি স্টোরেজ প্রকল্প। সুবিশাল লিথিয়াম ব্যাটারির মাধ্যমে পিক আওয়ারে অতিরিক্ত বিদ্যুৎ সঞ্চয় এবং গ্রিডের ভারসাম্য রক্ষা করা হয়। এই আধুনিক প্রযুক্তির ফলে বিদ্যুৎ অপচয় শূন্যের কোঠায় নেমে এসেছে এবং সার্বক্ষণিক স্থিতিশীল বিদ্যুৎ প্রবাহ নিশ্চিত থাকে।'
+        : 'This is our advanced Mega Battery Storage Facility. High-capacity lithium battery modules stabilize national grid frequency, capturing surplus daytime energy for peak evening dispatch with zero transmission loss.',
       captions: lang === 'bn'
         ? [
-            { start: 0, end: 6, text: '🔋 ভ্যানগার্ড বিইএসএস: ৮২০ মেগাওয়াট-ঘণ্টা হাই-ভোল্টেজ শক্তি সঞ্চয়' },
-            { start: 6, end: 12, text: '⏱️ ২০ মিলি-সেকেন্ডে ফ্রিকোয়েন্সি ব্যালেন্সিং এবং পিক-আওয়ার সাপোর্ট' },
-            { start: 12, end: 18, text: '❄️ লিকুইড-কুলড সেল আর্কিটেকচার ও এআই তাপমাত্রা নিয়ন্ত্রণ' },
+            { start: 0, end: 6, text: '🔋 মেগা স্টোরেজ: ৮২০ মেগাওয়াট হাই-ভোল্টেজ শক্তি সঞ্চয়' },
+            { start: 6, end: 12, text: '⏱️ দ্রুত ফ্রিকোয়েন্সি ব্যালেন্সিং এবং পিক-আওয়ার সাপোর্ট' },
+            { start: 12, end: 18, text: '❄️ আধুনিক সেল আর্কিটেকচার ও সার্বক্ষণিক তাপমাত্রা নিয়ন্ত্রণ' },
             { start: 18, end: 999, text: '💼 সর্বোচ্চ গ্রিড নির্ভরযোগ্যতা ও নিশ্চিত প্রজেক্ট ডিভিডেন্ড' },
           ]
         : [
-            { start: 0, end: 6, text: '🔋 Vanguard BESS: 820 MWh High-Voltage Energy Reserve' },
-            { start: 6, end: 12, text: '⏱️ 20ms Rapid Frequency Stabilization and Peak Load Shifting' },
-            { start: 12, end: 18, text: '❄️ Liquid-Cooled LFP Architecture with Thermal Telemetry' },
+            { start: 0, end: 6, text: '🔋 Vanguard Storage: 820 MWh High-Voltage Energy Reserve' },
+            { start: 6, end: 12, text: '⏱️ Rapid Frequency Stabilization and Peak Load Shifting' },
+            { start: 12, end: 18, text: '❄️ Advanced Liquid-Cooled Architecture with Thermal Telemetry' },
             { start: 18, end: 999, text: '💼 High-yield asset-backed infrastructure investments' },
           ]
     },
@@ -175,17 +209,17 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
       image: '/src/assets/images/smart_turbine_plant_1788466039952.jpg',
       videoSrc: '/company-profile/videos/ppa-revenue-dispatch.mp4',
       narration: lang === 'bn'
-        ? 'নোভা এনার্জি প্ল্যাটফর্মে আপনার বিনিয়োগ সম্পূর্ণ নিরাপদ। এখানে যেকোনো প্রজেক্টের চুক্তি সক্রিয় করে আপনি প্রতিদিন ৩.৮% থেকে ৫.২% পর্যন্ত নিশ্চিত লভ্যাংশ পেতে পারেন। বিকাশ, নগদ ও রকেটের মাধ্যমে মাত্র ৫ থেকে ৩০ মিনিটের মধ্যে আপনার অর্জিত টাকা সরাসরি উত্তোলন করা যায়।'
-        : 'Investing with Nova Energy is completely secure and transparent. Activating a contract yields 3.8% to 5.2% daily profit settled directly to your wallet. You can withdraw your earnings seamlessly via bKash, Nagad, or Bank within 5 to 30 minutes.',
+        ? 'নোভা টেরা এনার্জিতে আপনার বিনিয়োগ সম্পূর্ণ সুরক্ষিত ও নির্ভরযোগ্য। এখানে যেকোনো প্রকল্প চুক্তির মাধ্যমে আপনি প্রতিদিন নিয়মিত ও নিশ্চিত লভ্যাংশ পেতে পারেন। আর আপনার অর্জিত অর্থ বিকাশ, নগদ অথবা রকেটের মাধ্যমে মাত্র পাঁচ থেকে ত্রিশ মিনিটের মধ্যেই খুব সহজে উত্তোলন করে নিতে পারবেন।'
+        : 'Investing with Nova Terra Energy is fully secure and transparent. Activating a contract yields attractive daily returns credited to your wallet. You can withdraw your earnings quickly via bKash, Nagad, or Bank within five to thirty minutes.',
       captions: lang === 'bn'
         ? [
-            { start: 0, end: 6, text: '💰 নোভা এনার্জি: প্রতিদিন ৩.৮% থেকে ৫.২% পর্যন্ত সরাসরি লভ্যাংশ' },
+            { start: 0, end: 6, text: '💰 NVT এনার্জি: প্রতিদিন আকর্ষণীয় নিশ্চিত লভ্যাংশ' },
             { start: 6, end: 12, text: '📲 বিকাশ, নগদ ও রকেটের মাধ্যমে নিরাপদ ডিপোজিট ও উত্তোলন' },
             { start: 12, end: 18, text: '⚡ ৫ থেকে ৩০ মিনিটের মধ্যে সরাসরি আপনার অ্যাকাউন্টে টাকা পৌঁছে যায়' },
             { start: 18, end: 999, text: '✅ ২৪/৭ হেল্পলাইন সাপোর্ট ও ডাউনলোডযোগ্য সরকারি অফিসিয়াল রসিদ' },
           ]
         : [
-            { start: 0, end: 6, text: '💰 Nova Energy: 3.8% to 5.2% Daily Guaranteed Profit' },
+            { start: 0, end: 6, text: '💰 NVT Energy: Daily Guaranteed Profit & Yield' },
             { start: 6, end: 12, text: '📲 Instant Deposits & Withdrawals via Mobile Banking' },
             { start: 12, end: 18, text: '⚡ Payout delivered to your verified wallet in 5 to 30 minutes' },
             { start: 18, end: 999, text: '✅ 24/7 Support Hotline & Downloadable Official Receipts' },
@@ -215,39 +249,136 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
     }
   };
 
-  // Text-to-Speech Engine for Voice Narration
-  const speakEpisodeNarration = (idx: number) => {
-    if (!('speechSynthesis' in window)) return;
-    try {
-      window.speechSynthesis.cancel();
-      const ep = videoEpisodes[idx];
-      const textToSpeak = ep.narration;
-      const utterance = new SpeechSynthesisUtterance(textToSpeak);
-      utterance.lang = lang === 'bn' ? 'bn-BD' : 'en-US';
-      utterance.rate = 0.95;
-      utterance.pitch = 1.05;
+  // Stop voice narration and clear speech queues
+  const stopVoiceNarration = () => {
+    if (speechQueueRef.current.timeoutId) {
+      clearTimeout(speechQueueRef.current.timeoutId);
+      speechQueueRef.current.timeoutId = null;
+    }
+    speechQueueRef.current.isActive = false;
+    speechQueueRef.current.sentences = [];
+    speechQueueRef.current.index = 0;
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch {}
+    }
+  };
 
-      const voices = window.speechSynthesis.getVoices();
+  // High-fidelity Human Voice Synthesizer (Calm, Slow & Natural Cadence)
+  const speakEpisodeNarration = (idx: number) => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    try {
+      stopVoiceNarration();
+
+      const ep = videoEpisodes[idx];
+      if (!ep || !ep.narration) return;
+
+      // Split into natural breath clauses (delimiter by ।, ?, !, or .)
+      const rawSentences = ep.narration
+        .split(/(?<=[।?!.])\s+/)
+        .map((s) => s.trim())
+        .filter((s) => s.length > 1);
+
+      if (rawSentences.length === 0) return;
+
+      speechQueueRef.current = {
+        sentences: rawSentences,
+        index: 0,
+        timeoutId: null,
+        isActive: true,
+      };
+
+      const voices = availableVoices.length > 0 ? availableVoices : window.speechSynthesis.getVoices();
+
+      // Find the highest quality, most natural human voice
+      let chosenVoice: SpeechSynthesisVoice | null = null;
       if (lang === 'bn') {
-        const bnVoice = voices.find(
-          (v) =>
-            v.lang.toLowerCase().includes('bn') ||
-            v.name.toLowerCase().includes('bangla') ||
-            v.name.toLowerCase().includes('bengali')
-        );
-        if (bnVoice) utterance.voice = bnVoice;
+        chosenVoice =
+          voices.find(
+            (v) =>
+              (v.lang.toLowerCase().includes('bn') ||
+                v.name.toLowerCase().includes('bangla') ||
+                v.name.toLowerCase().includes('bengali')) &&
+              (v.name.includes('Natural') ||
+                v.name.includes('Neural') ||
+                v.name.includes('Online') ||
+                v.name.includes('Google') ||
+                v.name.includes('Tanishaa') ||
+                v.name.includes('Bashkar'))
+          ) ||
+          voices.find(
+            (v) =>
+              v.lang.toLowerCase().includes('bn') ||
+              v.name.toLowerCase().includes('bangla') ||
+              v.name.toLowerCase().includes('bengali')
+          ) ||
+          null;
       } else {
-        const enVoice = voices.find(
-          (v) =>
-            (v.lang.includes('en-US') || v.lang.includes('en-GB')) &&
-            !v.name.includes('Google')
-        );
-        if (enVoice) utterance.voice = enVoice;
+        chosenVoice =
+          voices.find(
+            (v) =>
+              (v.lang.includes('en-US') || v.lang.includes('en-GB') || v.lang.startsWith('en')) &&
+              (v.name.includes('Natural') ||
+                v.name.includes('Neural') ||
+                v.name.includes('Online') ||
+                v.name.includes('Samantha') ||
+                v.name.includes('Google'))
+          ) ||
+          voices.find((v) => v.lang.startsWith('en')) ||
+          null;
       }
 
-      window.speechSynthesis.speak(utterance);
-    } catch {
-      // Speech synthesis fallback
+      const speakSentenceAtIndex = (sentenceIdx: number) => {
+        if (!speechQueueRef.current.isActive) return;
+        if (sentenceIdx >= speechQueueRef.current.sentences.length) {
+          speechQueueRef.current.isActive = false;
+          return;
+        }
+
+        const sentenceText = speechQueueRef.current.sentences[sentenceIdx];
+        const utterance = new SpeechSynthesisUtterance(sentenceText);
+        utterance.lang = lang === 'bn' ? 'bn-BD' : 'en-US';
+
+        if (chosenVoice) {
+          utterance.voice = chosenVoice;
+        }
+
+        // Natural human presenter pacing:
+        // Slow (0.80) to articulate every word clearly without rushed robotic tempo
+        utterance.rate = 0.80;
+        // Warm, grounded pitch (0.95) to remove tinny/mechanical squeakiness
+        utterance.pitch = 0.95;
+        utterance.volume = 1.0;
+
+        utterance.onend = () => {
+          if (!speechQueueRef.current.isActive) return;
+          // Natural human breath pause (320ms) between sentences
+          speechQueueRef.current.timeoutId = setTimeout(() => {
+            speakSentenceAtIndex(sentenceIdx + 1);
+          }, 320);
+        };
+
+        utterance.onerror = (e) => {
+          console.warn('Speech narration error:', e);
+          if (speechQueueRef.current.isActive) {
+            speechQueueRef.current.timeoutId = setTimeout(() => {
+              speakSentenceAtIndex(sentenceIdx + 1);
+            }, 300);
+          }
+        };
+
+        // Resume if suspended by browser autoplay policy
+        if (window.speechSynthesis.paused) {
+          window.speechSynthesis.resume();
+        }
+        window.speechSynthesis.speak(utterance);
+      };
+
+      // Start first sentence
+      speakSentenceAtIndex(0);
+    } catch (err) {
+      console.warn('Voice narration error:', err);
     }
   };
 
@@ -263,9 +394,7 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
       } else {
         videoElementRef.current.pause();
         setIsVideoPlaying(false);
-        if ('speechSynthesis' in window) {
-          window.speechSynthesis.cancel();
-        }
+        stopVoiceNarration();
       }
     } else {
       const nextPlay = !isVideoPlaying;
@@ -275,9 +404,7 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
           speakEpisodeNarration(selectedVideoIndex);
         }
       } else {
-        if ('speechSynthesis' in window) {
-          window.speechSynthesis.cancel();
-        }
+        stopVoiceNarration();
       }
     }
   };
@@ -289,17 +416,16 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
     setIsVoiceActive(nextVoice);
     if (nextVoice) {
       speakEpisodeNarration(selectedVideoIndex);
-      showToast(lang === 'bn' ? '🔊 ভয়েস ধারাভাষ্য চালু করা হয়েছে' : '🔊 Voice narration activated');
+      showToast(lang === 'bn' ? '🔊 ধীর ও স্বাভাবিক মানুষের কণ্ঠের ভয়েস চালু করা হয়েছে' : '🔊 Calm, natural voice narration activated');
     } else {
-      if ('speechSynthesis' in window) {
-        window.speechSynthesis.cancel();
-      }
+      stopVoiceNarration();
       showToast(lang === 'bn' ? '🔇 ভয়েস মিউট করা হয়েছে' : '🔇 Voice muted');
     }
   };
 
   const handleSelectVideoEpisode = (idx: number) => {
     playAudioBeep();
+    stopVoiceNarration();
     setSelectedVideoIndex(idx);
     setVideoSeconds(0);
     // User requested: video only plays if explicitly clicked
@@ -307,9 +433,6 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
     if (videoElementRef.current) {
       videoElementRef.current.pause();
       videoElementRef.current.currentTime = 0;
-    }
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
     }
   };
 
@@ -340,9 +463,7 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
   // Clean up speech synthesis on unmount
   useEffect(() => {
     return () => {
-      if ('speechSynthesis' in window) {
-        window.speechSynthesis.cancel();
-      }
+      stopVoiceNarration();
     };
   }, []);
 
@@ -370,7 +491,7 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
   }, []);
 
   const handleCopyReferral = () => {
-    navigator.clipboard.writeText('https://novavest.io/portal/ref?code=SDRL123456');
+    navigator.clipboard.writeText('https://nvt-energy.io/portal/ref?code=NVT123456');
     showToast(t.toastCopied);
   };
 
@@ -420,29 +541,17 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
           </div>
         </div>
 
-        {/* Right: Language Pill, Quick Recharge & 🔔 Notification Bell */}
+        {/* Right: Language Pill & 🔔 Notification Bell */}
         <div className="flex items-center gap-1.5 sm:gap-2">
           {/* Quick Language Toggle */}
           <button
             type="button"
             onClick={() => onToggleLang && onToggleLang(lang === 'en' ? 'bn' : 'en')}
-            className="px-2 py-1 rounded-xl bg-[#0d172e] border border-cyan-500/30 hover:border-cyan-400 text-xs font-bold text-cyan-300 flex items-center gap-1 cursor-pointer transition-all shadow-sm"
+            className="px-2.5 py-1.5 rounded-xl bg-[#0d172e] border border-cyan-500/30 hover:border-cyan-400 text-xs font-bold text-cyan-300 flex items-center gap-1.5 cursor-pointer transition-all shadow-sm"
             title={lang === 'en' ? 'Switch to Bengali' : 'Switch to English'}
           >
             <Globe className="w-3.5 h-3.5 text-cyan-400" />
             <span>{lang === 'en' ? 'বাং' : 'EN'}</span>
-          </button>
-
-          {/* Quick Header Recharge Button (Always visible on all screens) */}
-          <button
-            id="top-header-recharge-btn"
-            type="button"
-            onClick={onOpenRecharge}
-            className="px-2.5 sm:px-3 py-1.5 rounded-xl bg-gradient-to-r from-cyan-400 to-blue-600 hover:from-cyan-300 hover:to-blue-500 text-slate-950 font-black text-xs flex items-center gap-1 shadow-md shadow-cyan-500/25 active:scale-95 transition-all cursor-pointer"
-            title="Recharge Balance"
-          >
-            <ArrowDownToLine className="w-3.5 h-3.5 stroke-[2.5]" />
-            <span>{lang === 'bn' ? 'রিচার্জ' : 'Recharge'}</span>
           </button>
 
           {/* Notifications */}
@@ -454,52 +563,6 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
           >
             <Bell className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
             <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-cyan-400 ring-2 ring-[#050811]" />
-          </button>
-        </div>
-      </div>
-
-      {/* ───────────────────────────────────────────────────────────
-          1.5 TOP QUICK ACTION & BALANCE STRIP (NO SCROLLING REQUIRED)
-      ─────────────────────────────────────────────────────────── */}
-      <div
-        id="home-top-action-bar"
-        className="rounded-[22px] bg-gradient-to-r from-[#09152b] via-[#0d203e] to-[#091830] border border-cyan-500/40 p-3 sm:p-3.5 shadow-lg shadow-cyan-950/30 flex items-center justify-between gap-2.5"
-      >
-        <div className="flex items-center gap-2.5">
-          <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-blue-600 via-cyan-500 to-teal-400 flex items-center justify-center text-slate-950 shadow-md shadow-cyan-500/30 shrink-0">
-            <Wallet className="w-5 h-5 text-slate-950 stroke-[2.2]" />
-          </div>
-          <div>
-            <span className="text-[10px] text-slate-400 font-semibold block leading-tight mb-0.5">
-              {lang === 'bn' ? 'ওয়ালেট ব্যালেন্স' : 'Account Balance'}
-            </span>
-            <span className="text-lg sm:text-xl font-black text-white font-mono tracking-tight">
-              ৳{userBalance.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-            </span>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2 shrink-0">
-          {/* Main Top Recharge Button */}
-          <button
-            id="home-top-quick-recharge-btn"
-            type="button"
-            onClick={onOpenRecharge}
-            className="px-3.5 sm:px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-400 via-[#22d3ee] to-[#0ea5e9] hover:from-cyan-300 hover:to-[#0284c7] text-slate-950 font-black text-xs sm:text-sm flex items-center gap-1.5 shadow-lg shadow-cyan-500/30 active:scale-95 transition-all cursor-pointer"
-          >
-            <ArrowDownToLine className="w-4 h-4 stroke-[2.5]" />
-            <span>{lang === 'bn' ? 'রিচার্জ' : 'Recharge'}</span>
-          </button>
-
-          {/* Top Withdraw Button */}
-          <button
-            id="home-top-quick-withdraw-btn"
-            type="button"
-            onClick={onOpenWithdraw}
-            className="px-3 sm:px-3.5 py-2 rounded-xl bg-[#0b172a] hover:bg-[#10223c] border border-slate-700/80 hover:border-slate-600 text-slate-200 font-bold text-xs sm:text-sm flex items-center gap-1.5 active:scale-95 transition-all cursor-pointer"
-          >
-            <ArrowUpFromLine className="w-3.5 h-3.5 text-cyan-400 stroke-[2.5]" />
-            <span>{lang === 'bn' ? 'উইথড্র' : 'Withdraw'}</span>
           </button>
         </div>
       </div>
@@ -579,7 +642,7 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
           <span className="text-[10px] text-cyan-400 font-medium">{t.quickMenuShortcutsCount}</span>
         </div>
 
-        <div className="grid grid-cols-4 gap-2 sm:gap-2.5">
+        <div className="grid grid-cols-4 md:grid-cols-8 gap-2 sm:gap-2.5">
           {/* 1. 💳 Recharge */}
           <button
             type="button"
@@ -763,16 +826,22 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
       <div id="ai-energy-video" className="rounded-[24px] bg-[#0c1324] border border-cyan-500/40 overflow-hidden shadow-xl shadow-cyan-500/10 space-y-0">
         {/* Player Header with Status & Mode Controls */}
         <div className="p-4 pb-3 flex items-center justify-between border-b border-slate-800/80 bg-[#080e1c]">
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-cyan-500/20 border border-cyan-400/40 flex items-center justify-center text-cyan-300">
-              <Play className="w-3.5 h-3.5 fill-current" />
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-cyan-500/20 border border-cyan-400/40 flex items-center justify-center text-cyan-300 shrink-0">
+              <Play className="w-4 h-4 fill-current" />
             </div>
             <div>
-              <h3 className="text-xs font-bold text-white tracking-wide">
-                {lang === 'bn' ? 'নোভা এনার্জি ভিডিও স্ট্রিমিং ও পরিদর্শন' : 'Nova Energy Video Streaming & Tour'}
-              </h3>
-              <p className="text-[10px] text-slate-400">
-                {lang === 'bn' ? 'স্বয়ংক্রিয় বাংলা অডিও ধারাভাষ্য সহ' : 'With high-clarity voice narration'}
+              <div className="flex items-center gap-1.5">
+                <h3 className="text-xs font-bold text-white tracking-wide">
+                  {lang === 'bn' ? 'NVT এনার্জি ভিডিও ও পরিদর্শন' : 'NVT Energy Video & Tour'}
+                </h3>
+                <span className="px-1.5 py-0.2 rounded-full bg-emerald-500/20 border border-emerald-400/30 text-[9px] font-medium text-emerald-300">
+                  {lang === 'bn' ? 'ধীর মানুষের কণ্ঠ' : 'Natural Voice'}
+                </span>
+              </div>
+              <p className="text-[10px] text-slate-400 flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block animate-pulse" />
+                {lang === 'bn' ? 'শান্ত, স্বাভাবিক ও স্পষ্ট ধারাভাষ্য (Human Cadence)' : 'Calm, steady human voice narration'}
               </p>
             </div>
           </div>
@@ -781,17 +850,23 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
           <button
             type="button"
             onClick={handleToggleVoiceNarration}
-            className={`p-2 rounded-xl transition-all border cursor-pointer ${
+            className={`px-3 py-1.5 rounded-xl transition-all border cursor-pointer flex items-center gap-1.5 text-xs font-medium ${
               isVoiceActive
-                ? 'bg-cyan-500/20 border-cyan-400/60 text-cyan-300 shadow-sm shadow-cyan-500/30'
-                : 'bg-slate-800/80 border-slate-700 text-slate-400 hover:text-slate-200'
+                ? 'bg-emerald-500/20 border-emerald-400/60 text-emerald-300 shadow-sm shadow-emerald-500/30'
+                : 'bg-slate-800/80 border-slate-700 text-slate-300 hover:text-white'
             }`}
-            title={isVoiceActive ? (lang === 'bn' ? 'মিউট করুন' : 'Mute') : (lang === 'bn' ? 'আনমিউট করুন' : 'Unmute')}
+            title={isVoiceActive ? (lang === 'bn' ? 'ভয়েস মিউট করুন' : 'Mute Voice') : (lang === 'bn' ? 'মানুষের কণ্ঠের ভয়েস শুনুন' : 'Listen with Human Voice')}
           >
             {isVoiceActive ? (
-              <Volume2 className="w-4 h-4 text-cyan-400 animate-pulse" />
+              <>
+                <Volume2 className="w-4 h-4 text-emerald-400 animate-pulse" />
+                <span className="hidden xs:inline">{lang === 'bn' ? 'ভয়েস চালু' : 'Voice ON'}</span>
+              </>
             ) : (
-              <VolumeX className="w-4 h-4 text-slate-400" />
+              <>
+                <VolumeX className="w-4 h-4 text-slate-400" />
+                <span className="hidden xs:inline">{lang === 'bn' ? 'ভয়েস শুনুন' : 'Voice OFF'}</span>
+              </>
             )}
           </button>
         </div>
@@ -896,11 +971,21 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
                   <button
                     type="button"
                     onClick={handleToggleVoiceNarration}
-                    className="p-1 text-cyan-300 hover:text-white cursor-pointer"
+                    className={`p-1 cursor-pointer transition-colors ${isVoiceActive ? 'text-emerald-400 hover:text-emerald-300' : 'text-slate-400 hover:text-slate-200'}`}
                     title={isVoiceActive ? 'Mute Voice' : 'Unmute Voice'}
                   >
-                    {isVoiceActive ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4 text-slate-400" />}
+                    {isVoiceActive ? <Volume2 className="w-4 h-4 animate-pulse" /> : <VolumeX className="w-4 h-4" />}
                   </button>
+
+                  {/* Soundwave equalizer indicator when voice is active */}
+                  {isVoiceActive && (
+                    <div className="flex items-center gap-0.5 px-2 py-0.5 rounded-full bg-emerald-950/80 border border-emerald-500/40 text-[9px] text-emerald-300 font-mono">
+                      <span className="w-0.5 h-2 bg-emerald-400 rounded-full animate-bounce [animation-delay:-0.3s]" />
+                      <span className="w-0.5 h-3 bg-emerald-400 rounded-full animate-bounce [animation-delay:-0.15s]" />
+                      <span className="w-0.5 h-1.5 bg-emerald-400 rounded-full animate-bounce" />
+                      <span className="ml-1 text-[9px] hidden xs:inline">{lang === 'bn' ? 'মানুষের কণ্ঠ' : 'Human Voice'}</span>
+                    </div>
+                  )}
 
                   <span className="text-[10px] font-mono text-slate-300">
                     {Math.floor((videoSeconds % videoEpisodes[selectedVideoIndex].totalSec) / 60)
@@ -915,7 +1000,7 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <span className="text-[11px] font-semibold text-white truncate max-w-[150px] sm:max-w-[220px]">
+                  <span className="text-[11px] font-semibold text-white truncate max-w-[140px] sm:max-w-[200px]">
                     {videoEpisodes[selectedVideoIndex].title}
                   </span>
                 </div>
@@ -986,7 +1071,7 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
           </span>
         </div>
 
-        <div className="grid grid-cols-2 gap-2.5">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
           {/* ⚡ Generated */}
           <div className="p-3 rounded-xl bg-[#10182f] border border-slate-800">
             <div className="flex items-center justify-between text-[11px] text-slate-400 mb-1">
@@ -1251,10 +1336,10 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
       ─────────────────────────────────────────────────────────── */}
       <footer className="pt-2 pb-6 text-center space-y-3">
         <div className="flex items-center justify-center gap-2">
-          <div className="w-5 h-5 rounded-md bg-gradient-to-tr from-blue-600 to-cyan-400 flex items-center justify-center p-0.5">
+          <div className="w-5 h-5 rounded-md bg-gradient-to-tr from-amber-500 to-cyan-400 flex items-center justify-center p-0.5">
             <Zap className="w-3.5 h-3.5 text-black" />
           </div>
-          <span className="text-xs font-bold text-white">NovaVest AI Energy Grid</span>
+          <span className="text-xs font-bold text-white">NVT • Nova Terra Energy Grid</span>
         </div>
         <p className="text-[10px] text-slate-400 max-w-xs mx-auto leading-relaxed">
           {t.footerGridDesc}
@@ -1431,7 +1516,7 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
             </div>
 
             <div className="pt-4 border-t border-slate-800 text-[10px] text-slate-500">
-              NovaVest Grid v4.2 • Enterprise
+              NVT Grid v4.2 • Enterprise
             </div>
           </div>
         </div>
@@ -1722,11 +1807,11 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
               <div className="p-3 rounded-xl bg-[#10182f] border border-slate-800 flex items-center justify-between">
                 <div>
                   <h4 className="font-bold text-white">{lang === 'bn' ? 'অফিসিয়াল টেলিগ্রাম চ্যানেল' : 'Official Telegram Channel'}</h4>
-                  <p className="text-[11px] text-slate-400">@NovaVestEnergySupport</p>
+                  <p className="text-[11px] text-slate-400">@NVTEnergySupport</p>
                 </div>
                 <button
                   type="button"
-                  onClick={() => showToast('Telegram: @NovaVestEnergySupport')}
+                  onClick={() => showToast('Telegram: @NVTEnergySupport')}
                   className="px-3 py-1.5 rounded-lg bg-cyan-500/20 text-cyan-300 font-bold hover:bg-cyan-500/30 cursor-pointer"
                 >
                   {lang === 'bn' ? 'যুক্ত হোন' : 'Join'}
@@ -1736,10 +1821,10 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
               <div className="p-3 rounded-xl bg-[#10182f] border border-slate-800 flex items-center justify-between">
                 <div>
                   <h4 className="font-bold text-white">{lang === 'bn' ? 'ইমেইল সাপোর্ট' : 'Email Support'}</h4>
-                  <p className="text-[11px] text-slate-400">support@novavest.io</p>
+                  <p className="text-[11px] text-slate-400">support@novaterraenergy.io</p>
                 </div>
                 <a
-                  href="mailto:support@novavest.io"
+                  href="mailto:support@novaterraenergy.io"
                   className="px-3 py-1.5 rounded-lg bg-blue-500/20 text-blue-300 font-bold hover:bg-blue-500/30"
                 >
                   {lang === 'bn' ? 'ইমেইল' : 'Email'}

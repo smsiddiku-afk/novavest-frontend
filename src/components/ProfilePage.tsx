@@ -57,6 +57,7 @@ import { SecuritySettingsPage } from './SecuritySettingsPage';
 import { WithdrawModal } from './WithdrawModal';
 import { CompanyProfileModal } from './CompanyProfileModal';
 import { DepositModal } from './DepositModal';
+import { SpinningLogo } from './SpinningLogo';
 import { UserProfile, Language } from '../types';
 import { translations } from '../utils/translations';
 
@@ -68,6 +69,7 @@ interface ProfilePageProps {
   onNavigateBack: () => void;
   onLogout: () => void;
   onGoToHome?: () => void;
+  onTabChange?: (tab: 'home' | 'invest' | 'transactions' | 'wallet' | 'referral' | 'profile') => void;
 }
 
 export const ProfilePage: React.FC<ProfilePageProps> = ({
@@ -78,19 +80,35 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
   onNavigateBack,
   onLogout,
   onGoToHome,
+  onTabChange,
 }) => {
   const t = translations[currentLang];
 
   // User profile state
   const [user, setUser] = useState<UserProfile>({
     name: initialUser?.name || 'John Doe',
-    memberId: initialUser?.memberId || 'SDRL123456',
+    memberId: initialUser?.memberId || 'NVT123456',
     memberSince: initialUser?.memberSince || 'May 2024',
     isVerified: initialUser?.isVerified ?? true,
     walletBalance: initialUser?.walletBalance ?? 12450.0,
     phone: initialUser?.phone || '+880 1712-345678',
-    email: initialUser?.email || 'user@novavest.io',
+    email: initialUser?.email || 'user@novaterraenergy.io',
   });
+
+  // Keep user profile state in sync with initialUser when it changes
+  useEffect(() => {
+    if (initialUser) {
+      setUser((prev) => ({
+        ...prev,
+        ...initialUser,
+        name: initialUser.name || prev.name,
+        phone: initialUser.phone || prev.phone,
+        email: initialUser.email || prev.email,
+        memberId: initialUser.memberId || prev.memberId,
+        walletBalance: initialUser.walletBalance ?? prev.walletBalance,
+      }));
+    }
+  }, [initialUser]);
 
   // Modal & Toast states
   const [isDownloadModalOpen, setIsDownloadModalOpen] = useState(false);
@@ -117,6 +135,18 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
   const [currentTab, setCurrentTab] = useState<
     'home' | 'invest' | 'transactions' | 'wallet' | 'referral' | 'profile'
   >(initialTab);
+
+  useEffect(() => {
+    if (initialTab && initialTab !== currentTab) {
+      setCurrentTab(initialTab);
+    }
+  }, [initialTab]);
+
+  useEffect(() => {
+    if (onTabChange) {
+      onTabChange(currentTab);
+    }
+  }, [currentTab]);
   const [hasClaimedBonus, setHasClaimedBonus] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -407,24 +437,115 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     // "Profile page help বাটন এপ ডাউনলোড হবে"
     // Triggers direct APK download & opens download status modal
     setIsDownloadModalOpen(true);
-    showToast('Downloading NovaVest APK...');
+    showToast('Downloading NVT APK...');
   };
 
   return (
     <div
       id="profile-phone-frame"
-      className="w-full max-w-md mx-auto min-h-screen bg-[#050811] text-slate-100 flex flex-col relative select-none sm:shadow-2xl sm:border-x sm:border-slate-800/80 pb-24"
+      className="w-full max-w-md md:max-w-5xl lg:max-w-6xl xl:max-w-7xl mx-auto min-h-screen bg-[#050811] text-slate-100 flex flex-col relative select-none md:px-6 pb-24 md:pb-12 transition-all duration-300"
     >
       {/* Toast Notification */}
       {toastMessage && (
-        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-full bg-blue-600 text-white text-xs font-semibold shadow-lg shadow-blue-600/40 border border-blue-400/40 animate-in fade-in slide-in-from-top-2 duration-150 flex items-center gap-1.5 whitespace-nowrap">
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-full bg-blue-600 text-white text-xs font-semibold shadow-lg shadow-blue-600/40 border border-blue-400/40 animate-in fade-in slide-from-top-2 duration-150 flex items-center gap-1.5 whitespace-nowrap">
           <Check className="w-3.5 h-3.5 text-emerald-300" />
           <span>{toastMessage}</span>
         </div>
       )}
 
+      {/* ───────────────────────────────────────────────────────────
+          DESKTOP DASHBOARD TOP NAVIGATION (Computer / Laptop Full Screen)
+      ─────────────────────────────────────────────────────────── */}
+      <header className="hidden md:flex items-center justify-between py-3 px-6 my-4 rounded-2xl bg-[#091122]/90 border border-slate-800/80 backdrop-blur-xl shadow-xl sticky top-3 z-30">
+        {/* Left: Brand Logo & Title with Smooth Spinning Core */}
+        <div
+          className="flex items-center gap-3 cursor-pointer"
+          onClick={() => setCurrentTab('home')}
+        >
+          <SpinningLogo size="sm" showText={false} />
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-base font-black tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-amber-200 via-orange-400 to-cyan-300">
+                NVT
+              </span>
+              <span className="text-xs font-bold text-slate-300 tracking-wider">
+                NOVA TERRA ENERGY
+              </span>
+            </div>
+            <p className="text-[10px] text-amber-400/90 font-mono font-medium">
+              {currentLang === 'bn' ? 'জাতীয় ফুয়েল, গ্যাস ও পাওয়ার গ্রিড' : 'National Fuel, Gas & Power Grid'}
+            </p>
+          </div>
+        </div>
+
+        {/* Center: Desktop Navigation Tabs */}
+        <nav className="flex items-center gap-1 bg-[#060b18] p-1.5 rounded-xl border border-slate-800/90">
+          {[
+            { id: 'home', labelBn: 'হোম', labelEn: 'Home', icon: Home },
+            { id: 'invest', labelBn: 'ইনভেস্ট', labelEn: 'Invest', icon: Rocket },
+            { id: 'transactions', labelBn: 'লেনদেন', labelEn: 'History', icon: ArrowLeftRight },
+            { id: 'wallet', labelBn: 'ওয়ালেট', labelEn: 'Wallet', icon: Wallet },
+            { id: 'referral', labelBn: 'রেফারেল', labelEn: 'Team', icon: Users },
+            { id: 'profile', labelBn: 'প্রোফাইল', labelEn: 'Profile', icon: User },
+          ].map((item) => {
+            const Icon = item.icon;
+            const isActive = currentTab === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setCurrentTab(item.id as any)}
+                className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  isActive
+                    ? 'bg-gradient-to-r from-cyan-500/20 to-blue-600/20 text-cyan-300 border border-cyan-500/30 shadow-sm'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+                }`}
+              >
+                <Icon className={`w-4 h-4 ${isActive ? 'text-cyan-400' : 'text-slate-400'}`} />
+                <span>{currentLang === 'bn' ? item.labelBn : item.labelEn}</span>
+              </button>
+            );
+          })}
+        </nav>
+
+        {/* Right: Balance, Language & Logout */}
+        <div className="flex items-center gap-2.5">
+          {/* Balance pill */}
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-900/90 border border-slate-800">
+            <span className="text-[10px] text-slate-400 font-medium">
+              {currentLang === 'bn' ? 'ব্যালেন্স:' : 'Balance:'}
+            </span>
+            <span className="text-xs font-mono font-bold text-emerald-400">
+              ৳{user.walletBalance.toLocaleString()}
+            </span>
+          </div>
+
+          {/* Language Toggle */}
+          {onToggleLang && (
+            <button
+              type="button"
+              onClick={() => onToggleLang(currentLang === 'bn' ? 'en' : 'bn')}
+              className="px-2.5 py-1.5 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700 text-xs text-slate-300 font-medium flex items-center gap-1.5 cursor-pointer"
+            >
+              <Globe className="w-3.5 h-3.5 text-cyan-400" />
+              <span>{currentLang === 'bn' ? 'English' : 'বাংলা'}</span>
+            </button>
+          )}
+
+          {/* Logout */}
+          <button
+            type="button"
+            onClick={() => setShowLogoutConfirm(true)}
+            className="p-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 text-rose-400 transition-colors cursor-pointer"
+            title={currentLang === 'bn' ? 'লগআউট' : 'Log Out'}
+          >
+            <LogOut className="w-4 h-4" />
+          </button>
+        </div>
+      </header>
+
       {/* Main Content Area */}
-      <div className={`w-full ${currentTab === 'wallet' ? 'px-0' : 'px-4 sm:px-5'} flex flex-col`}>
+      <div className={`w-full ${currentTab === 'wallet' ? 'px-0' : 'px-4 sm:px-5 md:px-0'} flex flex-col`}>
         {/* 1. Home Tab: Premium AI Electricity Generation & Investment */}
         {currentTab === 'home' && (
           <EnergyHomeTab
@@ -1107,12 +1228,12 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 </span>
               </div>
               <div className="text-[11px] text-slate-400/90 leading-tight">
-                <p className="font-semibold text-slate-300">NovaVest Energy Grid Platform BD</p>
+                <p className="font-semibold text-slate-300">NVT • Nova Terra Energy Grid Platform BD</p>
                 <p className="text-[10px] text-slate-400 font-mono mt-0.5">
                   App Version 2.4.2 (Official Release)
                 </p>
                 <p className="text-[10px] text-slate-400 mt-1">
-                  © 2026 NovaVest Technologies BD Ltd. {currentLang === 'bn' ? 'সর্বস্বত্ব সংরক্ষিত।' : 'All rights reserved.'}
+                  © 2026 Nova Terra Energy (NVT) BD Ltd. {currentLang === 'bn' ? 'সর্বস্বত্ব সংরক্ষিত।' : 'All rights reserved.'}
                 </p>
               </div>
             </div>
@@ -1120,8 +1241,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
         )}
       </div>
 
-      {/* 4. Bottom Navigation Bar (Home | Invest | Transactions | Wallet | Company) */}
-      <div className="fixed bottom-0 left-0 right-0 z-40 max-w-md mx-auto bg-[#050811]/95 backdrop-blur-lg border-t border-slate-800/80">
+      {/* 4. Bottom Navigation Bar (Mobile View only, hidden on desktop) */}
+      <div className="md:hidden fixed bottom-0 left-0 right-0 z-40 max-w-md mx-auto bg-[#050811]/95 backdrop-blur-lg border-t border-slate-800/80">
         <nav
           id="bottom-navbar"
           className="w-full px-2 py-2 flex items-center justify-around"

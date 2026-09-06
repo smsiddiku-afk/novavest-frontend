@@ -121,8 +121,8 @@ export const ENERGY_FAQS: FaqItem[] = [
   {
     id: 'faq-1',
     category: 'general',
-    question: 'How does NovaVest AI-Powered Energy Generation work?',
-    answer: 'NovaVest co-finances and operates high-efficiency electricity generation and grid-scale storage infrastructure. Our proprietary AI telemetry system predicts power demand, optimizes turbine blade pitch, tracks solar angles, and directs battery storage discharge to maximize grid electricity supply and revenue generation.'
+    question: 'How does NVT (Nova Terra Energy) Generation work?',
+    answer: 'NVT (Nova Terra Energy) co-finances and operates high-efficiency fuel, gas, electricity generation and grid-scale storage infrastructure. Our proprietary telemetry system predicts power demand, optimizes turbine blade pitch, tracks solar angles, and directs battery storage discharge to maximize grid electricity supply and revenue generation.'
   },
   {
     id: 'faq-2',
@@ -157,13 +157,13 @@ export const ENERGY_FAQS: FaqItem[] = [
   {
     id: 'faq-7',
     category: 'risk',
-    question: 'Does NovaVest promise guaranteed fixed profits?',
-    answer: 'No. NovaVest adheres strictly to financial compliance and industrial regulations. All returns are variable and directly indexed to actual physical electricity production and prevailing grid tariffs. We never advertise fixed or guaranteed returns.'
+    question: 'Does NVT promise guaranteed fixed profits?',
+    answer: 'No. NVT (Nova Terra Energy) adheres strictly to financial compliance and industrial regulations. All returns are variable and directly indexed to actual physical electricity production and prevailing grid tariffs. We never advertise fixed or guaranteed returns.'
   },
   {
     id: 'faq-8',
     category: 'general',
     question: 'How can I contact technical support or schedule a facility tour?',
-    answer: 'Our energy desk is staffed 24/7. You can reach out via live chat, email at support@novavest-energy.io, or call our hotline at +880 9612-ENERGY. Institutional partners can request physical substation audit visits.'
+    answer: 'Our energy desk is staffed 24/7. You can reach out via live chat, email at support@novaterraenergy.io, or call our hotline at +880 9612-ENERGY. Institutional partners can request physical substation audit visits.'
   }
 ];

@@ -138,8 +138,8 @@ export const TransactionsTabContent: React.FC<TransactionsTabContentProps> = ({
         ))}
       </div>
 
-      {/* Transaction List */}
-      <div className="space-y-2.5">
+      {/* Transaction List (Responsive: 1 col on mobile, 2 cols on desktop) */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
         {filtered.map((trx) => (
           <div
             key={trx.id}

@@ -186,7 +186,7 @@ export const RobotLoginModal: React.FC<CleanRobotModalProps> = ({ isOpen }) => {
                 Login Successful!
               </h3>
               <p className="text-xs sm:text-sm text-emerald-300 font-medium">
-                Welcome back to NovaVest
+                Welcome back to NVT • Nova Terra Energy
               </p>
             </div>
           ) : (

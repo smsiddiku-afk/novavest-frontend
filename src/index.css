@@ -209,3 +209,37 @@
   animation: neon-glow 4s ease-in-out infinite;
 }
 
+/* Smooth GPU-Accelerated Spinning Animations for Brand Logo */
+@keyframes spin-slow {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes spin-reverse-slow {
+  from {
+    transform: rotate(360deg);
+  }
+  to {
+    transform: rotate(0deg);
+  }
+}
+
+.animate-spin-slow {
+  animation: spin-slow 14s linear infinite;
+  will-change: transform;
+}
+
+.animate-spin-reverse-slow {
+  animation: spin-reverse-slow 20s linear infinite;
+  will-change: transform;
+}
+
+.animate-spin-medium {
+  animation: spin-slow 7s linear infinite;
+  will-change: transform;
+}
+

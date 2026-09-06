@@ -250,7 +250,7 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
 
       ctx.fillStyle = '#00C6FF';
       ctx.font = 'bold 22px sans-serif';
-      ctx.fillText('NOVAVEST • OFFICIAL WITHDRAWAL RECEIPT', 65, 80);
+      ctx.fillText('NVT • NOVA TERRA ENERGY RECEIPT', 65, 80);
 
       ctx.fillStyle = '#94A3B8';
       ctx.font = '14px sans-serif';

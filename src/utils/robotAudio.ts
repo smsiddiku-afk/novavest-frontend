@@ -93,13 +93,13 @@ class RobotAudioService {
 
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = 'en-US';
-        utterance.rate = 0.95; // Clear and easily understandable
-        utterance.pitch = 1.15; // Friendly robotic tone
-        utterance.volume = 1.0; // Max volume
+        utterance.rate = 0.88; // Calm, steady, natural human pacing
+        utterance.pitch = 0.98; // Warm, natural human tone (no tinny robotic sound)
+        utterance.volume = 1.0; // Clear volume
 
-        // Try to pick a crisp English voice if available
+        // Try to pick a natural human English voice if available
         const voices = window.speechSynthesis.getVoices();
-        const englishVoice = voices.find(v => v.lang.includes('en') && (v.name.includes('Google') || v.name.includes('Natural') || v.name.includes('Samantha') || v.name.includes('David')));
+        const englishVoice = voices.find(v => v.lang.includes('en') && (v.name.includes('Natural') || v.name.includes('Neural') || v.name.includes('Samantha') || v.name.includes('Google')));
         if (englishVoice) {
           utterance.voice = englishVoice;
         }

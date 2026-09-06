@@ -1,0 +1,6 @@
+{
+  "name": "NovaVest Portal",
+  "description": "AI-powered electricity generation and energy infrastructure investment platform with real-time grid telemetry and smart project monitoring.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

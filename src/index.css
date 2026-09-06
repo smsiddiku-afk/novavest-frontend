@@ -1,0 +1,211 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background-color: #0c1322;
+    color: #f8fafc;
+    overflow-x: hidden;
+  }
+}
+
+/* Custom glow and backdrop effects */
+.cosmic-glass {
+  background: rgba(10, 15, 29, 0.82);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(56, 189, 248, 0.14);
+  box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.8), 0 0 40px -5px rgba(37, 99, 235, 0.18);
+}
+
+/* Interactive Animated Field Container */
+.cosmic-field-wrapper {
+  position: relative;
+  border-radius: 0.75rem;
+  transition: all 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.cosmic-field-wrapper:focus-within {
+  transform: translateY(-1.5px) scale(1.01);
+}
+
+/* Input box styling with animated focus */
+.cosmic-input {
+  background: rgba(11, 17, 30, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  transition: all 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.cosmic-input:hover {
+  border-color: rgba(56, 189, 248, 0.35);
+  background: rgba(13, 20, 36, 0.95);
+}
+
+.cosmic-input:focus {
+  border-color: rgba(56, 189, 248, 0.9);
+  background: rgba(14, 23, 44, 0.98);
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.35), 0 0 22px rgba(56, 189, 248, 0.25);
+}
+
+/* Focused icon glow */
+.cosmic-field-wrapper:focus-within .field-icon {
+  color: #38bdf8;
+  filter: drop-shadow(0 0 6px rgba(56, 189, 248, 0.8));
+  transform: scale(1.08);
+}
+
+.field-icon {
+  transition: all 0.25s ease-out;
+}
+
+/* Referral code special animated box */
+.referral-box {
+  background: rgba(10, 22, 44, 0.55);
+  border: 1px solid rgba(56, 189, 248, 0.28);
+  transition: all 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.referral-box:focus-within {
+  transform: translateY(-1.5px) scale(1.01);
+  border-color: rgba(56, 189, 248, 0.7);
+  box-shadow: 0 0 25px rgba(56, 189, 248, 0.2), inset 0 0 15px rgba(56, 189, 248, 0.05);
+}
+
+/* Luminous Ultra-Bright Button with Ambient Radiance */
+.luminous-btn {
+  position: relative;
+  background: #ffffff;
+  color: #030712;
+  box-shadow: 
+    0 0 25px rgba(255, 255, 255, 0.7),
+    0 0 50px rgba(56, 189, 248, 0.45),
+    0 0 80px rgba(37, 99, 235, 0.25),
+    0 4px 20px rgba(0, 0, 0, 0.4);
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  overflow: hidden;
+}
+
+.luminous-btn:hover {
+  background: #f8fafc;
+  transform: translateY(-1.5px) scale(1.015);
+  box-shadow: 
+    0 0 35px rgba(255, 255, 255, 0.95),
+    0 0 70px rgba(56, 189, 248, 0.65),
+    0 0 100px rgba(37, 99, 235, 0.4),
+    0 6px 25px rgba(0, 0, 0, 0.5);
+}
+
+.luminous-btn:active {
+  transform: scale(0.99);
+}
+
+/* Shimmer beam sweep */
+@keyframes button-shimmer {
+  0% {
+    transform: translateX(-150%) skewX(-20deg);
+  }
+  50%, 100% {
+    transform: translateX(200%) skewX(-20deg);
+  }
+}
+
+.btn-shimmer-beam {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 50%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.75) 50%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  animation: button-shimmer 3.5s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  pointer-events: none;
+}
+
+/* Pulsing ambient aura around luminous button */
+@keyframes aura-pulse {
+  0%, 100% {
+    opacity: 0.6;
+    transform: scale(0.98);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.03);
+  }
+}
+
+.btn-aura {
+  position: absolute;
+  inset: -4px;
+  border-radius: 1rem;
+  background: radial-gradient(circle, rgba(56, 189, 248, 0.6) 0%, rgba(37, 99, 235, 0) 75%);
+  filter: blur(8px);
+  z-index: -1;
+  animation: aura-pulse 3s ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* Starfield twinkles */
+@keyframes pulse-subtle {
+  0%, 100% { opacity: 0.3; transform: scale(1); }
+  50% { opacity: 0.8; transform: scale(1.15); }
+}
+
+.animate-twinkle {
+  animation: pulse-subtle 4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Cosmic Passkey Badge */
+.cosmic-passkey-card {
+  background: rgba(15, 23, 42, 0.75);
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4), inset 0 0 15px rgba(59, 130, 246, 0.1);
+  transition: all 0.2s ease-in-out;
+}
+
+.cosmic-passkey-card:hover {
+  border-color: rgba(96, 165, 250, 0.6);
+  background: rgba(15, 23, 42, 0.9);
+}
+
+/* Custom Sleek Scrollbar */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: #070e1c;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #1e293b;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #0284c7;
+}
+
+/* Ultra Smooth Touch & Tap Highlights */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Subtle Animated Neon Border */
+@keyframes neon-glow {
+  0%, 100% {
+    box-shadow: 0 0 15px rgba(6, 182, 212, 0.2), inset 0 0 15px rgba(6, 182, 212, 0.05);
+  }
+  50% {
+    box-shadow: 0 0 25px rgba(6, 182, 212, 0.4), inset 0 0 20px rgba(6, 182, 212, 0.1);
+  }
+}
+
+.neon-card-glow {
+  animation: neon-glow 4s ease-in-out infinite;
+}
+

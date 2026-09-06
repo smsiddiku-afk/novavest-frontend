@@ -43,7 +43,8 @@ import {
   BarChart3,
   Globe,
   Layers,
-  HelpCircle
+  HelpCircle,
+  Wallet
 } from 'lucide-react';
 import { HOURLY_GENERATION_DATA } from '../data/energyData';
 import { EnergySystem, Language } from '../types';
@@ -68,6 +69,7 @@ interface EnergyHomeTabProps {
   onOpenNotifications: () => void;
   onGoToInvest?: () => void;
   onGoToProfile: () => void;
+  onOpenInvite?: () => void;
   onInvestProject?: (projectName: string, amount: number) => void;
   onClaimDailyBonus: () => void;
   hasClaimedBonus: boolean;
@@ -84,6 +86,7 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
   onOpenNotifications,
   onGoToInvest,
   onGoToProfile,
+  onOpenInvite,
   onInvestProject,
   onClaimDailyBonus,
   hasClaimedBonus,
@@ -417,39 +420,86 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
           </div>
         </div>
 
-        {/* Right: Language Pill, Balance Pill & 🔔 Notification Bell */}
-        <div className="flex items-center gap-2">
+        {/* Right: Language Pill, Quick Recharge & 🔔 Notification Bell */}
+        <div className="flex items-center gap-1.5 sm:gap-2">
           {/* Quick Language Toggle */}
           <button
             type="button"
             onClick={() => onToggleLang && onToggleLang(lang === 'en' ? 'bn' : 'en')}
-            className="px-2.5 py-1 rounded-xl bg-[#0d172e] border border-cyan-500/30 hover:border-cyan-400 text-xs font-bold text-cyan-300 flex items-center gap-1.5 cursor-pointer transition-all shadow-sm"
+            className="px-2 py-1 rounded-xl bg-[#0d172e] border border-cyan-500/30 hover:border-cyan-400 text-xs font-bold text-cyan-300 flex items-center gap-1 cursor-pointer transition-all shadow-sm"
             title={lang === 'en' ? 'Switch to Bengali' : 'Switch to English'}
           >
             <Globe className="w-3.5 h-3.5 text-cyan-400" />
             <span>{lang === 'en' ? 'বাং' : 'EN'}</span>
           </button>
 
-          {/* Quick Balance */}
+          {/* Quick Header Recharge Button (Always visible on all screens) */}
           <button
+            id="top-header-recharge-btn"
             type="button"
             onClick={onOpenRecharge}
-            className="hidden xs:flex px-2.5 py-1 rounded-full bg-[#0d172e] border border-blue-500/30 hover:border-cyan-400/60 text-xs font-mono font-bold text-cyan-300 items-center gap-1 transition-all cursor-pointer shadow-sm"
+            className="px-2.5 sm:px-3 py-1.5 rounded-xl bg-gradient-to-r from-cyan-400 to-blue-600 hover:from-cyan-300 hover:to-blue-500 text-slate-950 font-black text-xs flex items-center gap-1 shadow-md shadow-cyan-500/25 active:scale-95 transition-all cursor-pointer"
             title="Recharge Balance"
           >
-            <span>৳{userBalance.toLocaleString('en-US', { minimumFractionDigits: 0 })}</span>
-            <span className="text-[11px] text-cyan-400 font-sans font-bold">+</span>
+            <ArrowDownToLine className="w-3.5 h-3.5 stroke-[2.5]" />
+            <span>{lang === 'bn' ? 'রিচার্জ' : 'Recharge'}</span>
           </button>
 
           {/* Notifications */}
           <button
             type="button"
             onClick={onOpenNotifications}
-            className="w-9 h-9 rounded-xl bg-slate-900 border border-slate-800 hover:border-cyan-500/50 flex items-center justify-center text-slate-300 hover:text-white transition-all relative cursor-pointer shadow-sm"
+            className="w-8.5 h-8.5 sm:w-9 sm:h-9 rounded-xl bg-slate-900 border border-slate-800 hover:border-cyan-500/50 flex items-center justify-center text-slate-300 hover:text-white transition-all relative cursor-pointer shadow-sm shrink-0"
             aria-label="Notifications"
           >
-            <Bell className="w-4.5 h-4.5" />
+            <Bell className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
             <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-cyan-400 ring-2 ring-[#050811]" />
+          </button>
+        </div>
+      </div>
+
+      {/* ───────────────────────────────────────────────────────────
+          1.5 TOP QUICK ACTION & BALANCE STRIP (NO SCROLLING REQUIRED)
+      ─────────────────────────────────────────────────────────── */}
+      <div
+        id="home-top-action-bar"
+        className="rounded-[22px] bg-gradient-to-r from-[#09152b] via-[#0d203e] to-[#091830] border border-cyan-500/40 p-3 sm:p-3.5 shadow-lg shadow-cyan-950/30 flex items-center justify-between gap-2.5"
+      >
+        <div className="flex items-center gap-2.5">
+          <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-blue-600 via-cyan-500 to-teal-400 flex items-center justify-center text-slate-950 shadow-md shadow-cyan-500/30 shrink-0">
+            <Wallet className="w-5 h-5 text-slate-950 stroke-[2.2]" />
+          </div>
+          <div>
+            <span className="text-[10px] text-slate-400 font-semibold block leading-tight mb-0.5">
+              {lang === 'bn' ? 'ওয়ালেট ব্যালেন্স' : 'Account Balance'}
+            </span>
+            <span className="text-lg sm:text-xl font-black text-white font-mono tracking-tight">
+              ৳{userBalance.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+            </span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0">
+          {/* Main Top Recharge Button */}
+          <button
+            id="home-top-quick-recharge-btn"
+            type="button"
+            onClick={onOpenRecharge}
+            className="px-3.5 sm:px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-400 via-[#22d3ee] to-[#0ea5e9] hover:from-cyan-300 hover:to-[#0284c7] text-slate-950 font-black text-xs sm:text-sm flex items-center gap-1.5 shadow-lg shadow-cyan-500/30 active:scale-95 transition-all cursor-pointer"
+          >
+            <ArrowDownToLine className="w-4 h-4 stroke-[2.5]" />
+            <span>{lang === 'bn' ? 'রিচার্জ' : 'Recharge'}</span>
+          </button>
+
+          {/* Top Withdraw Button */}
+          <button
+            id="home-top-quick-withdraw-btn"
+            type="button"
+            onClick={onOpenWithdraw}
+            className="px-3 sm:px-3.5 py-2 rounded-xl bg-[#0b172a] hover:bg-[#10223c] border border-slate-700/80 hover:border-slate-600 text-slate-200 font-bold text-xs sm:text-sm flex items-center gap-1.5 active:scale-95 transition-all cursor-pointer"
+          >
+            <ArrowUpFromLine className="w-3.5 h-3.5 text-cyan-400 stroke-[2.5]" />
+            <span>{lang === 'bn' ? 'উইথড্র' : 'Withdraw'}</span>
           </button>
         </div>
       </div>
@@ -595,17 +645,24 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
             <span className="text-[9px] text-emerald-300">{t.qmNewSub}</span>
           </button>
 
-          {/* 6. 🔗 Invite */}
+          {/* 6. 🔗 Invite (হোম পেজের ইনভাইটেশন অপশন) */}
           <button
+            id="home-quick-invite-btn"
             type="button"
-            onClick={handleCopyReferral}
-            className="flex flex-col items-center justify-center p-2.5 rounded-xl bg-[#111c36] hover:bg-[#162447] border border-purple-500/20 hover:border-purple-400/40 transition-all text-center group cursor-pointer active:scale-95"
+            onClick={() => {
+              if (onOpenInvite) {
+                onOpenInvite();
+              } else {
+                handleCopyReferral();
+              }
+            }}
+            className="flex flex-col items-center justify-center p-2.5 rounded-xl bg-[#111c36] hover:bg-[#162447] border border-amber-500/30 hover:border-amber-400/50 transition-all text-center group cursor-pointer active:scale-95 shadow-sm"
           >
-            <div className="w-9 h-9 rounded-full bg-purple-500/15 border border-purple-500/30 flex items-center justify-center text-purple-400 group-hover:scale-110 transition-transform mb-1">
+            <div className="w-9 h-9 rounded-full bg-amber-500/15 border border-amber-500/40 flex items-center justify-center text-amber-400 group-hover:scale-110 transition-transform mb-1 shadow-[0_0_8px_rgba(245,158,11,0.2)]">
               <Share2 className="w-4.5 h-4.5" />
             </div>
             <span className="text-[11px] font-bold text-white leading-tight">{t.qmInvite}</span>
-            <span className="text-[9px] text-purple-300">{t.qmInviteSub}</span>
+            <span className="text-[9px] text-amber-300 font-semibold">{t.qmInviteSub}</span>
           </button>
 
           {/* 7. ⚡ Supply (Power Supply Status) */}
@@ -652,6 +709,51 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
           >
             {hasClaimedBonus ? t.dailyBonusClaimed : t.dailyBonusClaim}
           </button>
+        </div>
+      </div>
+
+      {/* ───────────────────────────────────────────────────────────
+          3.5 🎁 INVITATION & REFERRAL REWARDS BANNER (হোম পেজের ইনভাইটেশন অপশন)
+      ─────────────────────────────────────────────────────────── */}
+      <div
+        id="home-referral-invitation-card"
+        onClick={() => {
+          if (onOpenInvite) onOpenInvite();
+          else handleCopyReferral();
+        }}
+        className="rounded-[22px] bg-gradient-to-r from-[#0c1a33] via-[#09152b] to-[#121c38] border border-amber-500/30 hover:border-amber-400/50 p-3.5 sm:p-4 shadow-lg shadow-amber-950/20 relative overflow-hidden cursor-pointer transition-all group active:scale-[0.99]"
+      >
+        <div className="absolute -top-12 -right-12 w-32 h-32 bg-amber-500/10 rounded-full blur-2xl pointer-events-none" />
+        <div className="flex items-center justify-between gap-3 relative z-10">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-amber-400 via-amber-500 to-yellow-600 flex items-center justify-center text-slate-950 font-black shadow-md shadow-amber-500/30 group-hover:scale-105 transition-transform shrink-0">
+              <Share2 className="w-5 h-5 text-slate-950" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs sm:text-sm font-bold text-white group-hover:text-amber-300 transition-colors">
+                  {lang === 'bn' ? 'আমন্ত্রণ ও রেফারেল রিওয়ার্ড' : 'Invitation & Referral Rewards'}
+                </span>
+                <span className="px-1.5 py-0.5 rounded-full bg-amber-400/20 text-amber-300 border border-amber-400/30 text-[9px] font-bold font-mono">
+                  7% + 3% + 1%
+                </span>
+              </div>
+              <p className="text-[10px] text-slate-300 line-clamp-1 mt-0.5">
+                {lang === 'bn'
+                  ? 'বন্ধুদের ইনভাইট করুন, কিউআর কোড ও সরাসরি ক্যাশ কমিশন তুলুন'
+                  : 'Invite friends, view QR code & claim instant cash commission'}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1 shrink-0">
+            <span className="text-[11px] font-bold text-amber-300 hidden xs:inline">
+              {lang === 'bn' ? 'ওপেন' : 'Open'}
+            </span>
+            <div className="w-7 h-7 rounded-full bg-amber-500/20 flex items-center justify-center text-amber-400 group-hover:translate-x-0.5 transition-transform">
+              <ChevronRight className="w-4 h-4" />
+            </div>
+          </div>
         </div>
       </div>
 

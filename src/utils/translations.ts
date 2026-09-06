@@ -291,7 +291,7 @@ export const translations: Record<Language, TranslationStrings> = {
 
     // Video Section
     videoTitle: 'How Our Clean Energy Facilities Work',
-    videoSubtitle: 'Watch our engineers demonstrate how solar arrays, battery storage, and high-voltage transmission deliver reliable power across the nation.',
+    videoSubtitle: 'Watch our engineers operate solar arrays, battery storage, and high-voltage transmission to deliver reliable power across the nation.',
     videoDuration: 'HD • 3:45 Duration',
     videoHudLabel: 'FIELD CAMERA TELEMETRY • LIVE FEED',
     videoDescription: 'Take an inside look at NovaVest solar parks, advanced inverters, automated tracking arrays, and our 24/7 connection to the national electricity grid.',

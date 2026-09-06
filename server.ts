@@ -15,12 +15,12 @@ const __dirname = path.dirname(__filename);
 // ───────────────────────────────────────────────────────────
 
 // Channel 1: Nekpay Integration Configuration
-// URL: https://nekpay-backend.onrender.com/create-order
+// URL: https://nekpay-backend.onrender.com/api/v1/nekpay/create-order
 // Method: POST
 // Headers: Content-Type: application/json
 // Body: { "amount": selectedAmount, "payerName": "Customer" }
 const NEKPAY_CONFIG = {
-  createOrderUrl: 'https://nekpay-backend.onrender.com/create-order',
+  createOrderUrl: 'https://nekpay-backend.onrender.com/api/v1/nekpay/create-order',
 };
 
 // Channel 2: OKExPay / WPay Integration Configuration
@@ -111,7 +111,7 @@ async function startServer() {
 
   // ───────────────────────────────────────────────────────────
   // CHANNEL 1: NEKPAY PAYMENT INTEGRATION
-  // URL: https://nekpay-backend.onrender.com/create-order
+  // URL: https://nekpay-backend.onrender.com/api/v1/nekpay/create-order
   // Method: POST
   // Headers: Content-Type: application/json
   // Body: { "amount": selectedAmount, "payerName": "Customer" }
@@ -124,7 +124,7 @@ async function startServer() {
       if (!numAmount || numAmount <= 0) {
         return res.status(400).json({
           success: false,
-          error: 'Valid deposit amount required (minimum 350 BDT)',
+          error: 'Valid deposit amount required (minimum 100 BDT)',
         });
       }
 

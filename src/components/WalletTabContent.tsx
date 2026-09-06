@@ -1,6 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { PromoBonusScreen } from './PromoBonusScreen';
 import { CleanWalletScreen, PaymentMethodType, PaymentChannelType } from './CleanWalletScreen';
 import { Language } from '../types';
+import { Award, Wallet as WalletIcon } from 'lucide-react';
 
 interface WalletTabContentProps {
   userBalance: number;
@@ -12,38 +14,61 @@ interface WalletTabContentProps {
   onOpenHistory?: () => void;
   onBack?: () => void;
   onWithdrawSubmit?: (amount: number, method: PaymentMethodType, account: string) => void;
+  onClaimPromoReward?: (amount: number, level: string) => void;
   showToast?: (msg: string) => void;
 }
 
 export const WalletTabContent: React.FC<WalletTabContentProps> = ({
   userBalance,
-  currentLang = 'en',
+  currentLang = 'bn',
   onOpenRecharge,
   onOpenWithdraw,
   onOpenGateway,
   onOpenHistory,
   onBack,
   onWithdrawSubmit,
+  onClaimPromoReward,
   showToast,
 }) => {
+  // Sub-view within Promo Bonus / Wallet tab: default is 'promo' (হোস্টিং লেভেল বিবরণী)
+  const [subView, setSubView] = useState<'promo' | 'wallet'>('promo');
+
   return (
-    <div className="w-full pb-20 animate-in fade-in">
-      <CleanWalletScreen
-        currentBalance={userBalance}
-        currentLang={currentLang}
-        initialTab="recharge"
-        onBack={onBack}
-        onOpenHistory={onOpenHistory}
-        onConfirmRecharge={(amount, method, channel) => {
-          if (onOpenGateway) {
-            onOpenGateway(amount, method, channel);
-          } else if (onOpenRecharge) {
-            onOpenRecharge();
-          }
-        }}
-        onConfirmWithdraw={onWithdrawSubmit}
-        showToast={showToast}
-      />
+    <div className="w-full animate-in fade-in flex flex-col items-center">
+      {/* View 1: Promo Bonus / Referral & Tier-based Incentive Dashboard (Matches user screenshot) */}
+      {subView === 'promo' && (
+        <PromoBonusScreen
+          currentLang={currentLang}
+          onBack={onBack}
+          onClaimReward={(amount, level) => {
+            if (onClaimPromoReward) {
+              onClaimPromoReward(amount, level);
+            }
+          }}
+          showToast={showToast}
+          onOpenWalletDeposit={() => setSubView('wallet')}
+        />
+      )}
+
+      {/* View 2: Wallet Recharge & Withdraw (CleanWalletScreen) */}
+      {subView === 'wallet' && (
+        <CleanWalletScreen
+          currentBalance={userBalance}
+          currentLang={currentLang}
+          initialTab="recharge"
+          onBack={() => setSubView('promo')}
+          onOpenHistory={onOpenHistory}
+          onConfirmRecharge={(amount, method, channel) => {
+            if (onOpenGateway) {
+              onOpenGateway(amount, method, channel);
+            } else if (onOpenRecharge) {
+              onOpenRecharge();
+            }
+          }}
+          onConfirmWithdraw={onWithdrawSubmit}
+          showToast={showToast}
+        />
+      )}
     </div>
   );
 };

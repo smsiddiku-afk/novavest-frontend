@@ -51,6 +51,7 @@ import { EnergyHomeTab } from './EnergyHomeTab';
 import { InvestTabContent } from './InvestTabContent';
 import { TransactionsTabContent } from './TransactionsTabContent';
 import { WalletTabContent } from './WalletTabContent';
+import { ReferralPage } from './ReferralPage';
 import { AddWalletPaymentModal } from './AddWalletPaymentModal';
 import { SecuritySettingsPage } from './SecuritySettingsPage';
 import { WithdrawModal } from './WithdrawModal';
@@ -61,7 +62,7 @@ import { translations } from '../utils/translations';
 
 interface ProfilePageProps {
   initialUser?: Partial<UserProfile>;
-  initialTab?: 'home' | 'invest' | 'transactions' | 'wallet' | 'profile';
+  initialTab?: 'home' | 'invest' | 'transactions' | 'wallet' | 'referral' | 'profile';
   currentLang?: Language;
   onToggleLang?: (lang: Language) => void;
   onNavigateBack: () => void;
@@ -113,7 +114,9 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     | 'helpline'
     | null
   >(null);
-  const [currentTab, setCurrentTab] = useState<'home' | 'invest' | 'transactions' | 'wallet' | 'profile'>(initialTab);
+  const [currentTab, setCurrentTab] = useState<
+    'home' | 'invest' | 'transactions' | 'wallet' | 'referral' | 'profile'
+  >(initialTab);
   const [hasClaimedBonus, setHasClaimedBonus] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -138,7 +141,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
   ) => {
     if (channel === 'channel1') {
       // Channel 1: Nekpay Integration
-      // URL: https://nekpay-backend.onrender.com/create-order
+      // URL: https://nekpay-backend.onrender.com/api/v1/nekpay/create-order
       // Method: POST, Body: { "amount": selectedAmount, "payerName": "Customer" }
       try {
         showToast(
@@ -147,19 +150,36 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             : 'Connecting to Channel 1 (Nekpay Gateway)...'
         );
 
-        const res = await fetch('/api/v1/nekpay/create-order', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            amount: Number(amount),
-            payerName: 'Customer',
-            userId: user.memberId || 'USER1001',
-          }),
-        });
+        let data: any = null;
+        try {
+          const res = await fetch('https://nekpay-backend.onrender.com/api/v1/nekpay/create-order', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              amount: Number(amount),
+              payerName: 'Customer',
+              userId: user.memberId || 'USER1001',
+            }),
+          });
+          data = await res.json();
+        } catch (fetchErr) {
+          console.warn('[Nekpay] Direct Render fetch attempt error, retrying via server proxy:', fetchErr);
+          const fallbackRes = await fetch('/api/v1/nekpay/create-order', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              amount: Number(amount),
+              payerName: 'Customer',
+              userId: user.memberId || 'USER1001',
+            }),
+          });
+          data = await fallbackRes.json();
+        }
 
-        const data = await res.json();
         console.log('Nekpay create-order response:', data);
 
         if (data.success && data.paymentLink) {
@@ -376,6 +396,13 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     setTimeout(() => setIsCopied(false), 2000);
   };
 
+  const handleCopyReferral = () => {
+    const refCode = user.memberId || 'NV8829';
+    const link = `${window.location.origin}/register?ref=${refCode}`;
+    navigator.clipboard.writeText(link);
+    showToast(currentLang === 'bn' ? 'রেফারেল লিংক কপি করা হয়েছে!' : 'Referral link copied!');
+  };
+
   const handleAppDownloadClick = () => {
     // "Profile page help বাটন এপ ডাউনলোড হবে"
     // Triggers direct APK download & opens download status modal
@@ -386,7 +413,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
   return (
     <div
       id="profile-phone-frame"
-      className="w-full max-w-[480px] mx-auto min-h-screen bg-[#050811] text-slate-100 flex flex-col justify-between relative select-none sm:shadow-2xl sm:border-x sm:border-slate-800/80 pb-24"
+      className="w-full max-w-md mx-auto min-h-screen bg-[#050811] text-slate-100 flex flex-col relative select-none sm:shadow-2xl sm:border-x sm:border-slate-800/80 pb-24"
     >
       {/* Toast Notification */}
       {toastMessage && (
@@ -397,7 +424,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       )}
 
       {/* Main Content Area */}
-      <div className="w-full px-4 sm:px-5 flex-1 flex flex-col">
+      <div className={`w-full ${currentTab === 'wallet' ? 'px-0' : 'px-4 sm:px-5'} flex flex-col`}>
         {/* 1. Home Tab: Premium AI Electricity Generation & Investment */}
         {currentTab === 'home' && (
           <EnergyHomeTab
@@ -411,6 +438,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             onOpenNotifications={() => setActiveSubModal('notifications')}
             onGoToInvest={() => setCurrentTab('invest')}
             onGoToProfile={() => setCurrentTab('profile')}
+            onOpenInvite={() => setCurrentTab('referral')}
             onInvestProject={handleInvestProject}
             onClaimDailyBonus={handleClaimDailyBonus}
             hasClaimedBonus={hasClaimedBonus}
@@ -419,7 +447,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
         )}
 
         {/* 2. Top Header Row for Non-Home Screens */}
-        {currentTab !== 'home' && (
+        {currentTab !== 'home' && currentTab !== 'wallet' && currentTab !== 'referral' && (
           <div className="flex items-center justify-between pt-4 pb-3 shrink-0">
             <button
               type="button"
@@ -445,7 +473,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               {currentTab === 'profile' && (currentLang === 'bn' ? 'প্রোফাইল' : 'Profile')}
               {currentTab === 'invest' && (currentLang === 'bn' ? 'বিনিয়োগ' : 'Investment')}
               {currentTab === 'transactions' && (currentLang === 'bn' ? 'লেনদেন' : 'Transactions')}
-              {currentTab === 'wallet' && (currentLang === 'bn' ? 'ওয়ালেট' : 'Wallet')}
+              {currentTab === 'wallet' && (currentLang === 'bn' ? 'হোস্টিং লেভেল বিবরণী' : 'Hosting Level Details')}
             </span>
 
             <div className="flex items-center gap-2">
@@ -490,7 +518,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           />
         )}
 
-        {/* 5. Wallet Tab */}
+        {/* 5. Promo Bonus / Hosting Level & Wallet Tab */}
         {currentTab === 'wallet' && (
           <WalletTabContent
             userBalance={user.walletBalance}
@@ -503,6 +531,17 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             }}
             onOpenHistory={() => setCurrentTab('transactions')}
             onBack={() => setCurrentTab('home')}
+            onClaimPromoReward={(amt, lvl) => {
+              setUser((prev) => ({
+                ...prev,
+                walletBalance: prev.walletBalance + amt,
+              }));
+              showToast(
+                currentLang === 'bn'
+                  ? `লেভেল ${lvl} থেকে ৳${amt.toLocaleString()} বোনাস ওয়ালেটে জমা হয়েছে!`
+                  : `Level ${lvl} bonus ৳${amt.toLocaleString()} added to wallet!`
+              );
+            }}
             onWithdrawSubmit={(amt, method, acct) => {
               setUser((prev) => ({
                 ...prev,
@@ -512,7 +551,13 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                     id: `WTH-${Date.now().toString().slice(-6)}`,
                     type: 'withdrawal',
                     amount: -amt,
-                    timestamp: new Date().toLocaleDateString('en-GB') + ' ' + new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+                    timestamp:
+                      new Date().toLocaleDateString('en-GB') +
+                      ' ' +
+                      new Date().toLocaleTimeString('en-US', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      }),
                     status: 'completed',
                     description: `Payout to ${method} (${acct.slice(-4)})`,
                     hash: `WTH-${Date.now().toString().slice(-6)}`,
@@ -525,6 +570,44 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                   ? `${method} নম্বরে ৳${amt.toLocaleString()} উত্তোলন অনুরোধ সফল হয়েছে!`
                   : `Withdrawal request of ৳${amt.toLocaleString()} to ${method} submitted successfully!`
               );
+            }}
+            showToast={showToast}
+          />
+        )}
+
+        {/* 6. Full-Page Referral & Team Commission (হোম পেজের ইনভাইটেশন অপশন থেকে সরাসরি) */}
+        {currentTab === 'referral' && (
+          <ReferralPage
+            currentLang={currentLang}
+            userCode={user.memberId || 'NV8829'}
+            userBalance={user.walletBalance}
+            onBack={() => setCurrentTab('home')}
+            onClaimReward={(amt) => {
+              setUser((prev) => ({
+                ...prev,
+                walletBalance: prev.walletBalance + amt,
+                transactions: [
+                  {
+                    id: `REF-${Date.now().toString().slice(-6)}`,
+                    type: 'reward',
+                    amount: amt,
+                    timestamp:
+                      new Date().toLocaleDateString('en-GB') +
+                      ' ' +
+                      new Date().toLocaleTimeString('en-US', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      }),
+                    status: 'completed',
+                    description:
+                      currentLang === 'bn'
+                        ? 'রেফারেল কমিশন রিওয়ার্ড স্থানান্তর'
+                        : 'Referral Commission Claim',
+                    hash: `TXN-${Date.now().toString().slice(-6)}`,
+                  },
+                  ...(prev.transactions || []),
+                ],
+              }));
             }}
             showToast={showToast}
           />
@@ -634,8 +717,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                   <span className="text-xs font-bold text-white font-mono">2 {currentLang === 'bn' ? 'টি' : 'Units'}</span>
                 </div>
                 <div className="bg-black/20 rounded-xl py-1.5 px-1">
-                  <span className="text-[10px] text-blue-200 block">{currentLang === 'bn' ? 'টিম সাইজ' : 'Team Size'}</span>
-                  <span className="text-xs font-bold text-emerald-300 font-mono">14 {currentLang === 'bn' ? 'জন' : ''}</span>
+                  <span className="text-[10px] text-blue-200 block">{currentLang === 'bn' ? 'দৈনিক রিওয়ার্ড' : 'Daily Rewards'}</span>
+                  <span className="text-xs font-bold text-emerald-300 font-mono">৳185.00</span>
                 </div>
               </div>
             </div>
@@ -690,6 +773,69 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               </div>
             </div>
 
+            {/* 3. Team Commission & Referral Banner (রিচার্জ ও উইথড্র অপশনের নিচে ব্যানার) */}
+            <div
+              id="profile-team-commission-banner"
+              onClick={() => setCurrentTab('referral')}
+              className="mt-4 relative overflow-hidden rounded-[22px] bg-gradient-to-br from-[#08152c] via-[#0d203e] to-[#08111e] border border-amber-500/40 hover:border-amber-400/60 p-4 shadow-xl shadow-amber-950/20 cursor-pointer transition-all group active:scale-[0.99]"
+            >
+              {/* Glowing Ambient Lights */}
+              <div className="absolute -top-12 -right-12 w-36 h-36 bg-amber-500/15 rounded-full blur-2xl pointer-events-none" />
+              <div className="absolute -bottom-10 -left-10 w-32 h-32 bg-cyan-500/15 rounded-full blur-2xl pointer-events-none" />
+              <div className="absolute inset-0 bg-[linear-gradient(to_right,#1e293b15_1px,transparent_1px),linear-gradient(to_bottom,#1e293b15_1px,transparent_1px)] bg-[size:16px_16px] pointer-events-none opacity-40" />
+
+              {/* Top Status Strip */}
+              <div className="relative z-10 flex items-center justify-between gap-2 mb-2">
+                <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-500/20 border border-amber-400/35 text-[10px] font-extrabold text-amber-300 uppercase tracking-wider">
+                  <Sparkles className="w-3 h-3 text-amber-400 fill-amber-400" />
+                  <span>{currentLang === 'bn' ? 'টিম কমিশন ও ইনভাইটেশন' : 'Team Commission Program'}</span>
+                </div>
+
+                <div className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-300 group-hover:translate-x-0.5 transition-transform">
+                  <span>{currentLang === 'bn' ? 'ইনভাইট করুন' : 'Invite'}</span>
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </div>
+              </div>
+
+              {/* Main Typography and Icon Row */}
+              <div className="relative z-10 flex items-center justify-between gap-3">
+                <div className="space-y-1">
+                  <h3 className="text-base sm:text-lg font-black text-white leading-tight">
+                    <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-200 via-yellow-300 to-white">
+                      {currentLang === 'bn' ? 'বন্ধুদের ইনভাইট করুন ও কমিশন পান' : 'Invite Friends & Earn Commission'}
+                    </span>
+                  </h3>
+                  <p className="text-[11px] text-slate-300 font-medium">
+                    {currentLang === 'bn'
+                      ? 'টিম কমিশন: ১ম লেভেল ৭% • ২য় লেভেল ৩% • ৩য় লেভেল ১%'
+                      : 'Team commission: Level 1: 7% • Level 2: 3% • Level 3: 1%'}
+                  </p>
+                </div>
+
+                <div className="shrink-0">
+                  <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-amber-400 via-amber-500 to-yellow-600 flex items-center justify-center text-slate-950 font-black shadow-lg shadow-amber-500/30 group-hover:scale-105 transition-transform">
+                    <Users className="w-6 h-6 text-slate-950" />
+                  </div>
+                </div>
+              </div>
+
+              {/* 3-Tier Commission Badges Pill Strip */}
+              <div className="relative z-10 mt-3 pt-2.5 border-t border-slate-800/80 grid grid-cols-3 gap-2">
+                <div className="bg-[#050c18]/80 border border-amber-500/30 rounded-xl py-1.5 px-1.5 text-center">
+                  <span className="text-[9px] text-amber-300 font-bold block">{currentLang === 'bn' ? 'প্রথম লেভেল' : 'Level 1'}</span>
+                  <span className="text-xs sm:text-sm font-black text-white font-mono">7%</span>
+                </div>
+                <div className="bg-[#050c18]/80 border border-blue-500/30 rounded-xl py-1.5 px-1.5 text-center">
+                  <span className="text-[9px] text-blue-300 font-bold block">{currentLang === 'bn' ? 'দ্বিতীয় লেভেল' : 'Level 2'}</span>
+                  <span className="text-xs sm:text-sm font-black text-white font-mono">3%</span>
+                </div>
+                <div className="bg-[#050c18]/80 border border-indigo-500/30 rounded-xl py-1.5 px-1.5 text-center">
+                  <span className="text-[9px] text-indigo-300 font-bold block">{currentLang === 'bn' ? 'তৃতীয় লেভেল' : 'Level 3'}</span>
+                  <span className="text-xs sm:text-sm font-black text-white font-mono">1%</span>
+                </div>
+              </div>
+            </div>
+
             {/* Profile & Account Settings Menu List */}
             <div
               id="profile-menu-container"
@@ -697,9 +843,10 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             >
               {/* Row 1: Personal Information */}
               <button
+                id="profile-personal-info-btn"
                 type="button"
                 onClick={() => setActiveSubModal('personal')}
-                className="w-full px-5 py-3.5 sm:py-4 flex items-center justify-between hover:bg-slate-800/30 transition-colors cursor-pointer text-left group"
+                className="w-full px-5 py-4 flex items-center justify-between hover:bg-slate-800/30 transition-colors cursor-pointer text-left group"
               >
                 <div className="flex items-center gap-3.5">
                   <div className="w-9 h-9 rounded-full bg-blue-600/15 border border-blue-500/20 flex items-center justify-center text-blue-400 group-hover:bg-blue-600/25 transition-colors">
@@ -712,11 +859,12 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-white transition-colors" />
               </button>
 
-              {/* Row 2: Security Settings */}
+              {/* Row 2: Security & Password */}
               <button
+                id="profile-security-settings-btn"
                 type="button"
                 onClick={() => setActiveSubModal('security')}
-                className="w-full px-5 py-3.5 sm:py-4 flex items-center justify-between hover:bg-slate-800/30 transition-colors cursor-pointer text-left group"
+                className="w-full px-5 py-4 flex items-center justify-between hover:bg-slate-800/30 transition-colors cursor-pointer text-left group"
               >
                 <div className="flex items-center gap-3.5">
                   <div className="w-9 h-9 rounded-full bg-blue-600/15 border border-blue-500/20 flex items-center justify-center text-blue-400 group-hover:bg-blue-600/25 transition-colors">
@@ -737,8 +885,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 className="w-full px-5 py-3.5 sm:py-4 flex items-center justify-between hover:bg-slate-800/30 transition-colors cursor-pointer text-left group"
               >
                 <div className="flex items-center gap-3.5">
-                  <div className="w-9 h-9 rounded-full bg-cyan-500/15 border border-cyan-500/25 flex items-center justify-center text-cyan-400 group-hover:bg-cyan-500/25 transition-colors">
-                    <QrCode className="w-4.5 h-4.5" />
+                  <div className="w-9 h-9 rounded-full bg-cyan-600/15 border border-cyan-500/20 flex items-center justify-center text-cyan-400 group-hover:bg-cyan-600/25 transition-colors">
+                    <ShieldCheck className="w-4.5 h-4.5" />
                   </div>
                   <div>
                     <span className="text-sm sm:text-[15px] font-medium text-white group-hover:text-cyan-300 transition-colors block">
@@ -750,16 +898,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span
-                    className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
-                      isAuthenticatorEnabled
-                        ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
-                        : 'bg-slate-700/40 text-slate-400 border-slate-700'
-                    }`}
-                  >
-                    {isAuthenticatorEnabled
-                      ? (currentLang === 'bn' ? 'সক্রিয়' : 'Active')
-                      : (currentLang === 'bn' ? 'নিষ্ক্রিয়' : 'Disabled')}
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                    {currentLang === 'bn' ? 'চালু আছে' : 'Active'}
                   </span>
                   <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-white transition-colors" />
                 </div>
@@ -884,7 +1024,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 className="w-full px-5 py-3.5 sm:py-4 flex items-center justify-between hover:bg-slate-800/30 transition-colors cursor-pointer text-left group"
               >
                 <div className="flex items-center gap-3.5">
-                  <div className="w-9 h-9 rounded-full bg-amber-500/15 border border-amber-500/25 flex items-center justify-center text-amber-400 group-hover:bg-amber-500/25 transition-colors">
+                  <div className="w-9 h-9 rounded-full bg-amber-500/15 border border-amber-500/20 flex items-center justify-center text-amber-400 group-hover:bg-amber-500/25 transition-colors">
                     <Award className="w-4.5 h-4.5" />
                   </div>
                   <div>
@@ -898,18 +1038,46 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
-                    <CheckCircle2 className="w-3 h-3" />
-                    <span>{currentLang === 'bn' ? 'যাচাইকৃত' : 'Verified'}</span>
+                    <CheckCircle2 className="w-2.5 h-2.5" />
+                    <span>{currentLang === 'bn' ? 'অনুমোদিত' : 'Verified'}</span>
                   </span>
-                  <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-amber-300 transition-colors" />
+                  <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-white transition-colors" />
                 </div>
               </button>
 
-              {/* Row 10: Logout */}
+              {/* Row 10: 24/7 Corporate Helpline & Customer Support */}
+              <button
+                id="profile-helpline-btn"
+                type="button"
+                onClick={() => setActiveSubModal('helpline')}
+                className="w-full px-5 py-3.5 sm:py-4 flex items-center justify-between hover:bg-slate-800/30 transition-colors cursor-pointer text-left group"
+              >
+                <div className="flex items-center gap-3.5">
+                  <div className="w-9 h-9 rounded-full bg-cyan-500/15 border border-cyan-500/20 flex items-center justify-center text-cyan-400 group-hover:bg-cyan-500/25 transition-colors">
+                    <Headphones className="w-4.5 h-4.5" />
+                  </div>
+                  <div>
+                    <span className="text-sm sm:text-[15px] font-medium text-white group-hover:text-cyan-300 transition-colors block">
+                      {currentLang === 'bn' ? '২৪/৭ হেল্পলাইন ও সাপোর্ট' : '24/7 Priority Support & Helpline'}
+                    </span>
+                    <span className="text-[11px] text-slate-400">
+                      {currentLang === 'bn' ? 'হটলাইন: ০৯৬১২-০০১১২২ ও ইমেইল' : 'Hotline: 09612-001122 & Email Desk'}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-cyan-500/15 text-cyan-400 border border-cyan-500/30">
+                    Live
+                  </span>
+                  <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-white transition-colors" />
+                </div>
+              </button>
+
+              {/* Row 11: Logout */}
               <button
                 type="button"
                 onClick={() => setShowLogoutConfirm(true)}
-                className="w-full px-5 py-3.5 sm:py-4 flex items-center justify-between hover:bg-rose-950/20 transition-colors cursor-pointer text-left group"
+                className="w-full px-5 py-4 flex items-center justify-between hover:bg-rose-500/10 transition-colors cursor-pointer text-left group"
               >
                 <div className="flex items-center gap-3.5">
                   <div className="w-9 h-9 rounded-full bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400 group-hover:bg-rose-500/20 transition-colors">
@@ -922,12 +1090,38 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-rose-400 transition-colors" />
               </button>
             </div>
+
+            {/* Official App Footer & Compliance Badges (Eliminates Empty Space) */}
+            <div className="mt-4 mb-2 p-4 rounded-2xl bg-[#0b1222]/80 border border-slate-800/80 text-center space-y-2.5">
+              <div className="flex items-center justify-center gap-2 flex-wrap text-[11px] text-slate-400">
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                  <ShieldCheck className="w-3 h-3 text-emerald-400" />
+                  {currentLang === 'bn' ? 'বিইআরসি লাইসেন্সপ্রাপ্ত' : 'BERC Regulated'}
+                </span>
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                  <CheckCircle2 className="w-3 h-3 text-blue-400" />
+                  ISO 50001
+                </span>
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/20">
+                  256-Bit SSL
+                </span>
+              </div>
+              <div className="text-[11px] text-slate-400/90 leading-tight">
+                <p className="font-semibold text-slate-300">NovaVest Energy Grid Platform BD</p>
+                <p className="text-[10px] text-slate-400 font-mono mt-0.5">
+                  App Version 2.4.2 (Official Release)
+                </p>
+                <p className="text-[10px] text-slate-400 mt-1">
+                  © 2026 NovaVest Technologies BD Ltd. {currentLang === 'bn' ? 'সর্বস্বত্ব সংরক্ষিত।' : 'All rights reserved.'}
+                </p>
+              </div>
+            </div>
           </>
         )}
       </div>
 
       {/* 4. Bottom Navigation Bar (Home | Invest | Transactions | Wallet | Company) */}
-      <div className="fixed bottom-0 left-0 right-0 z-40 max-w-[480px] mx-auto bg-[#050811]/95 backdrop-blur-lg border-t border-slate-800/80">
+      <div className="fixed bottom-0 left-0 right-0 z-40 max-w-md mx-auto bg-[#050811]/95 backdrop-blur-lg border-t border-slate-800/80">
         <nav
           id="bottom-navbar"
           className="w-full px-2 py-2 flex items-center justify-around"
@@ -983,20 +1177,21 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             )}
           </button>
 
-          {/* Wallet */}
+          {/* Promo Bonus (Hosting Level & Wallet) */}
           <button
+            id="bottom-nav-promo-bonus-btn"
             type="button"
             onClick={() => setCurrentTab('wallet')}
             className={`relative flex flex-col items-center py-1 px-3 rounded-2xl transition-all cursor-pointer active:scale-95 ${
               currentTab === 'wallet'
-                ? 'text-cyan-400 font-extrabold bg-cyan-500/10'
+                ? 'text-[#FFB300] font-extrabold bg-[#FFB300]/10'
                 : 'text-slate-400 hover:text-slate-200 font-medium'
             }`}
           >
-            <Wallet className={`w-5 h-5 ${currentTab === 'wallet' ? 'text-cyan-400 drop-shadow-[0_0_8px_rgba(6,182,212,0.5)]' : 'text-slate-400'}`} />
-            <span className="text-[11px] mt-0.5">{currentLang === 'bn' ? 'ওয়ালেট' : 'Wallet'}</span>
+            <Award className={`w-5 h-5 ${currentTab === 'wallet' ? 'text-[#FFB300] drop-shadow-[0_0_8px_rgba(255,179,0,0.5)]' : 'text-slate-400'}`} />
+            <span className="text-[11px] mt-0.5">{currentLang === 'bn' ? 'প্রমো বোনাস' : 'Promo Bonus'}</span>
             {currentTab === 'wallet' && (
-              <span className="absolute -bottom-1 w-5 h-1 bg-cyan-400 rounded-full shadow-[0_0_8px_#06b6d4]" />
+              <span className="absolute -bottom-1 w-5 h-1 bg-[#FFB300] rounded-full shadow-[0_0_8px_#FFB300]" />
             )}
           </button>
 

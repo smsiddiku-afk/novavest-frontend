@@ -54,7 +54,7 @@ export function EnergyHomePage({
   onGoToProfile,
   onOpenRecharge,
   onOpenWithdraw,
-  userBalance = 12450.0,
+  userBalance = 0.0,
   userName = 'John Doe',
   currentLang = 'en',
 }: EnergyHomePageProps) {

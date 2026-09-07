@@ -49,14 +49,19 @@ export interface FaqItem {
 }
 
 export interface UserProfile {
+  uid?: string;
   name: string;
   memberId: string;
+  referralCode?: string;
+  referredBy?: string;
   memberSince: string;
   isVerified: boolean;
   walletBalance: number;
   phone: string;
   email?: string;
   avatarUrl?: string;
+  fullName?: string;
+  transactions?: any[];
 }
 
 export type LegalDocType = 'terms' | 'privacy' | null;

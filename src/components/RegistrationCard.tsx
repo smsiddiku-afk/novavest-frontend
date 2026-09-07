@@ -18,6 +18,7 @@ import {
   Check,
 } from 'lucide-react';
 import { LegalDocType, RegisterFormData, Language } from '../types';
+import { registerWithFirebase } from '../utils/authService';
 
 interface RegistrationCardProps {
   onSwitchToLogin: () => void;
@@ -69,6 +70,7 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
 
   // Form State
   const [errors, setErrors] = useState<FormErrors>({});
+  const [generalError, setGeneralError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showCountryDropdown, setShowCountryDropdown] = useState(false);
 
@@ -189,21 +191,47 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setGeneralError(null);
     if (!validateForm()) return;
 
     setIsSubmitting(true);
-    setTimeout(() => {
+    try {
+      const result = await registerWithFirebase(
+        {
+          email: email.trim(),
+          phone: `${countryCode} ${phone}`,
+          username: username.trim(),
+          password,
+          referralCode: referralCode.trim(),
+        },
+        lang
+      );
+
       setIsSubmitting(false);
-      onRegistrationSuccess({
-        phone: `${countryCode} ${phone}`,
-        username,
-        password,
-        confirmPassword,
-        referralCode,
-      });
-    }, 900);
+      if (result.success && result.user) {
+        onRegistrationSuccess({
+          phone: `${countryCode} ${phone}`,
+          username: username.trim(),
+          password,
+          confirmPassword,
+          referralCode: referralCode.trim(),
+          email: email.trim(),
+        });
+      } else {
+        setGeneralError(
+          result.error ||
+            (lang === 'bn' ? 'নিবন্ধন সম্পন্ন করতে সমস্যা হয়েছে।' : 'Registration failed.')
+        );
+      }
+    } catch (err: any) {
+      setIsSubmitting(false);
+      setGeneralError(
+        err?.message ||
+          (lang === 'bn' ? 'নিবন্ধন সম্পন্ন করতে সমস্যা হয়েছে।' : 'Registration failed.')
+      );
+    }
   };
 
   // Text strings based on language
@@ -227,17 +255,17 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
   return (
     <div
       id="registration-card"
-      className="w-full max-w-[480px] mx-auto bg-[#11192e]/95 backdrop-blur-2xl rounded-[28px] sm:rounded-[32px] p-6 sm:p-8 shadow-[0_25px_60px_-15px_rgba(0,0,0,0.65),0_0_35px_rgba(37,99,235,0.12)] border border-slate-700/60 transition-all duration-300"
+      className="w-full max-w-[460px] mx-auto bg-[#11192e]/95 backdrop-blur-2xl rounded-[22px] sm:rounded-[26px] p-4 sm:p-6 shadow-[0_20px_50px_-12px_rgba(0,0,0,0.6),0_0_30px_rgba(37,99,235,0.12)] border border-slate-700/60 transition-all duration-300"
     >
       {/* Top Bar: Tabs & Language Pill */}
-      <div className="flex items-center justify-between pb-6 mb-3 border-b border-slate-700/60">
+      <div className="flex items-center justify-between pb-2 sm:pb-3 mb-1.5 sm:mb-2 border-b border-slate-700/60">
         {/* Left: Sign In / Sign Up Tabs */}
-        <div className="flex items-center gap-6 sm:gap-8">
+        <div className="flex items-center gap-5 sm:gap-7">
           <button
             type="button"
             id="tab-sign-in"
             onClick={onSwitchToLogin}
-            className="relative pb-2 text-lg sm:text-xl font-medium text-slate-400 hover:text-slate-200 transition-colors"
+            className="relative pb-1 text-base sm:text-lg font-medium text-slate-400 hover:text-slate-200 transition-colors"
           >
             {t.signIn}
           </button>
@@ -245,7 +273,7 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
           <button
             type="button"
             id="tab-sign-up"
-            className="relative pb-2 text-lg sm:text-xl font-bold text-blue-500 transition-colors"
+            className="relative pb-1 text-base sm:text-lg font-bold text-blue-500 transition-colors"
           >
             {t.signUp}
             {/* Active vibrant blue underline bar */}
@@ -258,19 +286,26 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
           type="button"
           id="lang-toggle-btn"
           onClick={handleLangToggle}
-          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-slate-800/80 hover:bg-slate-800 text-slate-300 text-xs sm:text-sm font-medium border border-slate-700/80 transition-all shadow-sm active:scale-95"
+          className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-800/80 hover:bg-slate-800 text-slate-300 text-xs font-medium border border-slate-700/80 transition-all shadow-sm active:scale-95"
         >
           <Globe className="w-3.5 h-3.5 text-slate-400" />
           <span>{t.langLabel}</span>
         </button>
       </div>
 
-      {/* Main Registration Form - Extra-Large Rooms (ইনপুট বক্সগুলো) */}
-      <form onSubmit={handleSubmit} className="space-y-4 pt-2" noValidate>
+      {/* Main Registration Form */}
+      <form onSubmit={handleSubmit} className="space-y-2 sm:space-y-2.5 pt-0.5" noValidate>
+        {generalError && (
+          <div className="p-2.5 rounded-xl bg-rose-950/40 border border-rose-600/40 text-rose-300 text-xs sm:text-sm flex items-start gap-2 animate-in fade-in">
+            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+            <span>{generalError}</span>
+          </div>
+        )}
+
         {/* 1. Phone Input Room */}
         <div>
           <div
-            className={`relative flex items-center min-h-[58px] sm:min-h-[62px] px-4 rounded-2xl bg-[#152037] border transition-all duration-200 ${
+            className={`relative flex items-center min-h-[44px] sm:min-h-[48px] px-3.5 sm:px-4 rounded-xl sm:rounded-2xl bg-[#152037] border transition-all duration-200 ${
               errors.phone
                 ? 'border-rose-500 bg-rose-950/20'
                 : 'border-slate-700/70 hover:border-slate-600 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20'
@@ -335,7 +370,7 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
         {/* 2. Nickname / Username Room */}
         <div>
           <div
-            className={`relative flex items-center min-h-[58px] sm:min-h-[62px] px-4 rounded-2xl bg-[#152037] border transition-all duration-200 ${
+            className={`relative flex items-center min-h-[48px] sm:min-h-[54px] px-3.5 sm:px-4 rounded-xl sm:rounded-2xl bg-[#152037] border transition-all duration-200 ${
               errors.username
                 ? 'border-rose-500 bg-rose-950/20'
                 : 'border-slate-700/70 hover:border-slate-600 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20'
@@ -364,7 +399,7 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
         {/* 3. Create Password Room */}
         <div>
           <div
-            className={`relative flex items-center min-h-[58px] sm:min-h-[62px] px-4 rounded-2xl bg-[#152037] border transition-all duration-200 ${
+            className={`relative flex items-center min-h-[48px] sm:min-h-[54px] px-3.5 sm:px-4 rounded-xl sm:rounded-2xl bg-[#152037] border transition-all duration-200 ${
               errors.password
                 ? 'border-rose-500 bg-rose-950/20'
                 : 'border-slate-700/70 hover:border-slate-600 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20'
@@ -400,7 +435,7 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
         {/* 4. Confirm Password Room */}
         <div>
           <div
-            className={`relative flex items-center min-h-[58px] sm:min-h-[62px] px-4 rounded-2xl bg-[#152037] border transition-all duration-200 ${
+            className={`relative flex items-center min-h-[48px] sm:min-h-[54px] px-3.5 sm:px-4 rounded-xl sm:rounded-2xl bg-[#152037] border transition-all duration-200 ${
               errors.confirmPassword
                 ? 'border-rose-500 bg-rose-950/20'
                 : 'border-slate-700/70 hover:border-slate-600 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20'
@@ -437,7 +472,7 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
         {/* 5. Email Room with "সেন্ড" (Send) button */}
         <div>
           <div
-            className={`relative flex items-center justify-between min-h-[58px] sm:min-h-[62px] px-4 rounded-2xl bg-[#152037] border transition-all duration-200 ${
+            className={`relative flex items-center justify-between min-h-[48px] sm:min-h-[54px] px-3.5 sm:px-4 rounded-xl sm:rounded-2xl bg-[#152037] border transition-all duration-200 ${
               errors.email
                 ? 'border-rose-500 bg-rose-950/20'
                 : 'border-slate-700/70 hover:border-slate-600 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20'
@@ -519,7 +554,7 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
         {/* 6. Email Verification Code Room (বড় ও প্রশস্ত ঘর - কোনো ক্যাপচা বক্স নেই) */}
         <div>
           <div
-            className={`relative flex items-center justify-between min-h-[58px] sm:min-h-[62px] px-4 rounded-2xl bg-[#152037] border transition-all duration-200 ${
+            className={`relative flex items-center justify-between min-h-[48px] sm:min-h-[54px] px-3.5 sm:px-4 rounded-xl sm:rounded-2xl bg-[#152037] border transition-all duration-200 ${
               errors.verificationCode
                 ? 'border-rose-500 bg-rose-950/20'
                 : isCodeCorrect
@@ -562,7 +597,7 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
 
         {/* 7. Referral Code Room */}
         <div>
-          <div className="relative flex items-center min-h-[58px] sm:min-h-[62px] px-4 rounded-2xl bg-[#152037] border border-slate-700/70 hover:border-slate-600 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20 transition-all duration-200">
+          <div className="relative flex items-center min-h-[48px] sm:min-h-[54px] px-3.5 sm:px-4 rounded-xl sm:rounded-2xl bg-[#152037] border border-slate-700/70 hover:border-slate-600 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20 transition-all duration-200">
             <UserPlus className="w-5 h-5 text-slate-400 mr-3 shrink-0" />
             <input
               id="referral-code-input"
@@ -576,12 +611,12 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
         </div>
 
         {/* Big Bright Blue Submit Button: "নিবন্ধন করুন" */}
-        <div className="pt-2">
+        <div className="pt-1 sm:pt-1.5">
           <button
             id="register-submit-btn"
             type="submit"
             disabled={isSubmitting}
-            className="w-full min-h-[56px] sm:min-h-[60px] flex items-center justify-center rounded-2xl bg-blue-600 hover:bg-blue-500 active:scale-[0.99] text-white text-base sm:text-lg font-bold shadow-lg shadow-blue-600/30 transition-all duration-200 cursor-pointer disabled:opacity-75"
+            className="w-full min-h-[48px] sm:min-h-[52px] flex items-center justify-center rounded-xl sm:rounded-2xl bg-blue-600 hover:bg-blue-500 active:scale-[0.99] text-white text-base sm:text-lg font-bold shadow-lg shadow-blue-600/30 transition-all duration-200 cursor-pointer disabled:opacity-75"
           >
             {isSubmitting ? (
               <div className="flex items-center gap-2">

@@ -3,13 +3,14 @@ import React from 'react';
 interface BackgroundProps {
   children?: React.ReactNode;
   theme?: 'cosmic-dark' | 'light-map';
+  locked?: boolean;
 }
 
 export const CosmicBackground: React.FC<BackgroundProps> = ({ children }) => {
   return (
     <div
       id="cosmic-background-wrapper"
-      className="relative min-h-screen w-full bg-[#0d1527] text-slate-100 overflow-x-hidden flex flex-col justify-center"
+      className="relative w-full min-h-screen bg-[#0d1527] text-slate-100 flex flex-col items-center justify-start overflow-x-hidden"
     >
       {/* 1. Core Ambient Radial Glow Centered Directly Behind the Card */}
       <div
@@ -52,8 +53,8 @@ export const CosmicBackground: React.FC<BackgroundProps> = ({ children }) => {
         }}
       />
 
-      {/* Main Content Viewport Area */}
-      <div className="relative z-10 w-full min-h-screen flex flex-col items-center justify-center px-4 py-6 sm:py-10">
+      {/* Main Content Viewport Area - always starts at the top */}
+      <div className="relative z-10 w-full max-w-md md:max-w-lg flex flex-col items-center justify-start px-3 sm:px-4 pt-3 sm:pt-6 pb-20">
         {children}
       </div>
     </div>

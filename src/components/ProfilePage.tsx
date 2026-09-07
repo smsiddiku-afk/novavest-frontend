@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { scrollAppToTop } from '../utils/scrollHelper';
 import {
   ChevronLeft,
   Bell,
@@ -60,6 +61,14 @@ import { DepositModal } from './DepositModal';
 import { SpinningLogo } from './SpinningLogo';
 import { UserProfile, Language } from '../types';
 import { translations } from '../utils/translations';
+import { persistAuthUser, isSameUser } from '../utils/authService';
+import {
+  recordFirestoreDeposit,
+  getFirestoreUserTransactions,
+  subscribeToUserTransactions,
+  auth,
+} from '../lib/firebase';
+import { ManualDepositDetails, PaymentChannelType } from './CleanWalletScreen';
 
 interface ProfilePageProps {
   initialUser?: Partial<UserProfile>;
@@ -90,25 +99,73 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     memberId: initialUser?.memberId || 'NVT123456',
     memberSince: initialUser?.memberSince || 'May 2024',
     isVerified: initialUser?.isVerified ?? true,
-    walletBalance: initialUser?.walletBalance ?? 12450.0,
+    walletBalance:
+      typeof initialUser?.walletBalance === 'number' && initialUser.walletBalance !== 12450.0
+        ? initialUser.walletBalance
+        : 0.0,
     phone: initialUser?.phone || '+880 1712-345678',
     email: initialUser?.email || 'user@novaterraenergy.io',
   });
 
-  // Keep user profile state in sync with initialUser when it changes
+  // Explicit user update helper: persists data safely without triggering reactive cascading loops
+  const updateUser = (updater: (prev: UserProfile) => UserProfile) => {
+    setUser((prev) => {
+      const next = updater(prev);
+      if (!isSameUser(prev, next)) {
+        persistAuthUser(next);
+      }
+      return next;
+    });
+  };
+
+  // Keep user profile state in sync with initialUser prop only when actually changed
   useEffect(() => {
-    if (initialUser) {
-      setUser((prev) => ({
+    if (!initialUser) return;
+    setUser((prev) => {
+      const newName = initialUser.name ?? prev.name;
+      const newPhone = initialUser.phone ?? prev.phone;
+      const newEmail = initialUser.email ?? prev.email;
+      const newMemberId = initialUser.memberId ?? prev.memberId;
+      const newBalance = initialUser.walletBalance ?? prev.walletBalance;
+      const newMemberSince = initialUser.memberSince ?? prev.memberSince;
+      const newIsVerified = initialUser.isVerified ?? prev.isVerified;
+      const newTransactions = initialUser.transactions ?? prev.transactions;
+
+      if (
+        prev.name === newName &&
+        prev.phone === newPhone &&
+        prev.email === newEmail &&
+        prev.memberId === newMemberId &&
+        prev.walletBalance === newBalance &&
+        prev.memberSince === newMemberSince &&
+        prev.isVerified === newIsVerified &&
+        prev.transactions?.length === newTransactions?.length
+      ) {
+        return prev;
+      }
+
+      return {
         ...prev,
-        ...initialUser,
-        name: initialUser.name || prev.name,
-        phone: initialUser.phone || prev.phone,
-        email: initialUser.email || prev.email,
-        memberId: initialUser.memberId || prev.memberId,
-        walletBalance: initialUser.walletBalance ?? prev.walletBalance,
-      }));
-    }
-  }, [initialUser]);
+        name: newName,
+        phone: newPhone,
+        email: newEmail,
+        memberId: newMemberId,
+        walletBalance: newBalance,
+        memberSince: newMemberSince,
+        isVerified: newIsVerified,
+        transactions: newTransactions,
+      };
+    });
+  }, [
+    initialUser?.name,
+    initialUser?.phone,
+    initialUser?.email,
+    initialUser?.memberId,
+    initialUser?.walletBalance,
+    initialUser?.memberSince,
+    initialUser?.isVerified,
+    initialUser?.transactions?.length,
+  ]);
 
   // Modal & Toast states
   const [isDownloadModalOpen, setIsDownloadModalOpen] = useState(false);
@@ -132,20 +189,24 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     | 'helpline'
     | null
   >(null);
-  const [currentTab, setCurrentTab] = useState<
+
+  const [localTab, setLocalTab] = useState<
     'home' | 'invest' | 'transactions' | 'wallet' | 'referral' | 'profile'
-  >(initialTab);
+  >(initialTab || 'home');
+  const currentTab = initialTab || localTab;
 
-  useEffect(() => {
-    if (initialTab && initialTab !== currentTab) {
-      setCurrentTab(initialTab);
-    }
-  }, [initialTab]);
-
-  useEffect(() => {
+  // Directly switch tab and notify parent on user interaction
+  const switchTab = (tab: 'home' | 'invest' | 'transactions' | 'wallet' | 'referral' | 'profile') => {
+    setLocalTab(tab);
+    scrollAppToTop();
     if (onTabChange) {
-      onTabChange(currentTab);
+      onTabChange(tab);
     }
+  };
+
+  // Auto-scroll window to top whenever currentTab changes (ensures user always lands at the top of Profile, Promo Bonus, etc.)
+  useEffect(() => {
+    scrollAppToTop();
   }, [currentTab]);
   const [hasClaimedBonus, setHasClaimedBonus] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
@@ -163,61 +224,123 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     }, 3000);
   };
 
-  // Multi-Channel Hosted Gateway Deposit Handler (Channel 1: Nekpay, Channel 2: OKExPay)
+  // Multi-Channel Hosted Gateway & Manual Deposit Handler (Nekpay, OKExPay, Go-Go-Pay, Manual TrxID)
   const handleInitiateDeposit = async (
     amount: number,
     method: 'bKash' | 'Nagad' | 'Rocket' | 'Card' | string,
-    channel: 'channel1' | 'channel2' = 'channel1'
+    channel: PaymentChannelType = 'channel1',
+    manualDetails?: ManualDepositDetails
   ) => {
-    if (channel === 'channel1') {
-      // Channel 1: Nekpay Integration
-      // URL: https://nekpay-backend.onrender.com/api/v1/nekpay/create-order
-      // Method: POST, Body: { "amount": selectedAmount, "payerName": "Customer" }
+    const activeUid = auth.currentUser?.uid || user.memberId || 'USER1001';
+
+    // 1. MANUAL TRXID VERIFICATION (Sandbox / Auto-Approval Fallback)
+    if (channel === 'manual' || manualDetails?.trxId) {
+      const trxId = (manualDetails?.trxId || `TXN${Date.now().toString().slice(-8)}`).trim().toUpperCase();
+      const sender = manualDetails?.senderPhone || user.phone || '';
+
       try {
         showToast(
           currentLang === 'bn'
-            ? 'চ্যানেল ১ (Nekpay)-এ সংযোগ করা হচ্ছে...'
-            : 'Connecting to Channel 1 (Nekpay Gateway)...'
+            ? 'TrxID ভেরিফিকেশন ও ব্যালেন্স জমা হচ্ছে...'
+            : 'Verifying TrxID and crediting balance...'
         );
 
-        let data: any = null;
+        // Notify server database of manual transaction
         try {
-          const res = await fetch('https://nekpay-backend.onrender.com/api/v1/nekpay/create-order', {
+          await fetch('/api/payments/submit-txnid', {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               amount: Number(amount),
-              payerName: 'Customer',
-              userId: user.memberId || 'USER1001',
+              method: method || 'bKash',
+              trxId,
+              senderPhone: sender,
+              userId: activeUid,
             }),
           });
-          data = await res.json();
-        } catch (fetchErr) {
-          console.warn('[Nekpay] Direct Render fetch attempt error, retrying via server proxy:', fetchErr);
-          const fallbackRes = await fetch('/api/v1/nekpay/create-order', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              amount: Number(amount),
-              payerName: 'Customer',
-              userId: user.memberId || 'USER1001',
-            }),
-          });
-          data = await fallbackRes.json();
+        } catch (serverErr) {
+          console.warn('[Manual Deposit Server Log Warning]', serverErr);
         }
 
-        console.log('Nekpay create-order response:', data);
+        // Atomically update user wallet balance and record in Firestore
+        const result = await recordFirestoreDeposit(activeUid, {
+          amount: Number(amount),
+          method: method || 'bKash',
+          channel: 'manual',
+          trxId,
+          senderPhone: sender,
+        });
+
+        // Update local React user state
+        updateUser((prev) => ({
+          ...prev,
+          walletBalance: prev.walletBalance + Number(amount),
+          transactions: [
+            {
+              id: trxId,
+              type: 'deposit',
+              amount: Number(amount),
+              timestamp:
+                new Date().toLocaleDateString('en-GB') +
+                ' ' +
+                new Date().toLocaleTimeString('en-US', {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                }),
+              status: 'completed',
+              description: `Direct TrxID Deposit via ${method} (${trxId})`,
+              hash: trxId,
+            },
+            ...(prev.transactions || []),
+          ],
+        }));
+
+        showToast(
+          currentLang === 'bn'
+            ? `✅ TrxID যাচাই সফল! ৳${Number(amount).toLocaleString()} ওয়ালেটে যুক্ত হয়েছে (TrxID: ${trxId})`
+            : `✅ TrxID verified! ৳${Number(amount).toLocaleString()} credited to your wallet (TrxID: ${trxId})`
+        );
+      } catch (err: any) {
+        console.error('[Manual Deposit Error]', err);
+        showToast(
+          currentLang === 'bn'
+            ? '⚠️ TrxID ভেরিফিকেশন প্রক্রিয়ায় সমস্যা হয়েছে, পুনরায় চেষ্টা করুন'
+            : '⚠️ Failed to verify TrxID, please try again'
+        );
+      } finally {
+        setActiveSubModal(null);
+      }
+      return;
+    }
+
+    // 2. GO-GO-PAY GATEWAY
+    if (channel === 'gogopay') {
+      try {
+        showToast(
+          currentLang === 'bn'
+            ? 'Go-Go-Pay গেটওয়েতে সংযোগ করা হচ্ছে...'
+            : 'Connecting to Go-Go-Pay Gateway...'
+        );
+
+        const res = await fetch('/api/v1/gogopay/create-order', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            amount: Number(amount),
+            method: method || 'bKash',
+            userId: activeUid,
+          }),
+        });
+
+        const data = await res.json();
+        console.log('Go-Go-Pay create-order response:', data);
 
         if (data.success && data.paymentLink) {
           window.open(data.paymentLink, '_blank');
           showToast(
             currentLang === 'bn'
-              ? 'Nekpay পেমেন্ট পেজ নতুন ট্যাবে খোলা হয়েছে!'
-              : 'Nekpay payment link opened in new tab!'
+              ? 'Go-Go-Pay পেমেন্ট পেজ নতুন ট্যাবে খোলা হয়েছে!'
+              : 'Go-Go-Pay payment link opened in new tab!'
           );
 
           // Automated polling for order completion
@@ -235,10 +358,175 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 const checkData = await checkRes.json();
                 if (checkData.success && checkData.order?.status === 'COMPLETED') {
                   clearInterval(pollInterval);
-                  setUser((prev) => ({
+
+                  // Update Firestore wallet balance and transaction record
+                  await recordFirestoreDeposit(activeUid, {
+                    amount: Number(amount),
+                    method: method || 'bKash',
+                    channel: 'gogopay',
+                    trxId: checkData.order?.trxId || orderNo,
+                    orderNo,
+                  });
+
+                  updateUser((prev) => ({
                     ...prev,
                     walletBalance: prev.walletBalance + Number(amount),
+                    transactions: [
+                      {
+                        id: checkData.order?.trxId || orderNo,
+                        type: 'deposit',
+                        amount: Number(amount),
+                        timestamp:
+                          new Date().toLocaleDateString('en-GB') +
+                          ' ' +
+                          new Date().toLocaleTimeString('en-US', {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          }),
+                        status: 'completed',
+                        description: `Go-Go-Pay Deposit (${method})`,
+                        hash: checkData.order?.trxId || orderNo,
+                      },
+                      ...(prev.transactions || []),
+                    ],
                   }));
+
+                  showToast(
+                    currentLang === 'bn'
+                      ? `Go-Go-Pay রিচার্জ সফল! ৳${Number(amount).toLocaleString()} ওয়ালেটে জমা হয়েছে।`
+                      : `Go-Go-Pay recharge successful! ৳${Number(amount).toLocaleString()} added to wallet.`
+                  );
+                }
+              } catch (e) {
+                // ignore polling errors
+              }
+            }, 3000);
+          }
+        } else {
+          showToast(
+            currentLang === 'bn'
+              ? `⚠️ পেমেন্ট সংযোগ ব্যর্থ: ${data.error || 'Go-Go-Pay গেটওয়ে ত্রুটি'}`
+              : `⚠️ Payment failed: ${data.error || 'Go-Go-Pay gateway error'}`
+          );
+        }
+      } catch (err: any) {
+        console.error('[Go-Go-Pay Deposit Error]', err);
+        showToast(
+          currentLang === 'bn'
+            ? '⚠️ Go-Go-Pay গেটওয়ে সার্ভিসে সংযোগ করা যাচ্ছে না'
+            : '⚠️ Failed to connect to Go-Go-Pay gateway'
+        );
+      } finally {
+        setActiveSubModal(null);
+      }
+      return;
+    }
+
+    // 3. CHANNEL 1: NEKPAY GATEWAY
+    if (channel === 'channel1') {
+      try {
+        showToast(
+          currentLang === 'bn'
+            ? 'চ্যানেল ১ (Nekpay)-এ সংযোগ করা হচ্ছে...'
+            : 'Connecting to Channel 1 (Nekpay Gateway)...'
+        );
+
+        let data: any = null;
+        try {
+          const res = await fetch('/api/v1/nekpay/create-order', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              amount: Number(amount),
+              payerName: 'Customer',
+              userId: activeUid,
+            }),
+          });
+          data = await res.json();
+        } catch (proxyErr) {
+          console.warn('[Nekpay] Proxy fetch attempt failed, trying direct Render backend:', proxyErr);
+          const directRes = await fetch('https://nekpay-backend.onrender.com/api/v1/nekpay/create-order', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              amount: Number(amount),
+              payerName: 'Customer',
+              userId: activeUid,
+            }),
+          });
+          data = await directRes.json();
+        }
+
+        console.log('Nekpay create-order response:', data);
+
+        if (data.success && data.paymentLink) {
+          let opened = null;
+          try {
+            opened = window.open(data.paymentLink, '_blank');
+          } catch (e) {
+            opened = null;
+          }
+          if (!opened || opened.closed || typeof opened.closed === 'undefined') {
+            window.location.href = data.paymentLink;
+          }
+          showToast(
+            currentLang === 'bn'
+              ? 'Nekpay পেমেন্ট পেজে নিয়ে যাওয়া হচ্ছে...'
+              : 'Redirecting to Nekpay payment link...'
+          );
+
+          // Automated polling for order completion
+          const orderNo = data.orderNo;
+          if (orderNo) {
+            let attempts = 0;
+            const pollInterval = setInterval(async () => {
+              attempts++;
+              if (attempts > 40) {
+                clearInterval(pollInterval);
+                return;
+              }
+              try {
+                const checkRes = await fetch(`/api/payments/order-status/${orderNo}`);
+                const checkData = await checkRes.json();
+                if (checkData.success && checkData.order?.status === 'COMPLETED') {
+                  clearInterval(pollInterval);
+
+                  // Update Firestore wallet balance and transaction record
+                  await recordFirestoreDeposit(activeUid, {
+                    amount: Number(amount),
+                    method: method || 'bKash',
+                    channel: 'channel1',
+                    trxId: checkData.order?.trxId || orderNo,
+                    orderNo,
+                  });
+
+                  updateUser((prev) => ({
+                    ...prev,
+                    walletBalance: prev.walletBalance + Number(amount),
+                    transactions: [
+                      {
+                        id: checkData.order?.trxId || orderNo,
+                        type: 'deposit',
+                        amount: Number(amount),
+                        timestamp:
+                          new Date().toLocaleDateString('en-GB') +
+                          ' ' +
+                          new Date().toLocaleTimeString('en-US', {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          }),
+                        status: 'completed',
+                        description: `Nekpay Deposit (${method})`,
+                        hash: checkData.order?.trxId || orderNo,
+                      },
+                      ...(prev.transactions || []),
+                    ],
+                  }));
+
                   showToast(
                     currentLang === 'bn'
                       ? `রিচার্জ সফল! ৳${Number(amount).toLocaleString()} আপনার ওয়ালেটে জমা হয়েছে।`
@@ -267,113 +555,230 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       } finally {
         setActiveSubModal(null);
       }
-    } else {
-      // Channel 2: OKExPay / WPay Integration
-      try {
-        showToast(
-          currentLang === 'bn'
-            ? 'চ্যানেল ২ (OKExPay / WPay)-এ সংযোগ করা হচ্ছে...'
-            : 'Connecting to Channel 2 (OKExPay / WPay)...'
-        );
+      return;
+    }
 
-        const res = await fetch('/api/v1/okexpay/create-order', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            amount: Number(amount),
-            method: method || 'bKash',
-            userId: user.memberId || 'USER1001',
-          }),
-        });
+    // 4. CHANNEL 2: OKEXPAY / WPAY GATEWAY
+    try {
+      showToast(
+        currentLang === 'bn'
+          ? 'চ্যানেল ২ (OKExPay / WPay)-এ সংযোগ করা হচ্ছে...'
+          : 'Connecting to Channel 2 (OKExPay / WPay)...'
+      );
 
-        const data = await res.json();
-        console.log('OKExPay create-order response:', data);
+      const res = await fetch('/api/v1/okexpay/create-order', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          amount: Number(amount),
+          method: method || 'bKash',
+          userId: activeUid,
+        }),
+      });
 
-        if (data.success && data.paymentLink) {
-          window.open(data.paymentLink, '_blank');
-          showToast(
-            currentLang === 'bn'
-              ? 'OKExPay পেমেন্ট পেজ নতুন ট্যাবে খোলা হয়েছে!'
-              : 'OKExPay payment link opened in new tab!'
-          );
+      const data = await res.json();
+      console.log('OKExPay create-order response:', data);
 
-          // Automated polling for order completion
-          const orderNo = data.orderNo;
-          if (orderNo) {
-            let attempts = 0;
-            const pollInterval = setInterval(async () => {
-              attempts++;
-              if (attempts > 40) {
-                clearInterval(pollInterval);
-                return;
-              }
-              try {
-                const checkRes = await fetch(`/api/payments/order-status/${orderNo}`);
-                const checkData = await checkRes.json();
-                if (checkData.success && checkData.order?.status === 'COMPLETED') {
-                  clearInterval(pollInterval);
-                  setUser((prev) => ({
-                    ...prev,
-                    walletBalance: prev.walletBalance + Number(amount),
-                  }));
-                  showToast(
-                    currentLang === 'bn'
-                      ? `রিচার্জ সফল! ৳${Number(amount).toLocaleString()} আপনার ওয়ালেটে জমা হয়েছে।`
-                      : `Recharge successful! ৳${Number(amount).toLocaleString()} added to your wallet.`
-                  );
-                }
-              } catch (e) {
-                // ignore polling errors
-              }
-            }, 3000);
-          }
-        } else {
-          showToast(
-            currentLang === 'bn'
-              ? `⚠️ পেমেন্ট সংযোগ ব্যর্থ: ${data.error || 'OKExPay গেটওয়ে ত্রুটি'}`
-              : `⚠️ Payment failed: ${data.error || 'OKExPay gateway error'}`
-          );
+      if (data.success && data.paymentLink) {
+        let opened = null;
+        try {
+          opened = window.open(data.paymentLink, '_blank');
+        } catch (e) {
+          opened = null;
         }
-      } catch (err: any) {
-        console.error('[OKExPay Deposit Error]', err);
+        if (!opened || opened.closed || typeof opened.closed === 'undefined') {
+          window.location.href = data.paymentLink;
+        }
         showToast(
           currentLang === 'bn'
-            ? '⚠️ গেটওয়ে সার্ভিসে সংযোগ করা যাচ্ছে না'
-            : '⚠️ Failed to connect to payment gateway'
+            ? 'OKExPay পেমেন্ট পেজে নিয়ে যাওয়া হচ্ছে...'
+            : 'Redirecting to OKExPay payment link...'
         );
-      } finally {
-        setActiveSubModal(null);
+
+        // Automated polling for order completion
+        const orderNo = data.orderNo;
+        if (orderNo) {
+          let attempts = 0;
+          const pollInterval = setInterval(async () => {
+            attempts++;
+            if (attempts > 40) {
+              clearInterval(pollInterval);
+              return;
+            }
+            try {
+              const checkRes = await fetch(`/api/payments/order-status/${orderNo}`);
+              const checkData = await checkRes.json();
+              if (checkData.success && checkData.order?.status === 'COMPLETED') {
+                clearInterval(pollInterval);
+
+                // Update Firestore wallet balance and transaction record
+                await recordFirestoreDeposit(activeUid, {
+                  amount: Number(amount),
+                  method: method || 'bKash',
+                  channel: 'channel2',
+                  trxId: checkData.order?.trxId || orderNo,
+                  orderNo,
+                });
+
+                updateUser((prev) => ({
+                  ...prev,
+                  walletBalance: prev.walletBalance + Number(amount),
+                  transactions: [
+                    {
+                      id: checkData.order?.trxId || orderNo,
+                      type: 'deposit',
+                      amount: Number(amount),
+                      timestamp:
+                        new Date().toLocaleDateString('en-GB') +
+                        ' ' +
+                        new Date().toLocaleTimeString('en-US', {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        }),
+                      status: 'completed',
+                      description: `OKExPay Deposit (${method})`,
+                      hash: checkData.order?.trxId || orderNo,
+                    },
+                    ...(prev.transactions || []),
+                  ],
+                }));
+
+                showToast(
+                  currentLang === 'bn'
+                    ? `রিচার্জ সফল! ৳${Number(amount).toLocaleString()} আপনার ওয়ালেটে জমা হয়েছে।`
+                    : `Recharge successful! ৳${Number(amount).toLocaleString()} added to your wallet.`
+                );
+              }
+            } catch (e) {
+              // ignore polling errors
+            }
+          }, 3000);
+        }
+      } else {
+        showToast(
+          currentLang === 'bn'
+            ? `⚠️ পেমেন্ট সংযোগ ব্যর্থ: ${data.error || 'OKExPay গেটওয়ে ত্রুটি'}`
+            : `⚠️ Payment failed: ${data.error || 'OKExPay gateway error'}`
+        );
       }
+    } catch (err: any) {
+      console.error('[OKExPay Deposit Error]', err);
+      showToast(
+        currentLang === 'bn'
+          ? '⚠️ গেটওয়ে সার্ভিসে সংযোগ করা যাচ্ছে না'
+          : '⚠️ Failed to connect to payment gateway'
+      );
+    } finally {
+      setActiveSubModal(null);
     }
   };
 
-  // Check URL parameters for payment callback results
+  // Check URL parameters for payment callback/return results (Go-Go-Pay, Nekpay, OKExPay)
   useEffect(() => {
     try {
       const params = new URLSearchParams(window.location.search);
-      const paymentStatus = params.get('payment_status');
-      const amount = Number(params.get('amount'));
-      const orderId = params.get('order_id');
-      const trxId = params.get('trx_id');
+      const paymentStatus =
+        params.get('payment_status') ||
+        params.get('status') ||
+        params.get('trade_status') ||
+        params.get('result');
+      const rawAmount = params.get('amount') || params.get('money') || params.get('pay_money');
+      const amount = Number(rawAmount);
+      const orderId = params.get('order_id') || params.get('orderNo') || params.get('out_trade_no');
+      const trxId =
+        params.get('trx_id') ||
+        params.get('txnid') ||
+        params.get('trade_no') ||
+        params.get('ref_id') ||
+        orderId;
+      const gateway = params.get('gateway') || params.get('channel') || 'gateway';
+      const method = params.get('method') || 'bKash';
 
-      if (paymentStatus && paymentStatus.toUpperCase() === 'SUCCESS' && amount > 0) {
-        setUser((prev) => ({
+      const isSuccess =
+        paymentStatus &&
+        ['SUCCESS', 'COMPLETED', 'PAID', '1', 'TRUE', 'OK'].includes(paymentStatus.toUpperCase());
+
+      if (isSuccess && amount > 0) {
+        const activeUid = auth.currentUser?.uid || user.memberId || 'USER1001';
+
+        // 1. Immediately update user wallet balance and record in Firestore
+        recordFirestoreDeposit(activeUid, {
+          amount,
+          method,
+          channel: gateway,
+          trxId: trxId || `TXN-${Date.now().toString().slice(-6)}`,
+          orderNo: orderId || undefined,
+        }).then(() => {
+          console.log('[Firestore] Callback deposit successfully synchronized');
+        }).catch((syncErr) => {
+          console.warn('[Firestore] Callback deposit sync warning:', syncErr);
+        });
+
+        // 2. Immediately update local state
+        updateUser((prev) => ({
           ...prev,
           walletBalance: prev.walletBalance + amount,
+          transactions: [
+            {
+              id: trxId || `TXN-${Date.now().toString().slice(-6)}`,
+              type: 'deposit',
+              amount,
+              timestamp:
+                new Date().toLocaleDateString('en-GB') +
+                ' ' +
+                new Date().toLocaleTimeString('en-US', {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                }),
+              status: 'completed',
+              description: `Payment Return Deposit (${gateway.toUpperCase()})`,
+              hash: trxId || orderId || '',
+            },
+            ...(prev.transactions || []),
+          ],
         }));
+
         showToast(
           currentLang === 'bn'
             ? `মার্চেন্ট পেমেন্ট সফল! ৳${amount.toLocaleString()} আপনার ওয়ালেটে জমা হয়েছে (TrxID: ${trxId || orderId})`
             : `Merchant Payment successful! ৳${amount.toLocaleString()} credited to wallet (TrxID: ${trxId || orderId})`
         );
+
+        // Remove payment callback query params so refreshing doesn't duplicate
         window.history.replaceState({}, document.title, window.location.pathname);
       }
-    } catch {
-      // ignore
+    } catch (err) {
+      console.warn('[Payment Return Handling Warning]', err);
     }
   }, []);
+
+  // Real-time Firestore user transactions subscription
+  useEffect(() => {
+    const activeUid = auth.currentUser?.uid || user.memberId;
+    if (!activeUid) return;
+
+    const unsubscribe = subscribeToUserTransactions(activeUid, (firestoreTxns) => {
+      if (firestoreTxns && firestoreTxns.length > 0) {
+        updateUser((prev) => {
+          const existingIds = new Set((prev.transactions || []).map((t: any) => t.id || t.hash));
+          const newTxns = firestoreTxns.filter((t: any) => !existingIds.has(t.id || t.hash));
+          if (newTxns.length === 0) return prev;
+          return {
+            ...prev,
+            transactions: [...newTxns, ...(prev.transactions || [])],
+          };
+        });
+      }
+    });
+
+    return () => {
+      if (typeof unsubscribe === 'function') {
+        unsubscribe();
+      }
+    };
+  }, [user.memberId]);
 
   // Withdraw State
   const [withdrawAmount, setWithdrawAmount] = useState('2000');
@@ -397,7 +802,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       return;
     }
     setHasClaimedBonus(true);
-    setUser((prev) => ({ ...prev, walletBalance: prev.walletBalance + 50 }));
+    updateUser((prev) => ({ ...prev, walletBalance: prev.walletBalance + 50 }));
     showToast(t.toastBonusClaimed);
   };
 
@@ -411,7 +816,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       setActiveSubModal('recharge');
       return;
     }
-    setUser((prev) => ({ ...prev, walletBalance: prev.walletBalance - amount }));
+    updateUser((prev) => ({ ...prev, walletBalance: prev.walletBalance - amount }));
     showToast(
       currentLang === 'bn'
         ? `অভিনন্দন! "${projectName}" প্রজেক্টে ৳${amount.toLocaleString()} সফলভাবে বিনিয়োগ করা হয়েছে!`
@@ -445,6 +850,9 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       id="profile-phone-frame"
       className="w-full max-w-md md:max-w-5xl lg:max-w-6xl xl:max-w-7xl mx-auto min-h-screen bg-[#050811] text-slate-100 flex flex-col relative select-none md:px-6 pb-24 md:pb-12 transition-all duration-300"
     >
+      {/* Top scroll anchor to guarantee instant scroll to top on tab changes */}
+      <div id="profile-top-anchor" className="w-full h-0 pointer-events-none opacity-0" />
+
       {/* Toast Notification */}
       {toastMessage && (
         <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-full bg-blue-600 text-white text-xs font-semibold shadow-lg shadow-blue-600/40 border border-blue-400/40 animate-in fade-in slide-from-top-2 duration-150 flex items-center gap-1.5 whitespace-nowrap">
@@ -460,7 +868,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
         {/* Left: Brand Logo & Title with Smooth Spinning Core */}
         <div
           className="flex items-center gap-3 cursor-pointer"
-          onClick={() => setCurrentTab('home')}
+          onClick={() => switchTab('home')}
         >
           <SpinningLogo size="sm" showText={false} />
           <div>
@@ -484,7 +892,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             { id: 'home', labelBn: 'হোম', labelEn: 'Home', icon: Home },
             { id: 'invest', labelBn: 'ইনভেস্ট', labelEn: 'Invest', icon: Rocket },
             { id: 'transactions', labelBn: 'লেনদেন', labelEn: 'History', icon: ArrowLeftRight },
-            { id: 'wallet', labelBn: 'ওয়ালেট', labelEn: 'Wallet', icon: Wallet },
+            { id: 'wallet', labelBn: 'প্রমো বোনাস', labelEn: 'Promo Bonus', icon: Award },
             { id: 'referral', labelBn: 'রেফারেল', labelEn: 'Team', icon: Users },
             { id: 'profile', labelBn: 'প্রোফাইল', labelEn: 'Profile', icon: User },
           ].map((item) => {
@@ -494,7 +902,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               <button
                 key={item.id}
                 type="button"
-                onClick={() => setCurrentTab(item.id as any)}
+                onClick={() => switchTab(item.id as any)}
                 className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                   isActive
                     ? 'bg-gradient-to-r from-cyan-500/20 to-blue-600/20 text-cyan-300 border border-cyan-500/30 shadow-sm'
@@ -557,9 +965,9 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             onOpenWithdraw={() => setActiveSubModal('withdraw')}
             onOpenRobotLogin={() => setActiveSubModal('authenticator')}
             onOpenNotifications={() => setActiveSubModal('notifications')}
-            onGoToInvest={() => setCurrentTab('invest')}
-            onGoToProfile={() => setCurrentTab('profile')}
-            onOpenInvite={() => setCurrentTab('referral')}
+            onGoToInvest={() => switchTab('invest')}
+            onGoToProfile={() => switchTab('profile')}
+            onOpenInvite={() => switchTab('referral')}
             onInvestProject={handleInvestProject}
             onClaimDailyBonus={handleClaimDailyBonus}
             hasClaimedBonus={hasClaimedBonus}
@@ -574,9 +982,9 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               type="button"
               onClick={() => {
                 if (currentTab !== 'profile') {
-                  setCurrentTab('profile');
+                  switchTab('profile');
                 } else {
-                  setCurrentTab('home');
+                  switchTab('home');
                 }
               }}
               className="p-1.5 -ml-1.5 text-slate-300 hover:text-white transition-colors cursor-pointer flex items-center gap-1"
@@ -650,10 +1058,10 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             onOpenGateway={(amount, method, channel) => {
               handleInitiateDeposit(amount, method, channel);
             }}
-            onOpenHistory={() => setCurrentTab('transactions')}
-            onBack={() => setCurrentTab('home')}
+            onOpenHistory={() => switchTab('transactions')}
+            onBack={() => switchTab('home')}
             onClaimPromoReward={(amt, lvl) => {
-              setUser((prev) => ({
+              updateUser((prev) => ({
                 ...prev,
                 walletBalance: prev.walletBalance + amt,
               }));
@@ -664,7 +1072,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               );
             }}
             onWithdrawSubmit={(amt, method, acct) => {
-              setUser((prev) => ({
+              updateUser((prev) => ({
                 ...prev,
                 walletBalance: Math.max(0, prev.walletBalance - amt),
                 transactions: [
@@ -702,9 +1110,9 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             currentLang={currentLang}
             userCode={user.memberId || 'NV8829'}
             userBalance={user.walletBalance}
-            onBack={() => setCurrentTab('home')}
+            onBack={() => switchTab('home')}
             onClaimReward={(amt) => {
-              setUser((prev) => ({
+              updateUser((prev) => ({
                 ...prev,
                 walletBalance: prev.walletBalance + amt,
                 transactions: [
@@ -897,7 +1305,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             {/* 3. Team Commission & Referral Banner (রিচার্জ ও উইথড্র অপশনের নিচে ব্যানার) */}
             <div
               id="profile-team-commission-banner"
-              onClick={() => setCurrentTab('referral')}
+              onClick={() => switchTab('referral')}
               className="mt-4 relative overflow-hidden rounded-[22px] bg-gradient-to-br from-[#08152c] via-[#0d203e] to-[#08111e] border border-amber-500/40 hover:border-amber-400/60 p-4 shadow-xl shadow-amber-950/20 cursor-pointer transition-all group active:scale-[0.99]"
             >
               {/* Glowing Ambient Lights */}
@@ -1250,7 +1658,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           {/* Home */}
           <button
             type="button"
-            onClick={() => setCurrentTab('home')}
+            onClick={() => switchTab('home')}
             className={`relative flex flex-col items-center py-1 px-3 rounded-2xl transition-all cursor-pointer active:scale-95 ${
               currentTab === 'home'
                 ? 'text-cyan-400 font-extrabold bg-cyan-500/10'
@@ -1267,7 +1675,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           {/* Invest */}
           <button
             type="button"
-            onClick={() => setCurrentTab('invest')}
+            onClick={() => switchTab('invest')}
             className={`relative flex flex-col items-center py-1 px-3 rounded-2xl transition-all cursor-pointer active:scale-95 ${
               currentTab === 'invest'
                 ? 'text-cyan-400 font-extrabold bg-cyan-500/10'
@@ -1284,7 +1692,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           {/* Transactions */}
           <button
             type="button"
-            onClick={() => setCurrentTab('transactions')}
+            onClick={() => switchTab('transactions')}
             className={`relative flex flex-col items-center py-1 px-3 rounded-2xl transition-all cursor-pointer active:scale-95 ${
               currentTab === 'transactions'
                 ? 'text-cyan-400 font-extrabold bg-cyan-500/10'
@@ -1302,7 +1710,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           <button
             id="bottom-nav-promo-bonus-btn"
             type="button"
-            onClick={() => setCurrentTab('wallet')}
+            onClick={() => switchTab('wallet')}
             className={`relative flex flex-col items-center py-1 px-3 rounded-2xl transition-all cursor-pointer active:scale-95 ${
               currentTab === 'wallet'
                 ? 'text-[#FFB300] font-extrabold bg-[#FFB300]/10'
@@ -1319,7 +1727,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           {/* Profile */}
           <button
             type="button"
-            onClick={() => setCurrentTab('profile')}
+            onClick={() => switchTab('profile')}
             className={`relative flex flex-col items-center py-1 px-3 rounded-2xl transition-all cursor-pointer active:scale-95 ${
               currentTab === 'profile'
                 ? 'text-cyan-400 font-extrabold bg-cyan-500/10'
@@ -1394,12 +1802,12 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           onClose={() => setActiveSubModal(null)}
           currentBalance={user.walletBalance}
           currentLang={currentLang}
-          onProceed={(amt, method, channel) => {
-            handleInitiateDeposit(amt, method, channel);
+          onProceed={(amt, method, channel, manualDetails) => {
+            handleInitiateDeposit(amt, method, channel, manualDetails);
           }}
           onOpenHistory={() => {
             setActiveSubModal(null);
-            setCurrentTab('transactions');
+            switchTab('transactions');
           }}
         />
       )}
@@ -1412,7 +1820,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           userName={user.fullName || user.name}
           onClose={() => setActiveSubModal(null)}
           onWithdrawSuccess={(amt, details) => {
-            setUser((prev) => ({
+            updateUser((prev) => ({
               ...prev,
               walletBalance: Math.max(0, prev.walletBalance - amt),
               transactions: [
@@ -1542,7 +1950,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 <input
                   type="text"
                   value={user.name}
-                  onChange={(e) => setUser({ ...user, name: e.target.value })}
+                  onChange={(e) => updateUser((prev) => ({ ...prev, name: e.target.value }))}
                   className="w-full p-2 rounded-xl bg-[#131e36] border border-slate-700 text-white focus:outline-none focus:border-blue-500"
                 />
               </div>
@@ -1551,7 +1959,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 <input
                   type="text"
                   value={user.phone}
-                  onChange={(e) => setUser({ ...user, phone: e.target.value })}
+                  onChange={(e) => updateUser((prev) => ({ ...prev, phone: e.target.value }))}
                   className="w-full p-2 rounded-xl bg-[#131e36] border border-slate-700 text-white focus:outline-none focus:border-blue-500"
                 />
               </div>

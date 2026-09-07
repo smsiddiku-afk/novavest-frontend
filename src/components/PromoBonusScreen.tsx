@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { scrollAppToTop } from '../utils/scrollHelper';
 import {
   ChevronLeft,
   ChevronRight,
@@ -192,6 +193,11 @@ export const PromoBonusScreen: React.FC<PromoBonusScreenProps> = ({
     }
   }, [teamStats, claimedTiers]);
 
+  // Auto-scroll window to top whenever navigating to Promo Bonus page
+  useEffect(() => {
+    scrollAppToTop();
+  }, []);
+
   // Handle claim
   const handleClaim = (tier: TierLevelItem) => {
     if (claimedTiers[tier.id]) return;
@@ -227,11 +233,14 @@ export const PromoBonusScreen: React.FC<PromoBonusScreenProps> = ({
 
   return (
     <div
-      className="w-full flex flex-col items-center text-slate-100 select-none pb-12"
+      className="w-full flex flex-col items-center text-slate-100 select-none pb-12 relative"
       style={{
         background: 'radial-gradient(circle at 10% 0%, rgba(132, 204, 22, 0.12) 0%, #111317 40%, #0d0f12 100%)',
       }}
     >
+      {/* Top scroll anchor */}
+      <div id="promo-bonus-top" className="w-full h-0 pointer-events-none opacity-0" />
+
       {/* Centered Responsive Canvas (mobile-first on mobile, expands on desktop) */}
       <div className="w-full max-w-md md:max-w-5xl lg:max-w-6xl mx-auto px-3.5 sm:px-4 pt-3 flex flex-col">
         {/* ========================================================================= */}

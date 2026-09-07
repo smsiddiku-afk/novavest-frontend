@@ -1,0 +1,125 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile with authentication details and wallet balance",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Unique user ID matching Firebase Auth UID"
+        },
+        "name": {
+          "type": "string",
+          "description": "Full name or nickname of the user",
+          "maxLength": 100
+        },
+        "phone": {
+          "type": "string",
+          "description": "Phone number with country code",
+          "maxLength": 30
+        },
+        "email": {
+          "type": "string",
+          "description": "User email address",
+          "maxLength": 100
+        },
+        "memberId": {
+          "type": "string",
+          "description": "Unique NVT membership ID",
+          "maxLength": 32
+        },
+        "walletBalance": {
+          "type": "number",
+          "description": "Current wallet balance in BDT"
+        },
+        "memberSince": {
+          "type": "string",
+          "description": "Registration date formatted",
+          "maxLength": 50
+        },
+        "isVerified": {
+          "type": "boolean",
+          "description": "Account verification status"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Creation timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "Last update timestamp"
+        }
+      },
+      "required": ["uid", "name", "phone", "email", "walletBalance"]
+    },
+    "Deposit": {
+      "title": "Deposit",
+      "description": "User deposit record capturing payment details and TrxID",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique deposit ID" },
+        "userId": { "type": "string", "description": "UID of the user who made the deposit" },
+        "amount": { "type": "number", "description": "Amount deposited in BDT" },
+        "method": { "type": "string", "description": "Payment method: bKash, Nagad, etc." },
+        "channel": { "type": "string", "description": "Payment channel: gogopay, nekpay, okexpay, or manual" },
+        "trxId": { "type": "string", "description": "Transaction reference / TrxID from SMS or gateway" },
+        "senderPhone": { "type": "string", "description": "Optional sender phone number" },
+        "orderNo": { "type": "string", "description": "Internal or gateway order number" },
+        "status": { "type": "string", "description": "Deposit status: completed, pending, failed" },
+        "createdAt": { "type": "string", "description": "Deposit timestamp" }
+      },
+      "required": ["id", "userId", "amount", "status", "createdAt"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "General ledger entry for deposits, withdrawals, yields, and bonuses",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique transaction ID" },
+        "userId": { "type": "string", "description": "UID of the user" },
+        "type": { "type": "string", "description": "Transaction type: recharge, deposit, withdraw, yield, bonus" },
+        "amount": { "type": "number", "description": "Amount in BDT (positive for credit, negative for debit)" },
+        "title": { "type": "string", "description": "Title of transaction" },
+        "description": { "type": "string", "description": "Detailed description or TrxID" },
+        "channel": { "type": "string", "description": "Gateway or account details" },
+        "status": { "type": "string", "description": "Status: completed, pending, rejected" },
+        "isCredit": { "type": "boolean", "description": "True if balance addition, false if deduction" },
+        "createdAt": { "type": "string", "description": "ISO timestamp" }
+      },
+      "required": ["id", "userId", "type", "amount", "status", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": {
+        "$ref": "#/entities/User"
+      },
+      "description": "User document keyed by Firebase Auth UID"
+    },
+    "/deposits/{depositId}": {
+      "schema": {
+        "$ref": "#/entities/Deposit"
+      },
+      "description": "Top-level deposit records collection"
+    },
+    "/transactions/{transactionId}": {
+      "schema": {
+        "$ref": "#/entities/Transaction"
+      },
+      "description": "Top-level transactions collection"
+    },
+    "/users/{userId}/deposits/{depositId}": {
+      "schema": {
+        "$ref": "#/entities/Deposit"
+      },
+      "description": "User deposits subcollection"
+    },
+    "/users/{userId}/transactions/{transactionId}": {
+      "schema": {
+        "$ref": "#/entities/Transaction"
+      },
+      "description": "User transactions subcollection"
+    }
+  }
+}

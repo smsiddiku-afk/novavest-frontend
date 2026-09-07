@@ -6,11 +6,13 @@ import { translations } from '../utils/translations';
 interface TransactionsTabContentProps {
   userBalance: number;
   currentLang?: Language;
+  userTransactions?: any[];
 }
 
 export const TransactionsTabContent: React.FC<TransactionsTabContentProps> = ({
   userBalance,
   currentLang = 'en',
+  userTransactions = [],
 }) => {
   const isBn = currentLang === 'bn';
   const t = translations[currentLang];
@@ -18,7 +20,7 @@ export const TransactionsTabContent: React.FC<TransactionsTabContentProps> = ({
   const [selectedReceipt, setSelectedReceipt] = useState<any | null>(null);
   const [copiedTrx, setCopiedTrx] = useState(false);
 
-  const transactions = [
+  const defaultTransactions = [
     {
       id: 'TRX-98214',
       type: 'yield',
@@ -79,6 +81,25 @@ export const TransactionsTabContent: React.FC<TransactionsTabContentProps> = ({
       channel: 'BESS Matrix Node #2',
       isCredit: true,
     },
+  ];
+
+  // Combine user's real Firestore transactions with defaults
+  const transactions = [
+    ...userTransactions.map((tx: any) => ({
+      id: tx.id || tx.hash || `TRX-${Date.now()}`,
+      type: tx.type || (tx.amount > 0 || (typeof tx.amount === 'string' && tx.amount.startsWith('+')) ? 'recharge' : 'withdraw'),
+      title: tx.title || (tx.type === 'withdrawal' ? 'ব্যালেন্স উত্তোলন' : 'ওয়ালেট ডিপোজিট'),
+      desc: tx.desc || tx.description || `TrxID: ${tx.id || tx.hash || 'Verified'}`,
+      amount: typeof tx.amount === 'number'
+        ? (tx.amount > 0 ? `+৳${tx.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}` : `-৳${Math.abs(tx.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}`)
+        : String(tx.amount || '+৳0.00'),
+      time: tx.time || tx.timestamp || 'আজ, সম্প্রতি',
+      date: tx.date || new Date().toLocaleDateString('en-GB'),
+      status: isBn ? 'সফল' : 'Completed',
+      channel: tx.channel || 'NVT Cloud Settlement',
+      isCredit: tx.isCredit ?? (typeof tx.amount === 'number' ? tx.amount > 0 : !String(tx.amount).startsWith('-')),
+    })),
+    ...defaultTransactions,
   ];
 
   const filtered = transactions.filter((trx) => {

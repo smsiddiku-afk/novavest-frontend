@@ -17,10 +17,10 @@ export const SpinningLogo: React.FC<SpinningLogoProps> = ({
 }) => {
   // Dimensions mapping
   const sizeMap = {
-    sm: { container: 'w-12 h-12', textSize: 'text-base', subSize: 'text-[9px]' },
-    md: { container: 'w-20 h-20', textSize: 'text-lg', subSize: 'text-[10px]' },
-    lg: { container: 'w-28 h-28 sm:w-32 sm:h-32', textSize: 'text-2xl sm:text-3xl', subSize: 'text-xs' },
-    xl: { container: 'w-36 h-36 sm:w-40 sm:h-40', textSize: 'text-3xl sm:text-4xl', subSize: 'text-sm' },
+    sm: { container: 'w-10 h-10', textSize: 'text-sm', subSize: 'text-[8px]' },
+    md: { container: 'w-16 h-16', textSize: 'text-base', subSize: 'text-[9px]' },
+    lg: { container: 'w-16 h-16 sm:w-20 sm:h-20', textSize: 'text-lg sm:text-xl', subSize: 'text-[10px]' },
+    xl: { container: 'w-24 h-24 sm:w-28 sm:h-28', textSize: 'text-xl sm:text-2xl', subSize: 'text-xs' },
   };
 
   const currentSize = sizeMap[size];
@@ -209,28 +209,28 @@ export const SpinningLogo: React.FC<SpinningLogoProps> = ({
           BRAND TYPOGRAPHY & FUEL/POWER STATUS (NVT • Nova Terra Energy)
       ─────────────────────────────────────────────────────────── */}
       {showText && (
-        <div className="mt-4 text-center">
-          <div className="flex flex-col items-center justify-center gap-0.5">
+        <div className="mt-1.5 sm:mt-2 text-center">
+          <div className="flex flex-col items-center justify-center gap-0">
             <h1
-              className={`${currentSize.textSize} font-black tracking-[0.25em] uppercase bg-gradient-to-r from-amber-200 via-orange-400 to-cyan-300 bg-clip-text text-transparent drop-shadow-[0_2px_16px_rgba(245,158,11,0.5)]`}
+              className={`${currentSize.textSize} font-black tracking-[0.22em] uppercase bg-gradient-to-r from-amber-200 via-orange-400 to-cyan-300 bg-clip-text text-transparent drop-shadow-[0_2px_12px_rgba(245,158,11,0.4)] leading-tight`}
             >
               NVT
             </h1>
-            <span className="text-xs sm:text-sm font-bold tracking-[0.22em] uppercase text-slate-200 drop-shadow-sm font-sans">
+            <span className="text-[11px] sm:text-xs font-bold tracking-[0.2em] uppercase text-slate-200 drop-shadow-sm font-sans">
               Nova Terra Energy
             </span>
           </div>
 
           <p
-            className={`${currentSize.subSize} text-amber-400 font-bold tracking-[0.16em] uppercase mt-1.5 flex items-center justify-center gap-1.5`}
+            className={`${currentSize.subSize} text-amber-400 font-bold tracking-[0.14em] uppercase mt-0.5 flex items-center justify-center gap-1`}
           >
-            <span className="w-2 h-2 rounded-full bg-amber-400 shadow-[0_0_8px_#f59e0b] animate-ping inline-block" />
-            <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-300 via-orange-400 to-cyan-300 font-extrabold">
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shadow-[0_0_6px_#f59e0b] animate-ping inline-block" />
+            <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-300 via-orange-400 to-cyan-300 font-bold">
               {subtitle || (lang === 'bn' ? 'জ্বালানী, গ্যাস ও বিদ্যুৎ গ্রিড' : 'Fuel, Gas & Electric Power Grid')}
             </span>
           </p>
 
-          <p className="text-[10px] text-slate-400 font-mono tracking-wider mt-0.5">
+          <p className="text-[9px] text-slate-400/90 font-mono tracking-wide mt-0.5">
             {lang === 'bn' ? 'NVT অফিশিয়াল এনার্জি ইনভেস্টমেন্ট পোর্টাল' : 'NVT Official Energy & Fuel Portal'}
           </p>
         </div>

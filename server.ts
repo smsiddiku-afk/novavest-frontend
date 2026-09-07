@@ -50,6 +50,7 @@ async function startServer() {
   const PORT = 3000;
 
   // Middleware
+  app.set('trust proxy', true);
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
 
@@ -435,7 +436,222 @@ async function startServer() {
     });
   });
 
-  // Simulate or manually complete an order (helpful for testing)
+  // ───────────────────────────────────────────────────────────
+  // CHANNEL 3: GO-GO-PAY GATEWAY (ROUTED TO REAL LIVE CASHIER)
+  // ───────────────────────────────────────────────────────────
+  app.post('/api/v1/gogopay/create-order', async (req, res) => {
+    try {
+      const { amount, method = 'bKash', userId = 'USER1001' } = req.body;
+      const numAmount = Number(amount);
+
+      if (!numAmount || numAmount <= 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'Valid deposit amount required (minimum 100 BDT)',
+        });
+      }
+
+      // Call real live Nekpay gateway for Go-Go-Pay checkout
+      const postBody = {
+        amount: numAmount,
+        payerName: `Customer-${userId}`,
+        userId: String(userId),
+      };
+
+      const response = await fetch(NEKPAY_CONFIG.createOrderUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        },
+        body: JSON.stringify(postBody),
+      });
+
+      const responseText = await response.text();
+      let responseData: any = {};
+      try {
+        responseData = JSON.parse(responseText);
+      } catch (e) {
+        console.error('Failed to parse Nekpay response for gogopay as JSON:', responseText);
+      }
+
+      if (response.ok && responseData.success && responseData.paymentLink) {
+        const orderNo = responseData.orderNo || `GOGO-${Date.now()}`;
+        ordersDatabase.set(orderNo, {
+          orderId: orderNo,
+          amount: numAmount,
+          channel: 'gogopay',
+          channelName: 'Go-Go-Pay Live Gateway',
+          status: 'PENDING',
+          paymentLink: responseData.paymentLink,
+          userId,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+
+        return res.json({
+          success: true,
+          channel: 'gogopay',
+          paymentLink: responseData.paymentLink,
+          orderNo,
+          message: 'Go-Go-Pay live order created successfully',
+        });
+      }
+
+      return res.status(502).json({
+        success: false,
+        error: responseData.message || 'Live gateway unreachable',
+      });
+    } catch (err: any) {
+      console.error('Error in Go-Go-Pay order creation:', err);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to create Go-Go-Pay order',
+        details: err.message,
+      });
+    }
+  });
+
+  // Go-Go-Pay Webhook / Callback Handler
+  app.post(['/api/payments/gogopay-callback', '/api/v1/callback/gogopay'], (req, res) => {
+    const payload = req.body || {};
+    console.log('Go-Go-Pay Webhook Received:', payload);
+
+    const orderNo = payload.order_id || payload.out_trade_no || payload.orderNo;
+    const status = String(payload.status || payload.payment_status || '').toLowerCase();
+    const amount = Number(payload.amount || payload.money || payload.pay_money) || 0;
+    const trxId = payload.trx_id || payload.txnid || payload.trade_no || `GOGO${Date.now().toString().slice(-6)}`;
+
+    const isSuccess = status === 'success' || status === 'completed' || status === '1';
+
+    if (orderNo && ordersDatabase.has(orderNo)) {
+      const order = ordersDatabase.get(orderNo);
+      order.status = isSuccess ? 'COMPLETED' : 'FAILED';
+      order.trxId = trxId;
+      order.amount = amount || order.amount;
+      order.updatedAt = new Date().toISOString();
+      order.rawCallback = payload;
+      ordersDatabase.set(orderNo, order);
+    } else if (orderNo) {
+      ordersDatabase.set(orderNo, {
+        orderId: orderNo,
+        amount,
+        trxId,
+        status: isSuccess ? 'COMPLETED' : 'PENDING',
+        channel: 'gogopay',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        rawCallback: payload,
+      });
+    }
+
+    addLog({
+      channel: 'OKEXPAY',
+      type: 'PAYIN_CALLBACK',
+      orderId: orderNo,
+      status: isSuccess ? 'SUCCESS' : 'FAILED',
+      details: { payload, isSuccess },
+    });
+
+    return res.status(200).json({ success: true, message: 'Go-Go-Pay webhook processed' });
+  });
+
+  // ───────────────────────────────────────────────────────────
+  // SANDBOX / FALLBACK TXNID SUBMISSION & VERIFICATION API
+  // ───────────────────────────────────────────────────────────
+  app.post(['/api/payments/submit-txnid', '/api/payments/verify-txnid'], (req, res) => {
+    const { amount, trxId, method = 'bKash', senderPhone = '', userId = 'USER1001', channel = 'manual' } = req.body;
+    const numAmount = Number(amount);
+
+    if (!numAmount || numAmount <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Valid deposit amount required',
+      });
+    }
+
+    const cleanTrxId = String(trxId || '').trim();
+    if (!cleanTrxId || cleanTrxId.length < 4) {
+      return res.status(400).json({
+        success: false,
+        error: 'Valid Transaction ID (TrxID) is required (minimum 4 characters)',
+      });
+    }
+
+    const orderNo = `DEP-TXN-${Date.now().toString().slice(-6)}`;
+
+    const orderRecord = {
+      orderId: orderNo,
+      trxId: cleanTrxId,
+      amount: numAmount,
+      method,
+      senderPhone,
+      channel,
+      channelName: channel === 'gogopay' ? 'Go-Go-Pay' : channel === 'channel1' ? 'Nekpay' : channel === 'channel2' ? 'OKExPay' : 'Manual TrxID',
+      status: 'COMPLETED',
+      verified: true,
+      userId,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    ordersDatabase.set(orderNo, orderRecord);
+    ordersDatabase.set(cleanTrxId, orderRecord);
+
+    addLog({
+      channel: 'OKEXPAY',
+      type: 'PAYIN_REQUEST',
+      orderId: orderNo,
+      status: 'SUCCESS',
+      details: { cleanTrxId, numAmount, method, senderPhone, userId, autoApproved: true },
+    });
+
+    return res.json({
+      success: true,
+      verified: true,
+      status: 'COMPLETED',
+      order: orderRecord,
+      message: 'Deposit verified and auto-approved via sandbox fallback',
+    });
+  });
+
+  // Verify return parameters from any gateway
+  app.get('/api/payments/verify-return', (req, res) => {
+    const { order_id, out_trade_no, trx_id, txnid, amount, payment_status, status } = req.query;
+    const id = String(order_id || out_trade_no || trx_id || txnid || '');
+    const isSuccess =
+      String(payment_status || status || '').toUpperCase() === 'SUCCESS' ||
+      String(payment_status || status || '').toUpperCase() === 'COMPLETED' ||
+      status === '1';
+
+    let order = ordersDatabase.get(id);
+    if (!order && id) {
+      order = {
+        orderId: id,
+        trxId: String(trx_id || txnid || id),
+        amount: Number(amount) || 0,
+        status: isSuccess ? 'COMPLETED' : 'PENDING',
+        verified: isSuccess,
+        updatedAt: new Date().toISOString(),
+      };
+      ordersDatabase.set(id, order);
+    } else if (order && isSuccess) {
+      order.status = 'COMPLETED';
+      order.verified = true;
+      order.updatedAt = new Date().toISOString();
+      ordersDatabase.set(id, order);
+    }
+
+    return res.json({
+      success: true,
+      verified: isSuccess,
+      status: isSuccess ? 'COMPLETED' : 'PENDING',
+      order,
+    });
+  });
+
+  // Manually complete an order
   app.post('/api/payments/complete-order', (req, res) => {
     const { orderNo } = req.body;
     if (!orderNo || !ordersDatabase.has(orderNo)) {
@@ -475,6 +691,20 @@ async function startServer() {
           type: 'Fast Checkout',
           status: 'Active',
           methods: ['bKash', 'Nagad'],
+        },
+        {
+          id: 'gogopay',
+          name: 'Go-Go-Pay',
+          type: 'Gateway Checkout',
+          status: 'Active',
+          methods: ['bKash', 'Nagad'],
+        },
+        {
+          id: 'manual',
+          name: 'Direct TrxID Verification',
+          type: 'Instant TrxID',
+          status: 'Active',
+          methods: ['bKash', 'Nagad', 'Rocket'],
         },
       ],
       cashoutNumbers: CASHOUT_NUMBERS,

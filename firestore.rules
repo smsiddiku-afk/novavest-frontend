@@ -1,0 +1,45 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Connection test document
+    match /test/connection {
+      allow read: if true;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    match /users/{userId} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId);
+      allow update: if isOwner(userId);
+      allow delete: if false;
+
+      match /deposits/{depositId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      match /transactions/{transactionId} {
+        allow read, write: if isOwner(userId);
+      }
+    }
+
+    match /deposits/{depositId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /transactions/{transactionId} {
+      allow read, write: if isSignedIn();
+    }
+  }
+}

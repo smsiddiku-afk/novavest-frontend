@@ -9,11 +9,20 @@ import {
   ArrowDownToLine,
   ArrowUpFromLine,
   Sparkles,
+  Copy,
+  CreditCard,
+  ExternalLink,
+  CheckCircle2,
 } from 'lucide-react';
 import { Language } from '../types';
 
-export type PaymentMethodType = 'bKash' | 'Nagad';
-export type PaymentChannelType = 'channel1' | 'channel2';
+export type PaymentMethodType = 'bKash' | 'Nagad' | 'Rocket';
+export type PaymentChannelType = 'channel1' | 'channel2' | 'gogopay' | 'manual';
+
+export interface ManualDepositDetails {
+  trxId: string;
+  senderPhone?: string;
+}
 
 interface CleanWalletScreenProps {
   currentBalance: number;
@@ -21,13 +30,24 @@ interface CleanWalletScreenProps {
   initialTab?: 'recharge' | 'withdraw';
   onBack?: () => void;
   onOpenHistory?: () => void;
-  onConfirmRecharge: (amount: number, method: PaymentMethodType, channel?: PaymentChannelType) => void;
+  onConfirmRecharge: (
+    amount: number,
+    method: PaymentMethodType,
+    channel?: PaymentChannelType,
+    manualDetails?: ManualDepositDetails
+  ) => void | Promise<void>;
   onConfirmWithdraw?: (amount: number, method: PaymentMethodType, account: string) => void;
   showToast?: (msg: string) => void;
 }
 
 const RECHARGE_PRESETS = [100, 300, 500, 1000, 2000, 5000];
 const WITHDRAW_PRESETS = [500, 1000, 2000, 5000, 10000];
+
+const OFFICIAL_MERCHANT_NUMBERS: Record<PaymentMethodType, { number: string; type: string }> = {
+  bKash: { number: '01712-345678', type: 'বিকাশ এজেন্ট / মার্চেন্ট ক্যাশ আউট' },
+  Nagad: { number: '01844-992211', type: 'নগদ এজেন্ট / মার্চেন্ট ক্যাশ আউট' },
+  Rocket: { number: '01911-223344', type: 'রকেট এজেন্ট ক্যাশ আউট' },
+};
 
 export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
   currentBalance,
@@ -70,9 +90,12 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
       displayToast(currentLang === 'bn' ? 'সর্বোচ্চ রিচার্জের পরিমাণ ৫০,০০০.০০ টাকা' : 'Maximum recharge amount is 50,000.00 BDT');
       return;
     }
+
     try {
       setIsSubmitting(true);
-      await Promise.resolve(onConfirmRecharge(num, selectedMethod, selectedChannel));
+      await Promise.resolve(
+        onConfirmRecharge(num, selectedMethod, selectedChannel)
+      );
     } catch (err) {
       console.error(err);
     } finally {
@@ -258,52 +281,25 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
               </div>
             </div>
 
-            {/* 2. RECHARGE BUTTON - PLACED HIGH UP (NO SCROLLING REQUIRED) */}
-            <div className="pt-0.5">
-              <button
-                id="wallet-confirm-recharge-btn"
-                type="button"
-                disabled={isSubmitting}
-                onClick={handleRechargeSubmit}
-                className="w-full py-3.5 sm:py-4 rounded-2xl bg-gradient-to-r from-[#18c4e6] via-[#22d3ee] to-[#0ea5e9] hover:from-[#15b3d2] hover:to-[#0284c7] active:scale-[0.98] text-[#051119] font-bold text-base sm:text-lg tracking-wide shadow-[0_4px_24px_rgba(24,196,230,0.4)] transition-all cursor-pointer flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
-              >
-                {isSubmitting ? (
-                  <span className="flex items-center gap-2 text-sm font-bold">
-                    <span className="w-4 h-4 border-2 border-slate-900 border-t-transparent rounded-full animate-spin" />
-                    {currentLang === 'bn' ? 'পেমেন্ট গেটওয়েতে নেওয়া হচ্ছে...' : 'Connecting to Gateway...'}
-                  </span>
-                ) : (
-                  <>
-                    <Zap className="w-5 h-5 fill-current" />
-                    <span>
-                      {currentLang === 'bn'
-                        ? `রিচার্জ করুন • ৳${amount || '১০০'}`
-                        : `Confirm Recharge • ৳${amount || '100'}`}
-                    </span>
-                  </>
-                )}
-              </button>
-            </div>
-
-            {/* 3. PAYMENT METHOD SELECTOR (COMPACT HORIZONTAL CARDS) */}
+            {/* 2. PAYMENT METHOD SELECTOR */}
             <div className="space-y-1.5 pt-1">
               <span className="text-slate-400 text-xs font-semibold block">
                 {currentLang === 'bn' ? 'পেমেন্ট মেথড নির্বাচন' : 'Payment Method'}
               </span>
-              <div className="grid grid-cols-2 gap-2.5">
+              <div className="grid grid-cols-3 gap-2">
                 {/* bKash Card */}
                 <div
                   id="payment-method-bkash"
                   onClick={() => setSelectedMethod('bKash')}
-                  className={`rounded-xl p-2.5 flex items-center justify-between gap-2.5 cursor-pointer transition-all border-2 ${
+                  className={`rounded-xl p-2.5 flex flex-col justify-between cursor-pointer transition-all border-2 ${
                     selectedMethod === 'bKash'
                       ? 'bg-[#081e2e] border-[#18c4e6] shadow-[0_0_14px_rgba(24,196,230,0.25)]'
                       : 'bg-[#07141f] border-slate-800/80 hover:border-slate-700'
                   }`}
                 >
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-9 h-9 rounded-full bg-[#e2136e] flex items-center justify-center shadow-md shadow-[#e2136e]/20 shrink-0">
-                      <svg viewBox="0 0 100 100" className="w-5 h-5" fill="none">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <div className="w-7 h-7 rounded-full bg-[#e2136e] flex items-center justify-center shadow-md shadow-[#e2136e]/20 shrink-0">
+                      <svg viewBox="0 0 100 100" className="w-4 h-4" fill="none">
                         <path d="M54 12L85 30L63 46L54 12Z" fill="white" />
                         <path d="M54 12L20 54L48 50L54 12Z" fill="white" fillOpacity="0.95" />
                         <path d="M48 50L18 80L48 64L63 46L48 50Z" fill="white" fillOpacity="0.9" />
@@ -311,17 +307,17 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
                         <path d="M58 72L78 68L63 46L58 72Z" fill="white" fillOpacity="0.95" />
                       </svg>
                     </div>
-                    <div>
-                      <span className="text-white font-bold text-sm block leading-none">bKash</span>
-                      <span className="text-[10px] text-emerald-400 font-medium">Auto Gateway</span>
+                    <div
+                      className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center shrink-0 ${
+                        selectedMethod === 'bKash' ? 'border-[#18c4e6] bg-[#18c4e6]' : 'border-slate-600'
+                      }`}
+                    >
+                      {selectedMethod === 'bKash' && <Check className="w-2.5 h-2.5 text-[#051119] stroke-[3]" />}
                     </div>
                   </div>
-                  <div
-                    className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${
-                      selectedMethod === 'bKash' ? 'border-[#18c4e6] bg-[#18c4e6]' : 'border-slate-600'
-                    }`}
-                  >
-                    {selectedMethod === 'bKash' && <Check className="w-2.5 h-2.5 text-[#051119] stroke-[3]" />}
+                  <div>
+                    <span className="text-white font-bold text-xs block leading-tight">bKash</span>
+                    <span className="text-[9px] text-emerald-400 font-medium">অটো গেটওয়ে</span>
                   </div>
                 </div>
 
@@ -329,100 +325,159 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
                 <div
                   id="payment-method-nagad"
                   onClick={() => setSelectedMethod('Nagad')}
-                  className={`rounded-xl p-2.5 flex items-center justify-between gap-2.5 cursor-pointer transition-all border-2 ${
+                  className={`rounded-xl p-2.5 flex flex-col justify-between cursor-pointer transition-all border-2 ${
                     selectedMethod === 'Nagad'
                       ? 'bg-[#081e2e] border-[#18c4e6] shadow-[0_0_14px_rgba(24,196,230,0.25)]'
                       : 'bg-[#07141f] border-slate-800/80 hover:border-slate-700'
                   }`}
                 >
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-[#ed1c24] via-[#f7941d] to-[#f9a01b] flex items-center justify-center shadow-md shadow-[#f7941d]/20 shrink-0 p-1">
-                      <svg viewBox="0 0 100 100" className="w-5 h-5" fill="none">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-[#ed1c24] via-[#f7941d] to-[#f9a01b] flex items-center justify-center shadow-md shadow-[#f7941d]/20 shrink-0 p-0.5">
+                      <svg viewBox="0 0 100 100" className="w-4 h-4" fill="none">
                         <circle cx="58" cy="24" r="7.5" fill="white" />
                         <path
                           d="M30 42C34 32 46 28 56 34L50 46C44 42 38 44 36 50C33 57 37 64 44 67C50 69 57 66 61 58L72 64C66 78 50 84 38 78C23 72 18 56 30 42Z"
                           fill="white"
                         />
-                        <path d="M48 42L66 32L62 44L78 52L68 62L58 52L48 42Z" fill="white" fillOpacity="0.95" />
                       </svg>
                     </div>
-                    <div>
-                      <span className="text-white font-bold text-sm block leading-none">Nagad</span>
-                      <span className="text-[10px] text-orange-400 font-medium">Instant Pay</span>
+                    <div
+                      className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center shrink-0 ${
+                        selectedMethod === 'Nagad' ? 'border-[#18c4e6] bg-[#18c4e6]' : 'border-slate-600'
+                      }`}
+                    >
+                      {selectedMethod === 'Nagad' && <Check className="w-2.5 h-2.5 text-[#051119] stroke-[3]" />}
                     </div>
                   </div>
-                  <div
-                    className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${
-                      selectedMethod === 'Nagad' ? 'border-[#18c4e6] bg-[#18c4e6]' : 'border-slate-600'
-                    }`}
-                  >
-                    {selectedMethod === 'Nagad' && <Check className="w-2.5 h-2.5 text-[#051119] stroke-[3]" />}
+                  <div>
+                    <span className="text-white font-bold text-xs block leading-tight">Nagad</span>
+                    <span className="text-[9px] text-orange-400 font-medium">ইনস্ট্যান্ট পে</span>
+                  </div>
+                </div>
+
+                {/* Rocket Card */}
+                <div
+                  id="payment-method-rocket"
+                  onClick={() => setSelectedMethod('Rocket')}
+                  className={`rounded-xl p-2.5 flex flex-col justify-between cursor-pointer transition-all border-2 ${
+                    selectedMethod === 'Rocket'
+                      ? 'bg-[#081e2e] border-[#18c4e6] shadow-[0_0_14px_rgba(24,196,230,0.25)]'
+                      : 'bg-[#07141f] border-slate-800/80 hover:border-slate-700'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1.5">
+                    <div className="w-7 h-7 rounded-full bg-[#8c3494] flex items-center justify-center shadow-md shadow-[#8c3494]/20 shrink-0">
+                      <CreditCard className="w-3.5 h-3.5 text-white" />
+                    </div>
+                    <div
+                      className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center shrink-0 ${
+                        selectedMethod === 'Rocket' ? 'border-[#18c4e6] bg-[#18c4e6]' : 'border-slate-600'
+                      }`}
+                    >
+                      {selectedMethod === 'Rocket' && <Check className="w-2.5 h-2.5 text-[#051119] stroke-[3]" />}
+                    </div>
+                  </div>
+                  <div>
+                    <span className="text-white font-bold text-xs block leading-tight">Rocket</span>
+                    <span className="text-[9px] text-purple-400 font-medium">রকেট পে</span>
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* 4. PAYMENT CHANNEL SELECTOR (SLEEK 2-COLUMN) */}
-            <div className="space-y-1.5 pt-0.5">
+            {/* 3. PAYMENT CHANNEL SELECTOR (OFFICIAL LIVE CHANNELS ONLY) */}
+            <div className="space-y-1.5 pt-1">
               <div className="flex items-center justify-between">
                 <span className="text-slate-400 text-xs font-semibold flex items-center gap-1">
-                  <Layers className="w-3 h-3 text-[#18c4e6]" />
+                  <Layers className="w-3.5 h-3.5 text-[#18c4e6]" />
                   <span>{currentLang === 'bn' ? 'পেমেন্ট চ্যানেল' : 'Payment Channel'}</span>
                 </span>
-                <span className="text-[10px] text-emerald-400 font-mono">
-                  {selectedChannel === 'channel1' ? 'Channel 1 Active' : 'Channel 2 Active'}
+                <span className="text-[10px] text-[#18c4e6] font-mono font-medium">
+                  {selectedChannel === 'channel1' && 'Nekpay Auto (সুপারফাস্ট)'}
+                  {selectedChannel === 'channel2' && 'OKExPay Fast (অটোমেটেড)'}
                 </span>
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
-                {/* Channel 1 Card */}
+              <div className="grid grid-cols-2 gap-2.5">
+                {/* Channel 1: Nekpay */}
                 <div
                   id="payment-channel-1-nekpay"
                   onClick={() => setSelectedChannel('channel1')}
-                  className={`p-2.5 rounded-xl flex items-center justify-between cursor-pointer transition-all border ${
+                  className={`p-3 rounded-xl flex items-center justify-between cursor-pointer transition-all border-2 ${
                     selectedChannel === 'channel1'
-                      ? 'bg-[#082236] border-[#18c4e6] text-white'
+                      ? 'bg-[#082236] border-[#18c4e6] shadow-[0_0_16px_rgba(24,196,230,0.25)] text-white'
                       : 'bg-[#07141f] border-slate-800 text-slate-400 hover:border-slate-700'
                   }`}
                 >
                   <div className="flex items-center gap-2">
-                    <Zap className="w-4 h-4 text-[#18c4e6]" />
+                    <div className="w-8 h-8 rounded-lg bg-[#18c4e6]/15 flex items-center justify-center shrink-0">
+                      <Zap className="w-4 h-4 text-[#18c4e6]" />
+                    </div>
                     <div className="text-left">
                       <span className="text-xs font-bold text-white block leading-tight">চ্যানেল ১</span>
-                      <span className="text-[9px] text-emerald-400">Nekpay Auto</span>
+                      <span className="text-[10px] text-emerald-400 font-medium">Nekpay Auto</span>
                     </div>
                   </div>
                   {selectedChannel === 'channel1' && (
-                    <div className="w-3.5 h-3.5 rounded-full bg-[#18c4e6] flex items-center justify-center">
+                    <div className="w-4 h-4 rounded-full bg-[#18c4e6] flex items-center justify-center shrink-0">
                       <Check className="w-2.5 h-2.5 text-[#051119] stroke-[3]" />
                     </div>
                   )}
                 </div>
 
-                {/* Channel 2 Card */}
+                {/* Channel 2: OKExPay */}
                 <div
                   id="payment-channel-2-okexpay"
                   onClick={() => setSelectedChannel('channel2')}
-                  className={`p-2.5 rounded-xl flex items-center justify-between cursor-pointer transition-all border ${
+                  className={`p-3 rounded-xl flex items-center justify-between cursor-pointer transition-all border-2 ${
                     selectedChannel === 'channel2'
-                      ? 'bg-[#082236] border-[#18c4e6] text-white'
+                      ? 'bg-[#082236] border-[#18c4e6] shadow-[0_0_16px_rgba(24,196,230,0.25)] text-white'
                       : 'bg-[#07141f] border-slate-800 text-slate-400 hover:border-slate-700'
                   }`}
                 >
                   <div className="flex items-center gap-2">
-                    <ShieldCheck className="w-4 h-4 text-[#18c4e6]" />
+                    <div className="w-8 h-8 rounded-lg bg-cyan-500/15 flex items-center justify-center shrink-0">
+                      <ShieldCheck className="w-4 h-4 text-cyan-400" />
+                    </div>
                     <div className="text-left">
                       <span className="text-xs font-bold text-white block leading-tight">চ্যানেল ২</span>
-                      <span className="text-[9px] text-cyan-400">OKExPay / WPay</span>
+                      <span className="text-[10px] text-cyan-400 font-medium">OKExPay Fast</span>
                     </div>
                   </div>
                   {selectedChannel === 'channel2' && (
-                    <div className="w-3.5 h-3.5 rounded-full bg-[#18c4e6] flex items-center justify-center">
+                    <div className="w-4 h-4 rounded-full bg-[#18c4e6] flex items-center justify-center shrink-0">
                       <Check className="w-2.5 h-2.5 text-[#051119] stroke-[3]" />
                     </div>
                   )}
                 </div>
               </div>
+            </div>
+
+            {/* 4. PROMINENT BOTTOM PROCESS BUTTON WITH GENEROUS ROOM & SPACING */}
+            <div className="pt-5 sm:pt-6 pb-2">
+              <button
+                id="wallet-confirm-recharge-btn"
+                type="button"
+                disabled={isSubmitting}
+                onClick={handleRechargeSubmit}
+                className="w-full py-4 rounded-2xl bg-gradient-to-r from-[#18c4e6] via-[#22d3ee] to-[#0ea5e9] hover:from-[#15b3d2] hover:to-[#0284c7] active:scale-[0.98] text-[#051119] font-black text-base sm:text-lg tracking-wide shadow-[0_6px_28px_rgba(24,196,230,0.4)] transition-all cursor-pointer flex items-center justify-center gap-2.5 disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {isSubmitting ? (
+                  <span className="flex items-center gap-2.5 text-sm font-bold">
+                    <span className="w-4 h-4 border-2 border-slate-900 border-t-transparent rounded-full animate-spin" />
+                    <span>{currentLang === 'bn' ? 'পেমেন্ট গেটওয়েতে সংযোগ করা হচ্ছে...' : 'Connecting to Gateway...'}</span>
+                  </span>
+                ) : (
+                  <>
+                    <Zap className="w-5 h-5 fill-current" />
+                    <span>
+                      {currentLang === 'bn'
+                        ? `পেমেন্ট সম্পন্ন করুন • ৳${amount || '১০০'}`
+                        : `Proceed to Pay • ৳${amount || '100'}`}
+                    </span>
+                  </>
+                )}
+              </button>
             </div>
 
             {/* 5. RECHARGE TIPS (AT BOTTOM) */}

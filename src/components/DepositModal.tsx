@@ -1,5 +1,5 @@
 import React from 'react';
-import { CleanWalletScreen, PaymentMethodType, PaymentChannelType } from './CleanWalletScreen';
+import { CleanWalletScreen, PaymentMethodType, PaymentChannelType, ManualDepositDetails } from './CleanWalletScreen';
 import { Language } from '../types';
 
 export type DepositMethod = 'bKash' | 'Nagad' | 'Rocket' | 'Card';
@@ -9,7 +9,12 @@ interface DepositModalProps {
   onClose: () => void;
   currentBalance: number;
   currentLang?: Language;
-  onProceed: (amount: number, method: DepositMethod, channel?: PaymentChannelType) => void;
+  onProceed: (
+    amount: number,
+    method: DepositMethod,
+    channel?: PaymentChannelType,
+    manualDetails?: ManualDepositDetails
+  ) => void | Promise<void>;
   onOpenHistory?: () => void;
   onWithdraw?: (amount: number, method: PaymentMethodType, account: string) => void;
 }
@@ -36,8 +41,8 @@ export const DepositModal: React.FC<DepositModalProps> = ({
         initialTab="recharge"
         onBack={onClose}
         onOpenHistory={onOpenHistory}
-        onConfirmRecharge={(amt, method, channel) => {
-          onProceed(amt, method, channel);
+        onConfirmRecharge={(amt, method, channel, manualDetails) => {
+          return onProceed(amt, method, channel, manualDetails);
         }}
         onConfirmWithdraw={onWithdraw}
       />

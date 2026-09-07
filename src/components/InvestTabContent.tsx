@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { scrollAppToTop } from '../utils/scrollHelper';
 import {
   Sparkles,
   MapPin,
@@ -31,6 +32,11 @@ export const InvestTabContent: React.FC<InvestTabContentProps> = ({
 
   const [activeInvestModal, setActiveInvestModal] = useState<EnergyPackage | null>(null);
   const [successCelebration, setSuccessCelebration] = useState<string | null>(null);
+
+  // Auto-scroll window to top whenever navigating to Invest page
+  useEffect(() => {
+    scrollAppToTop();
+  }, []);
 
   const handleOpenInvest = (pkg: EnergyPackage) => {
     setActiveInvestModal(pkg);
@@ -66,7 +72,10 @@ export const InvestTabContent: React.FC<InvestTabContentProps> = ({
   };
 
   return (
-    <div className="w-full space-y-4 pb-6 text-slate-100 animate-in fade-in max-w-xl mx-auto">
+    <div className="w-full space-y-4 pb-6 text-slate-100 animate-in fade-in max-w-xl mx-auto relative">
+      {/* Top scroll anchor */}
+      <div id="invest-tab-top" className="w-full h-0 pointer-events-none opacity-0" />
+
       {/* Top Header Card with User Balance & Quick Recharge */}
       <div className="relative overflow-hidden rounded-[26px] bg-gradient-to-br from-[#0a1428] via-[#0d1a36] to-[#081022] border border-cyan-500/30 p-4 sm:p-5 shadow-xl shadow-cyan-950/30">
         <div className="absolute top-0 right-0 w-36 h-36 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none" />

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Zap,
   ShieldCheck,
@@ -149,7 +149,7 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
     }
   }, []);
 
-  const videoEpisodes = [
+  const videoEpisodes = useMemo(() => [
     {
       id: 'ep-1',
       title: lang === 'bn' ? 'সৌর বিদ্যুৎ পার্ক ও ১৩২কেভি গ্রিড সাবস্টেশন' : 'Apex Helios Solar Farm & Substation',
@@ -225,7 +225,7 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
             { start: 18, end: 999, text: '✅ 24/7 Support Hotline & Downloadable Official Receipts' },
           ]
     }
-  ];
+  ], [lang]);
 
   // Audio synthesizer tone for user interactions
   const playAudioBeep = () => {
@@ -458,7 +458,7 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
     return () => {
       if (timer) clearInterval(timer);
     };
-  }, [isVideoPlaying, selectedVideoIndex, videoEpisodes]);
+  }, [isVideoPlaying, selectedVideoIndex]);
 
   // Clean up speech synthesis on unmount
   useEffect(() => {

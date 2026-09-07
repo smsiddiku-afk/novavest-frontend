@@ -111,7 +111,7 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
   onBack,
   onClaimReward,
   showToast = (_msg: string) => {},
-  userBalance = 12450,
+  userBalance = 0,
 }) => {
   // Main Tabs: 'invite' | 'details' (exactly matches user screenshot)
   const [activeTab, setActiveTab] = useState<'invite' | 'details'>('invite');

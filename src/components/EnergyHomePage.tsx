@@ -40,6 +40,7 @@ import {
 import { ENERGY_SYSTEMS, HOURLY_GENERATION_DATA, MONTHLY_PRODUCTION_DATA, ENERGY_FAQS } from '../data/energyData';
 import { EnergySystem } from '../types';
 import { WithdrawModal } from './WithdrawModal';
+import { resolveImageSrc, handleImageError } from '../utils/imageUtils';
 
 interface EnergyHomePageProps {
   onGoToProfile: () => void;
@@ -292,10 +293,11 @@ export function EnergyHomePage({
             {/* Background AI Visualization Image */}
             <div className="relative w-full h-[380px] sm:h-[480px] lg:h-[540px]">
               <img
-                src="/src/assets/images/energy_hero_facility_1788465969350.jpg"
+                src={resolveImageSrc('/images/energy_hero_facility_1788465969350.jpg', 'default')}
                 alt="AI-powered electricity generation facility and smart power grid"
                 referrerPolicy="no-referrer"
                 className="w-full h-full object-cover object-center brightness-[0.78] contrast-[1.08]"
+                onError={(e) => handleImageError(e, 'default')}
               />
 
               {/* Gradient Overlay for Pristine Readability */}
@@ -755,10 +757,11 @@ export function EnergyHomePage({
           <div className="relative rounded-2xl sm:rounded-3xl overflow-hidden border border-slate-800 shadow-2xl bg-[#0b0d0f] group">
             <div className="relative w-full aspect-video max-h-[500px]">
               <img
-                src="/src/assets/images/smart_turbine_plant_1788466039952.jpg"
+                src={resolveImageSrc('/images/smart_turbine_plant_1788466039952.jpg', 'turbine')}
                 alt="Inside modern smart power facility and turbine systems"
                 referrerPolicy="no-referrer"
                 className="w-full h-full object-cover brightness-75 group-hover:scale-105 transition-transform duration-700"
+                onError={(e) => handleImageError(e, 'turbine')}
               />
               <div className="absolute inset-0 bg-gradient-to-t from-[#0b0d0f] via-black/40 to-transparent" />
 
@@ -857,10 +860,11 @@ export function EnergyHomePage({
                 {/* Image Header with Badge */}
                 <div className="relative w-full h-56 sm:h-64 overflow-hidden">
                   <img
-                    src={system.image}
+                    src={resolveImageSrc(system.image, 'solar')}
                     alt={system.name}
                     referrerPolicy="no-referrer"
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                    onError={(e) => handleImageError(e, 'solar')}
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-[#12161f] via-transparent to-black/30" />
 
@@ -1683,10 +1687,11 @@ export function EnergyHomePage({
 
             <div className="relative rounded-xl overflow-hidden h-48 sm:h-60 mb-5">
               <img
-                src={selectedSystem.image}
+                src={resolveImageSrc(selectedSystem.image, 'solar')}
                 alt={selectedSystem.name}
                 referrerPolicy="no-referrer"
                 className="w-full h-full object-cover"
+                onError={(e) => handleImageError(e, 'solar')}
               />
               <div className="absolute inset-0 bg-gradient-to-t from-[#121620] via-black/30 to-transparent" />
               <div className="absolute bottom-3 left-4">
@@ -1783,10 +1788,11 @@ export function EnergyHomePage({
             {/* Video Player Mockup with Animated Waves */}
             <div className="relative w-full aspect-video rounded-xl overflow-hidden bg-black flex flex-col items-center justify-center border border-slate-800">
               <img
-                src="/src/assets/images/smart_turbine_plant_1788466039952.jpg"
+                src={resolveImageSrc('/images/smart_turbine_plant_1788466039952.jpg', 'turbine')}
                 alt="Plant preview"
                 referrerPolicy="no-referrer"
                 className="absolute inset-0 w-full h-full object-cover opacity-30"
+                onError={(e) => handleImageError(e, 'turbine')}
               />
               <div className="relative z-10 flex flex-col items-center space-y-3">
                 <div className="w-14 h-14 rounded-full bg-cyan-500/20 border border-cyan-400 flex items-center justify-center text-cyan-400 animate-pulse">

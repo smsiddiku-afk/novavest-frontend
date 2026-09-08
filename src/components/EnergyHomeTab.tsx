@@ -58,6 +58,7 @@ import {
 } from '../utils/translations';
 import { HowPowerGridWorksSection } from './HowPowerGridWorksSection';
 import { CompanyProfileModal } from './CompanyProfileModal';
+import { resolveImageSrc, handleImageError } from '../utils/imageUtils';
 
 interface EnergyHomeTabProps {
   currentLang?: Language;
@@ -157,7 +158,7 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
       subtitle: lang === 'bn' ? 'বাস্তব বিদ্যুৎ উৎপাদন ও জাতীয় গ্রিডে সরাসরি সরবরাহ' : 'Real-time solar power generation & 132kV transmission',
       duration: '00:30',
       totalSec: 30,
-      image: '/src/assets/images/solar_ai_substation_1788465992131.jpg',
+      image: '/images/solar_ai_substation_1788465992131.jpg',
       videoSrc: '/company-profile/videos/solar-park-grid.mp4',
       narration: lang === 'bn'
         ? 'নোভা টেরা এনার্জি প্রকল্পে আপনাকে স্বাগতম। আমাদের চারশত পঞ্চাশ মেগাওয়াট সৌর বিদ্যুৎ কেন্দ্র এবং সাবস্টেশন সরাসরি জাতীয় গ্রিডের সাথে যুক্ত। সূর্যের আলো থেকে উৎপাদিত পরিবেশবান্ধব বিদ্যুৎ নিরবচ্ছিন্নভাবে জাতীয় গ্রিডে সরবরাহ করা হচ্ছে। এই বিদ্যুৎ বিক্রির নিশ্চিত রাজস্ব থেকে প্রতিদিন আপনার অ্যাকাউন্টে লভ্যাংশ যুক্ত হয়।'
@@ -182,7 +183,7 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
       subtitle: lang === 'bn' ? '৮২০ মেগাওয়াট রিজার্ভ ও পিক-আওয়ার ব্যালেন্সিং' : '820 MWh Energy Reserve & Grid Balancing',
       duration: '00:30',
       totalSec: 30,
-      image: '/src/assets/images/bess_storage_facility_1788466008161.jpg',
+      image: '/images/bess_storage_facility_1788466008161.jpg',
       videoSrc: '/company-profile/videos/battery-storage-hub.mp4',
       narration: lang === 'bn'
         ? 'এটি আমাদের আধুনিক মেগা ব্যাটারি স্টোরেজ প্রকল্প। সুবিশাল লিথিয়াম ব্যাটারির মাধ্যমে পিক আওয়ারে অতিরিক্ত বিদ্যুৎ সঞ্চয় এবং গ্রিডের ভারসাম্য রক্ষা করা হয়। এই আধুনিক প্রযুক্তির ফলে বিদ্যুৎ অপচয় শূন্যের কোঠায় নেমে এসেছে এবং সার্বক্ষণিক স্থিতিশীল বিদ্যুৎ প্রবাহ নিশ্চিত থাকে।'
@@ -207,7 +208,7 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
       subtitle: lang === 'bn' ? 'বিকাশ, নগদ ও রকেটে ৫-৩০ মিনিটে সরাসরি ক্যাশআউট' : 'Cash out via bKash, Nagad & Rocket in 5-30 mins',
       duration: '00:30',
       totalSec: 30,
-      image: '/src/assets/images/smart_turbine_plant_1788466039952.jpg',
+      image: '/images/smart_turbine_plant_1788466039952.jpg',
       videoSrc: '/company-profile/videos/ppa-revenue-dispatch.mp4',
       narration: lang === 'bn'
         ? 'নোভা টেরা এনার্জিতে আপনার বিনিয়োগ সম্পূর্ণ সুরক্ষিত ও নির্ভরযোগ্য। এখানে যেকোনো প্রকল্প চুক্তির মাধ্যমে আপনি প্রতিদিন নিয়মিত ও নিশ্চিত লভ্যাংশ পেতে পারেন। আর আপনার অর্জিত অর্থ বিকাশ, নগদ অথবা রকেটের মাধ্যমে মাত্র পাঁচ থেকে ত্রিশ মিনিটের মধ্যেই খুব সহজে উত্তোলন করে নিতে পারবেন।'
@@ -575,10 +576,11 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
         {/* Background Image with Ambient Glow */}
         <div className="absolute inset-0 z-0">
           <img
-            src="/src/assets/images/energy_hero_facility_1788465969350.jpg"
+            src={resolveImageSrc('/images/energy_hero_facility_1788465969350.jpg', 'default')}
             alt="AI Electricity Generation Facility"
             className="w-full h-full object-cover object-center opacity-30 mix-blend-luminosity scale-105 transition-transform duration-1000"
             referrerPolicy="no-referrer"
+            onError={(e) => handleImageError(e, 'default')}
           />
           <div className="absolute inset-0 bg-gradient-to-t from-[#060a14] via-[#091122]/90 to-[#0b162c]/85" />
         </div>
@@ -879,7 +881,7 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
             <video
               ref={videoElementRef}
               src={videoEpisodes[selectedVideoIndex].videoSrc}
-              poster={videoEpisodes[selectedVideoIndex].image}
+              poster={resolveImageSrc(videoEpisodes[selectedVideoIndex].image, 'solar')}
               className="w-full h-full object-cover"
               playsInline
               preload="metadata"

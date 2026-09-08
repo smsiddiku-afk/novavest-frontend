@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { Language } from '../types';
 import { ENERGY_PACKAGES_7, EnergyPackage, toBengaliNumber } from '../data/energyPackages';
+import { resolveImageSrc, handleImageError } from '../utils/imageUtils';
 
 interface InvestTabContentProps {
   userBalance: number;
@@ -170,10 +171,11 @@ export const InvestTabContent: React.FC<InvestTabContentProps> = ({
                 {/* Thumbnail image */}
                 <div className="w-[74px] h-[74px] sm:w-[82px] sm:h-[82px] rounded-2xl overflow-hidden border border-slate-700/70 shrink-0 bg-slate-900 shadow-md">
                   <img
-                    src={pkg.image}
+                    src={resolveImageSrc(pkg.image, 'solar')}
                     alt={isBn ? pkg.nameBn : pkg.nameEn}
                     className="w-full h-full object-cover object-center"
                     referrerPolicy="no-referrer"
+                    onError={(e) => handleImageError(e, 'solar')}
                   />
                 </div>
 

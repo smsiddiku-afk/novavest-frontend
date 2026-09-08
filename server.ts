@@ -37,7 +37,7 @@ const OKEXPAY_CONFIG = {
 
 interface PaymentLog {
   id: string;
-  channel: 'NEKPAY' | 'OKEXPAY' | 'PAYOUT';
+  channel: 'NEKPAY' | 'OKEXPAY' | 'WATCHPAY' | 'PAYOUT';
   type: 'PAYIN_REQUEST' | 'PAYIN_CALLBACK' | 'PAYOUT_REQUEST';
   timestamp: string;
   orderId?: string;
@@ -222,128 +222,110 @@ async function startServer() {
   });
 
   // ───────────────────────────────────────────────────────────
-  // CHANNEL 2: OKEXPAY / WPAY PAYMENT INTEGRATION
-  // Host: https://sandbox.okexpay.dev
-  // Endpoint: /v1/Collect
-  // Credentials: mchId: "1000", Key: "4035fcd2d720e1b06ea455bdde411012"
-  // Order ID: Ends with an even number (e.g. DEP-${Date.now()}2) for automatic success
+  // CHANNEL 2: WATCHPAY PAYMENT INTEGRATION
+  // Endpoint: https://nekpay-backend.onrender.com/create-order-watchpay
   // ───────────────────────────────────────────────────────────
-  app.post('/api/v1/okexpay/create-order', async (req, res) => {
+  app.post(['/api/v1/watchpay/create-order', '/api/v1/okexpay/create-order'], async (req, res) => {
     try {
-      const { amount, method = 'bKash', userId = 'USER1001' } = req.body;
+      const { amount, payerName = 'Customer', userId = 'USER1001' } = req.body;
       const numAmount = Number(amount);
 
       if (!numAmount || numAmount <= 0) {
         return res.status(400).json({
           success: false,
-          error: 'Valid deposit amount required (minimum 350 BDT)',
+          error: 'Valid deposit amount required',
         });
       }
 
-      // Rule: Append an even number at the very end (e.g. 2) for sandbox auto-success callback
-      const timestamp = Date.now();
-      const out_trade_no = `DEP-${timestamp}2`;
+      console.log(`[WatchPay] Initiating order: amount=${numAmount}, payerName=${payerName}`);
 
-      const pay_type = String(method).toLowerCase().includes('nagad') ? 'NAGAD' : 'BKASH';
-      const origin = `${req.protocol}://${req.get('host')}`;
-      const notify_url = `${origin}/api/payments/okexpay-callback`;
-      const returnUrl = `${origin}/`;
-
-      // Parameters for OKExPay /v1/Collect
-      const collectParams: Record<string, string> = {
-        mchId: OKEXPAY_CONFIG.mchId,
-        currency: 'BDT',
-        out_trade_no,
-        pay_type,
-        money: String(Math.floor(numAmount)), // integer amount as per Postman spec
-        attach: JSON.stringify({ userId, channel: 'channel2' }),
-        notify_url,
-        returnUrl,
-      };
-
-      // Compute MD5 signature
-      const sign = computeOkexPaySign(collectParams, OKEXPAY_CONFIG.key);
-      collectParams.sign = sign;
-
-      console.log('Sending request to OKExPay:', `${OKEXPAY_CONFIG.host}${OKEXPAY_CONFIG.collectEndpoint}`);
-
-      // Encode as application/x-www-form-urlencoded
-      const urlEncodedBody = new URLSearchParams(collectParams).toString();
-
-      const response = await fetch(`${OKEXPAY_CONFIG.host}${OKEXPAY_CONFIG.collectEndpoint}`, {
+      const response = await fetch('https://nekpay-backend.onrender.com/create-order-watchpay', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
         },
-        body: urlEncodedBody,
+        body: JSON.stringify({
+          amount: numAmount,
+          payerName: payerName || 'Customer',
+        }),
       });
 
-      const responseText = await response.text();
-      let responseData: any = {};
-      try {
-        responseData = JSON.parse(responseText);
-      } catch (e) {
-        console.error('Failed to parse OKExPay response:', responseText);
-      }
+      const data: any = await response.json();
+      console.log('[WatchPay] Response:', data);
 
-      console.log('OKExPay response status:', response.status, responseData);
+      if (data && data.success && data.paymentLink) {
+        const orderId = data.orderNo || `WPY-${Date.now()}`;
+        let targetPaymentUrl = data.paymentLink;
 
-      // code: 0 indicates success
-      if (response.ok && responseData.code === 0 && responseData.data?.url) {
-        const paymentUrl = responseData.data.url;
-        const transactionId = responseData.data.transaction_Id;
+        // Extract direct checkout link from watchglb iframe wrapper to prevent X-Frame-Options/SAMEORIGIN errors in browsers
+        try {
+          const pageRes = await fetch(data.paymentLink, {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            },
+          });
+          const html = await pageRes.text();
+          const match = html.match(/src=["'](https?:\/\/[^"']+)["']/i);
+          if (match && match[1]) {
+            targetPaymentUrl = match[1];
+            console.log('[WatchPay] Successfully extracted direct checkout URL:', targetPaymentUrl);
+          }
+        } catch (e) {
+          console.warn('[WatchPay] Could not extract direct iframe URL, fallback to raw link:', e);
+        }
 
         // Save order in memory database
-        ordersDatabase.set(out_trade_no, {
-          orderId: out_trade_no,
-          transactionId,
+        ordersDatabase.set(orderId, {
+          orderId,
+          transactionId: orderId,
           amount: numAmount,
           currency: 'BDT',
-          channel: 'okexpay',
-          channelName: 'চ্যানেল ২ (OKExPay / WPay)',
+          channel: 'watchpay',
+          channelName: 'চ্যানেল ২ (WatchPay)',
           status: 'PENDING',
-          paymentLink: paymentUrl,
+          paymentLink: targetPaymentUrl,
+          rawPaymentLink: data.paymentLink,
           userId,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         });
 
         addLog({
-          channel: 'OKEXPAY',
+          channel: 'WATCHPAY',
           type: 'PAYIN_REQUEST',
-          orderId: out_trade_no,
+          orderId,
           status: 'SUCCESS',
-          details: { collectParams, responseData },
+          details: { amount: numAmount, payerName, targetPaymentUrl, response: data },
         });
 
         return res.json({
           success: true,
           channel: 'channel2',
-          paymentLink: paymentUrl,
-          orderNo: out_trade_no,
-          transactionId,
-          message: 'OKExPay order created successfully',
+          paymentLink: targetPaymentUrl,
+          rawPaymentLink: data.paymentLink,
+          orderNo: orderId,
+          message: 'WatchPay order created successfully',
         });
       }
 
       addLog({
-        channel: 'OKEXPAY',
+        channel: 'WATCHPAY',
         type: 'PAYIN_REQUEST',
-        orderId: out_trade_no,
+        orderId: `WPY-FAIL-${Date.now()}`,
         status: 'FAILED',
-        details: { collectParams, status: response.status, responseText },
+        details: { response: data },
       });
 
       return res.status(502).json({
         success: false,
-        error: responseData.msg || 'OKExPay payment service returned an error',
-        details: responseData,
+        error: data.message || data.error || 'Failed to create WatchPay order',
+        details: data,
       });
     } catch (err: any) {
-      console.error('Error contacting OKExPay sandbox:', err);
+      console.error('Error contacting WatchPay gateway:', err);
       addLog({
-        channel: 'OKEXPAY',
+        channel: 'WATCHPAY',
         type: 'PAYIN_REQUEST',
         status: 'FAILED',
         details: { error: err.message },
@@ -351,7 +333,7 @@ async function startServer() {
 
       return res.status(500).json({
         success: false,
-        error: 'Failed to connect to OKExPay sandbox service',
+        error: 'Failed to connect to WatchPay gateway',
         details: err.message,
       });
     }
@@ -411,6 +393,56 @@ async function startServer() {
 
     // CRITICAL: Respond with plain text "success" per OKExPay doc
     return res.status(200).type('text/plain').send('success');
+  });
+
+  // ───────────────────────────────────────────────────────────
+  // WATCHPAY WEBHOOK / CALLBACK HANDLER
+  // POST /api/payments/watchpay-callback, /api/v1/callback/watchpay
+  // ───────────────────────────────────────────────────────────
+  app.post(['/api/payments/watchpay-callback', '/api/v1/callback/watchpay', '/api/v1/watchpay/callback'], (req, res) => {
+    const payload = req.body || {};
+    console.log('[WatchPay Webhook Received]:', payload);
+
+    const orderNo = payload.orderNo || payload.out_trade_no || payload.order_id || payload.orderId;
+    const trxId = payload.trxId || payload.trade_no || payload.txnid || payload.transactionId || orderNo;
+    const rawStatus = String(payload.status || payload.trade_status || payload.state || '').toUpperCase();
+    const amount = Number(payload.amount || payload.money || payload.pay_money) || 0;
+
+    const isSuccess = ['SUCCESS', 'COMPLETED', 'PAID', '1', 'TRUE', 'OK'].includes(rawStatus);
+
+    if (orderNo && ordersDatabase.has(orderNo)) {
+      const order = ordersDatabase.get(orderNo);
+      order.status = isSuccess ? 'COMPLETED' : 'FAILED';
+      order.trxId = trxId;
+      if (amount > 0) order.amount = amount;
+      order.updatedAt = new Date().toISOString();
+      order.rawCallback = payload;
+      ordersDatabase.set(orderNo, order);
+      if (trxId) ordersDatabase.set(trxId, order);
+    } else if (orderNo || trxId) {
+      const key = orderNo || trxId;
+      ordersDatabase.set(key, {
+        orderId: key,
+        trxId,
+        amount,
+        status: isSuccess ? 'COMPLETED' : 'PENDING',
+        channel: 'watchpay',
+        channelName: 'চ্যানেল ২ (WatchPay)',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        rawCallback: payload,
+      });
+    }
+
+    addLog({
+      channel: 'WATCHPAY',
+      type: 'PAYIN_CALLBACK',
+      orderId: orderNo || trxId || 'UNKNOWN',
+      status: isSuccess ? 'SUCCESS' : 'FAILED',
+      details: { payload, isSuccess },
+    });
+
+    return res.status(200).json({ success: true, message: 'WatchPay callback processed' });
   });
 
   // ───────────────────────────────────────────────────────────

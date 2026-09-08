@@ -66,6 +66,7 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
   const [withdrawAccount, setWithdrawAccount] = useState<string>('');
   const [localToast, setLocalToast] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [redirectUrl, setRedirectUrl] = useState<string | null>(null);
 
   const displayToast = (msg: string) => {
     if (showToast) {
@@ -88,6 +89,78 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
     }
     if (num > 50000) {
       displayToast(currentLang === 'bn' ? 'সর্বোচ্চ রিচার্জের পরিমাণ ৫০,০০০.০০ টাকা' : 'Maximum recharge amount is 50,000.00 BDT');
+      return;
+    }
+
+    // Direct WatchPay execution for Channel 2
+    if (selectedChannel === 'channel2' || (selectedChannel as string) === 'watchpay') {
+      try {
+        setIsSubmitting(true);
+        setRedirectUrl(null);
+
+        let data: any = null;
+        try {
+          // Use server proxy which unpacks the inner iframe to prevent browser SAMEORIGIN crashes
+          const proxyRes = await fetch('/api/v1/watchpay/create-order', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              amount: num,
+              payerName: 'Customer',
+            }),
+          });
+          data = await proxyRes.json();
+        } catch (proxyErr) {
+          console.warn('[WatchPay] Proxy failed, falling back to direct endpoint:', proxyErr);
+          const directRes = await fetch('https://nekpay-backend.onrender.com/create-order-watchpay', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              amount: num,
+              payerName: 'Customer',
+            }),
+          });
+          data = await directRes.json();
+        }
+
+        console.log('[WatchPay] Response:', data);
+
+        if (data && data.success && data.paymentLink) {
+          const targetUrl = data.paymentLink;
+          setRedirectUrl(targetUrl);
+
+          try {
+            if (window.top && window.top !== window) {
+              window.top.location.href = targetUrl;
+            } else {
+              window.location.href = targetUrl;
+            }
+          } catch (navErr) {
+            console.warn('[WatchPay] Window top navigation fallback:', navErr);
+            window.location.href = targetUrl;
+          }
+          return;
+        } else {
+          displayToast(
+            data?.message ||
+            data?.error ||
+            (currentLang === 'bn' ? '⚠️ WatchPay পেমেন্ট তৈরি ব্যর্থ হয়েছে' : '⚠️ Failed to create WatchPay payment link')
+          );
+        }
+      } catch (err: any) {
+        console.error('[WatchPay Error]', err);
+        displayToast(
+          currentLang === 'bn'
+            ? '⚠️ WatchPay গেটওয়ে সার্ভিসে সংযোগ করা যাচ্ছে না'
+            : '⚠️ Failed to connect to WatchPay gateway'
+        );
+      } finally {
+        setIsSubmitting(false);
+      }
       return;
     }
 
@@ -393,13 +466,13 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
                   <span>{currentLang === 'bn' ? 'পেমেন্ট চ্যানেল' : 'Payment Channel'}</span>
                 </span>
                 <span className="text-[10px] text-[#18c4e6] font-mono font-medium">
-                  {selectedChannel === 'channel1' && 'Nekpay Auto (সুপারফাস্ট)'}
-                  {selectedChannel === 'channel2' && 'OKExPay Fast (অটোমেটেড)'}
+                  {selectedChannel === 'channel1' && 'NEKpay Auto (সুপারফাস্ট)'}
+                  {selectedChannel === 'channel2' && 'WatchPay (অটো গেটওয়ে)'}
                 </span>
               </div>
 
               <div className="grid grid-cols-2 gap-2.5">
-                {/* Channel 1: Nekpay */}
+                {/* Channel 1: NEKpay */}
                 <div
                   id="payment-channel-1-nekpay"
                   onClick={() => setSelectedChannel('channel1')}
@@ -415,7 +488,7 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
                     </div>
                     <div className="text-left">
                       <span className="text-xs font-bold text-white block leading-tight">চ্যানেল ১</span>
-                      <span className="text-[10px] text-emerald-400 font-medium">Nekpay Auto</span>
+                      <span className="text-[10px] text-emerald-400 font-medium">NEKpay Auto</span>
                     </div>
                   </div>
                   {selectedChannel === 'channel1' && (
@@ -425,9 +498,9 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
                   )}
                 </div>
 
-                {/* Channel 2: OKExPay */}
+                {/* Channel 2: WatchPay */}
                 <div
-                  id="payment-channel-2-okexpay"
+                  id="payment-channel-2-watchpay"
                   onClick={() => setSelectedChannel('channel2')}
                   className={`p-3 rounded-xl flex items-center justify-between cursor-pointer transition-all border-2 ${
                     selectedChannel === 'channel2'
@@ -441,7 +514,7 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
                     </div>
                     <div className="text-left">
                       <span className="text-xs font-bold text-white block leading-tight">চ্যানেল ২</span>
-                      <span className="text-[10px] text-cyan-400 font-medium">OKExPay Fast</span>
+                      <span className="text-[10px] text-cyan-400 font-medium">WatchPay</span>
                     </div>
                   </div>
                   {selectedChannel === 'channel2' && (
@@ -465,19 +538,40 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
                 {isSubmitting ? (
                   <span className="flex items-center gap-2.5 text-sm font-bold">
                     <span className="w-4 h-4 border-2 border-slate-900 border-t-transparent rounded-full animate-spin" />
-                    <span>{currentLang === 'bn' ? 'পেমেন্ট গেটওয়েতে সংযোগ করা হচ্ছে...' : 'Connecting to Gateway...'}</span>
+                    <span>Processing...</span>
                   </span>
                 ) : (
                   <>
                     <Zap className="w-5 h-5 fill-current" />
                     <span>
-                      {currentLang === 'bn'
-                        ? `পেমেন্ট সম্পন্ন করুন • ৳${amount || '১০০'}`
+                      {selectedChannel === 'channel2'
+                        ? `WatchPay • ৳${amount || '100'}`
+                        : currentLang === 'bn'
+                        ? `NEKpay • ৳${amount || '১০০'}`
                         : `Proceed to Pay • ৳${amount || '100'}`}
                     </span>
                   </>
                 )}
               </button>
+
+              {redirectUrl && (
+                <div className="mt-3 p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-center animate-fade-in">
+                  <p className="text-xs text-emerald-400 mb-2 font-medium">
+                    {currentLang === 'bn'
+                      ? 'স্বয়ংক্রিয়ভাবে ওপেন না হলে নিচের বাটনে ট্যাপ করুন:'
+                      : 'If the cashier did not open automatically, tap below:'}
+                  </p>
+                  <a
+                    href={redirectUrl}
+                    target="_top"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center justify-center gap-2 w-full py-2.5 px-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs rounded-xl shadow-lg transition-all"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                    <span>{currentLang === 'bn' ? 'ক্যাশিয়ার পেজ খুলুন' : 'Open Payment Cashier'}</span>
+                  </a>
+                </div>
+              )}
             </div>
 
             {/* 5. RECHARGE TIPS (AT BOTTOM) */}

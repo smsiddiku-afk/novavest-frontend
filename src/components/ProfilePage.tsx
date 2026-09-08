@@ -558,117 +558,70 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       return;
     }
 
-    // 4. CHANNEL 2: OKEXPAY / WPAY GATEWAY
+    // 4. CHANNEL 2: WATCHPAY GATEWAY
     try {
       showToast(
         currentLang === 'bn'
-          ? 'চ্যানেল ২ (OKExPay / WPay)-এ সংযোগ করা হচ্ছে...'
-          : 'Connecting to Channel 2 (OKExPay / WPay)...'
+          ? 'চ্যানেল ২ (WatchPay)-এ সংযোগ করা হচ্ছে...'
+          : 'Connecting to Channel 2 (WatchPay)...'
       );
 
-      const res = await fetch('/api/v1/okexpay/create-order', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          amount: Number(amount),
-          method: method || 'bKash',
-          userId: activeUid,
-        }),
-      });
+      let data: any = null;
+      try {
+        // Prioritize server proxy to unpack inner iframe and prevent browser SAMEORIGIN errors
+        const proxyRes = await fetch('/api/v1/watchpay/create-order', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            amount: Number(amount),
+            payerName: 'Customer',
+          }),
+        });
+        data = await proxyRes.json();
+      } catch (proxyErr) {
+        console.warn('[WatchPay] Proxy fetch failed, trying direct:', proxyErr);
+        const directRes = await fetch('https://nekpay-backend.onrender.com/create-order-watchpay', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            amount: Number(amount),
+            payerName: 'Customer',
+          }),
+        });
+        data = await directRes.json();
+      }
 
-      const data = await res.json();
-      console.log('OKExPay create-order response:', data);
+      console.log('WatchPay create-order response:', data);
 
-      if (data.success && data.paymentLink) {
-        let opened = null;
+      if (data && data.success && data.paymentLink) {
+        const targetUrl = data.paymentLink;
         try {
-          opened = window.open(data.paymentLink, '_blank');
-        } catch (e) {
-          opened = null;
-        }
-        if (!opened || opened.closed || typeof opened.closed === 'undefined') {
-          window.location.href = data.paymentLink;
-        }
-        showToast(
-          currentLang === 'bn'
-            ? 'OKExPay পেমেন্ট পেজে নিয়ে যাওয়া হচ্ছে...'
-            : 'Redirecting to OKExPay payment link...'
-        );
-
-        // Automated polling for order completion
-        const orderNo = data.orderNo;
-        if (orderNo) {
-          let attempts = 0;
-          const pollInterval = setInterval(async () => {
-            attempts++;
-            if (attempts > 40) {
-              clearInterval(pollInterval);
-              return;
-            }
-            try {
-              const checkRes = await fetch(`/api/payments/order-status/${orderNo}`);
-              const checkData = await checkRes.json();
-              if (checkData.success && checkData.order?.status === 'COMPLETED') {
-                clearInterval(pollInterval);
-
-                // Update Firestore wallet balance and transaction record
-                await recordFirestoreDeposit(activeUid, {
-                  amount: Number(amount),
-                  method: method || 'bKash',
-                  channel: 'channel2',
-                  trxId: checkData.order?.trxId || orderNo,
-                  orderNo,
-                });
-
-                updateUser((prev) => ({
-                  ...prev,
-                  walletBalance: prev.walletBalance + Number(amount),
-                  transactions: [
-                    {
-                      id: checkData.order?.trxId || orderNo,
-                      type: 'deposit',
-                      amount: Number(amount),
-                      timestamp:
-                        new Date().toLocaleDateString('en-GB') +
-                        ' ' +
-                        new Date().toLocaleTimeString('en-US', {
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        }),
-                      status: 'completed',
-                      description: `OKExPay Deposit (${method})`,
-                      hash: checkData.order?.trxId || orderNo,
-                    },
-                    ...(prev.transactions || []),
-                  ],
-                }));
-
-                showToast(
-                  currentLang === 'bn'
-                    ? `রিচার্জ সফল! ৳${Number(amount).toLocaleString()} আপনার ওয়ালেটে জমা হয়েছে।`
-                    : `Recharge successful! ৳${Number(amount).toLocaleString()} added to your wallet.`
-                );
-              }
-            } catch (e) {
-              // ignore polling errors
-            }
-          }, 3000);
+          if (window.top && window.top !== window) {
+            window.top.location.href = targetUrl;
+          } else {
+            window.location.href = targetUrl;
+          }
+        } catch (navErr) {
+          console.warn('[WatchPay] Top navigation failed, fallback to location.href:', navErr);
+          window.location.href = targetUrl;
         }
       } else {
         showToast(
           currentLang === 'bn'
-            ? `⚠️ পেমেন্ট সংযোগ ব্যর্থ: ${data.error || 'OKExPay গেটওয়ে ত্রুটি'}`
-            : `⚠️ Payment failed: ${data.error || 'OKExPay gateway error'}`
+            ? `⚠️ পেমেন্ট সংযোগ ব্যর্থ: ${data?.message || data?.error || 'WatchPay গেটওয়ে ত্রুটি'}`
+            : `⚠️ Payment failed: ${data?.message || data?.error || 'WatchPay gateway error'}`
         );
       }
     } catch (err: any) {
-      console.error('[OKExPay Deposit Error]', err);
+      console.error('[WatchPay Deposit Error]', err);
       showToast(
         currentLang === 'bn'
-          ? '⚠️ গেটওয়ে সার্ভিসে সংযোগ করা যাচ্ছে না'
-          : '⚠️ Failed to connect to payment gateway'
+          ? '⚠️ WatchPay গেটওয়ে সার্ভিসে সংযোগ করা যাচ্ছে না'
+          : '⚠️ Failed to connect to WatchPay gateway'
       );
     } finally {
       setActiveSubModal(null);

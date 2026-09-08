@@ -44,7 +44,8 @@ import {
   Globe,
   Layers,
   HelpCircle,
-  Wallet
+  Wallet,
+  TrendingUp
 } from 'lucide-react';
 import { HOURLY_GENERATION_DATA } from '../data/energyData';
 import { EnergySystem, Language } from '../types';
@@ -1458,7 +1459,7 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
                   }}
                   className="w-full p-2.5 rounded-xl hover:bg-slate-800/80 text-slate-200 hover:text-cyan-300 flex items-center gap-3 transition-colors text-left"
                 >
-                  <Zap className="w-4 h-4 text-cyan-400" />
+                  <TrendingUp className="w-4 h-4 text-cyan-400" />
                   <span>{t.tabInvest}</span>
                 </button>
 

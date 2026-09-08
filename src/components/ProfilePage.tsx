@@ -15,7 +15,7 @@ import {
   Package,
   LogOut,
   Home,
-  Rocket,
+  TrendingUp,
   ArrowLeftRight,
   X,
   Wifi,
@@ -60,6 +60,7 @@ import { CompanyProfileModal } from './CompanyProfileModal';
 import { DepositModal } from './DepositModal';
 import { SpinningLogo } from './SpinningLogo';
 import { UserProfile, Language } from '../types';
+import { ENERGY_PACKAGES_7 } from '../data/energyPackages';
 import { translations } from '../utils/translations';
 import { persistAuthUser, isSameUser } from '../utils/authService';
 import {
@@ -94,17 +95,53 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
   const t = translations[currentLang];
 
   // User profile state
-  const [user, setUser] = useState<UserProfile>({
-    name: initialUser?.name || 'John Doe',
-    memberId: initialUser?.memberId || 'NVT123456',
-    memberSince: initialUser?.memberSince || 'May 2024',
-    isVerified: initialUser?.isVerified ?? true,
-    walletBalance:
-      typeof initialUser?.walletBalance === 'number' && initialUser.walletBalance !== 12450.0
-        ? initialUser.walletBalance
-        : 0.0,
-    phone: initialUser?.phone || '+880 1712-345678',
-    email: initialUser?.email || 'user@novaterraenergy.io',
+  const [user, setUser] = useState<UserProfile>(() => {
+    const fallbackMemberId = `NVT${Math.floor(100000 + Math.random() * 900000)}`;
+    const activeId = initialUser?.uid || initialUser?.memberId || fallbackMemberId;
+    let savedInvestments: any[] = [];
+    try {
+      const stored = localStorage.getItem(`user_investments_${activeId}`);
+      if (stored) savedInvestments = JSON.parse(stored);
+    } catch {
+      // ignore
+    }
+
+    // Determine initial real VIP level and active units
+    const activeUnits = initialUser?.activeUnits ?? savedInvestments.length;
+    let maxVip = 0;
+    if (savedInvestments.length > 0) {
+      maxVip = Math.max(...savedInvestments.map((inv) => inv.vipLevel || 1), 0);
+    }
+    const realVip = initialUser?.vipLevel !== undefined ? initialUser.vipLevel : maxVip;
+
+    const realTotalEarnings = initialUser?.totalEarnings ?? (
+      savedInvestments.reduce((acc, curr) => acc + (curr.totalEarned || 0), 0)
+    );
+
+    const realDailyRewards = initialUser?.dailyRewards ?? (
+      savedInvestments.reduce((acc, curr) => acc + (curr.dailyYield || 0), 0)
+    );
+
+    return {
+      uid: initialUser?.uid,
+      name: initialUser?.name || 'NVT Member',
+      memberId: initialUser?.memberId || fallbackMemberId,
+      referralCode: initialUser?.referralCode || (initialUser?.memberId ? initialUser.memberId.slice(-6).toUpperCase() : fallbackMemberId.slice(-6).toUpperCase()),
+      referredBy: initialUser?.referredBy,
+      memberSince: initialUser?.memberSince || new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+      isVerified: initialUser?.isVerified ?? true,
+      walletBalance:
+        typeof initialUser?.walletBalance === 'number' && initialUser.walletBalance !== 12450.0
+          ? initialUser.walletBalance
+          : 0.0,
+      phone: initialUser?.phone || '',
+      email: initialUser?.email || '',
+      vipLevel: realVip,
+      totalEarnings: realTotalEarnings,
+      activeUnits: activeUnits,
+      dailyRewards: realDailyRewards,
+      activeInvestments: initialUser?.activeInvestments || savedInvestments,
+    };
   });
 
   // Explicit user update helper: persists data safely without triggering reactive cascading loops
@@ -118,44 +155,70 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     });
   };
 
-  // Keep user profile state in sync with initialUser prop only when actually changed
+  // Keep user profile state in sync with initialUser prop only when actually changed,
+  // scheduled on animation frame / microtask to prevent concurrent render-phase collision
   useEffect(() => {
     if (!initialUser) return;
-    setUser((prev) => {
-      const newName = initialUser.name ?? prev.name;
-      const newPhone = initialUser.phone ?? prev.phone;
-      const newEmail = initialUser.email ?? prev.email;
-      const newMemberId = initialUser.memberId ?? prev.memberId;
-      const newBalance = initialUser.walletBalance ?? prev.walletBalance;
-      const newMemberSince = initialUser.memberSince ?? prev.memberSince;
-      const newIsVerified = initialUser.isVerified ?? prev.isVerified;
-      const newTransactions = initialUser.transactions ?? prev.transactions;
 
-      if (
-        prev.name === newName &&
-        prev.phone === newPhone &&
-        prev.email === newEmail &&
-        prev.memberId === newMemberId &&
-        prev.walletBalance === newBalance &&
-        prev.memberSince === newMemberSince &&
-        prev.isVerified === newIsVerified &&
-        prev.transactions?.length === newTransactions?.length
-      ) {
-        return prev;
-      }
+    let isMounted = true;
+    const handle = requestAnimationFrame(() => {
+      if (!isMounted) return;
+      setUser((prev) => {
+        const newName = initialUser.name ?? prev.name;
+        const newPhone = initialUser.phone ?? prev.phone;
+        const newEmail = initialUser.email ?? prev.email;
+        const newMemberId = initialUser.memberId ?? prev.memberId;
+        const newBalance = initialUser.walletBalance ?? prev.walletBalance;
+        const newMemberSince = initialUser.memberSince ?? prev.memberSince;
+        const newIsVerified = initialUser.isVerified ?? prev.isVerified;
+        const newTransactions = initialUser.transactions ?? prev.transactions;
+        const newVipLevel = initialUser.vipLevel ?? prev.vipLevel;
+        const newTotalEarnings = initialUser.totalEarnings ?? prev.totalEarnings;
+        const newActiveUnits = initialUser.activeUnits ?? prev.activeUnits;
+        const newDailyRewards = initialUser.dailyRewards ?? prev.dailyRewards;
+        const newInvestments = initialUser.activeInvestments ?? prev.activeInvestments;
 
-      return {
-        ...prev,
-        name: newName,
-        phone: newPhone,
-        email: newEmail,
-        memberId: newMemberId,
-        walletBalance: newBalance,
-        memberSince: newMemberSince,
-        isVerified: newIsVerified,
-        transactions: newTransactions,
-      };
+        if (
+          prev.name === newName &&
+          prev.phone === newPhone &&
+          prev.email === newEmail &&
+          prev.memberId === newMemberId &&
+          prev.walletBalance === newBalance &&
+          prev.memberSince === newMemberSince &&
+          prev.isVerified === newIsVerified &&
+          prev.vipLevel === newVipLevel &&
+          prev.totalEarnings === newTotalEarnings &&
+          prev.activeUnits === newActiveUnits &&
+          prev.dailyRewards === newDailyRewards &&
+          prev.activeInvestments?.length === newInvestments?.length &&
+          prev.transactions?.length === newTransactions?.length
+        ) {
+          return prev;
+        }
+
+        return {
+          ...prev,
+          name: newName,
+          phone: newPhone,
+          email: newEmail,
+          memberId: newMemberId,
+          walletBalance: newBalance,
+          memberSince: newMemberSince,
+          isVerified: newIsVerified,
+          vipLevel: newVipLevel,
+          totalEarnings: newTotalEarnings,
+          activeUnits: newActiveUnits,
+          dailyRewards: newDailyRewards,
+          activeInvestments: newInvestments,
+          transactions: newTransactions,
+        };
+      });
     });
+
+    return () => {
+      isMounted = false;
+      cancelAnimationFrame(handle);
+    };
   }, [
     initialUser?.name,
     initialUser?.phone,
@@ -164,6 +227,11 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     initialUser?.walletBalance,
     initialUser?.memberSince,
     initialUser?.isVerified,
+    initialUser?.vipLevel,
+    initialUser?.totalEarnings,
+    initialUser?.activeUnits,
+    initialUser?.dailyRewards,
+    initialUser?.activeInvestments?.length,
     initialUser?.transactions?.length,
   ]);
 
@@ -208,7 +276,16 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
   useEffect(() => {
     scrollAppToTop();
   }, [currentTab]);
-  const [hasClaimedBonus, setHasClaimedBonus] = useState(false);
+
+  const todayKey = new Date().toISOString().slice(0, 10);
+  const [hasClaimedBonus, setHasClaimedBonus] = useState<boolean>(() => {
+    try {
+      const activeId = initialUser?.uid || initialUser?.memberId || 'guest';
+      return localStorage.getItem(`daily_bonus_claimed_${activeId}_${todayKey}`) === 'true';
+    } catch {
+      return false;
+    }
+  });
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [showGatewaySettings, setShowGatewaySettings] = useState(false);
@@ -755,6 +832,12 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       return;
     }
     setHasClaimedBonus(true);
+    try {
+      const activeId = user.uid || user.memberId || 'guest';
+      localStorage.setItem(`daily_bonus_claimed_${activeId}_${todayKey}`, 'true');
+    } catch {
+      // ignore
+    }
     updateUser((prev) => ({ ...prev, walletBalance: prev.walletBalance + 50 }));
     showToast(t.toastBonusClaimed);
   };
@@ -769,7 +852,45 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       setActiveSubModal('recharge');
       return;
     }
-    updateUser((prev) => ({ ...prev, walletBalance: prev.walletBalance - amount }));
+
+    // Match package to calculate real VIP level and daily rewards
+    const matchedPkg = ENERGY_PACKAGES_7.find(
+      (p) => p.nameBn === projectName || p.nameEn === projectName || projectName.includes(p.nameEn) || projectName.includes(p.nameBn)
+    );
+    const pkgVip = matchedPkg ? matchedPkg.vipLevel : 1;
+    const pkgDailyRate = matchedPkg ? matchedPkg.dailyRate : 3.8;
+    const dailyEarned = Math.round((amount * pkgDailyRate) / 100);
+
+    const newInvestment = {
+      id: `INV-${Date.now()}`,
+      name: projectName,
+      amount: amount,
+      dailyYield: dailyEarned,
+      vipLevel: pkgVip,
+      date: new Date().toLocaleDateString('en-GB'),
+      totalEarned: 0,
+    };
+
+    const activeId = user.uid || user.memberId || 'guest';
+    const updatedInvestments = [...(user.activeInvestments || []), newInvestment];
+    try {
+      localStorage.setItem(`user_investments_${activeId}`, JSON.stringify(updatedInvestments));
+    } catch {
+      // ignore
+    }
+
+    const maxVip = Math.max(...updatedInvestments.map((inv: any) => inv.vipLevel || 1), 1);
+    const totalDaily = updatedInvestments.reduce((acc: number, curr: any) => acc + (curr.dailyYield || 0), 0);
+
+    updateUser((prev) => ({
+      ...prev,
+      walletBalance: prev.walletBalance - amount,
+      vipLevel: maxVip,
+      activeUnits: updatedInvestments.length,
+      dailyRewards: totalDaily,
+      activeInvestments: updatedInvestments,
+    }));
+
     showToast(
       currentLang === 'bn'
         ? `অভিনন্দন! "${projectName}" প্রজেক্টে ৳${amount.toLocaleString()} সফলভাবে বিনিয়োগ করা হয়েছে!`
@@ -843,7 +964,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
         <nav className="flex items-center gap-1 bg-[#060b18] p-1.5 rounded-xl border border-slate-800/90">
           {[
             { id: 'home', labelBn: 'হোম', labelEn: 'Home', icon: Home },
-            { id: 'invest', labelBn: 'ইনভেস্ট', labelEn: 'Invest', icon: Rocket },
+            { id: 'invest', labelBn: 'ইনভেস্ট', labelEn: 'Invest', icon: TrendingUp },
             { id: 'transactions', labelBn: 'লেনদেন', labelEn: 'History', icon: ArrowLeftRight },
             { id: 'wallet', labelBn: 'প্রমো বোনাস', labelEn: 'Promo Bonus', icon: Award },
             { id: 'referral', labelBn: 'রেফারেল', labelEn: 'Team', icon: Users },
@@ -1174,8 +1295,14 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
                 {/* Right: VIP Badge & Edit Profile Button */}
                 <div className="flex items-center gap-2 shrink-0">
-                  <span className="px-2.5 py-1 rounded-full bg-amber-400/25 border border-amber-300/40 text-amber-200 text-xs font-bold font-mono shadow-xs">
-                    VIP 1
+                  <span
+                    className={`px-2.5 py-1 rounded-full text-xs font-bold font-mono shadow-xs border ${
+                      (user.vipLevel || 0) > 0
+                        ? 'bg-amber-400/25 border-amber-300/40 text-amber-200'
+                        : 'bg-slate-700/50 border-slate-600/50 text-slate-300'
+                    }`}
+                  >
+                    VIP {user.vipLevel || 0}
                   </span>
                   <button
                     type="button"
@@ -1192,15 +1319,21 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               <div className="mt-4 pt-3 border-t border-white/15 grid grid-cols-3 gap-2 text-center text-white">
                 <div className="bg-black/20 rounded-xl py-1.5 px-1">
                   <span className="text-[10px] text-blue-200 block">{currentLang === 'bn' ? 'মোট আয়' : 'Total Earnings'}</span>
-                  <span className="text-xs font-bold text-cyan-300 font-mono">৳3,450.00</span>
+                  <span className="text-xs font-bold text-cyan-300 font-mono">
+                    ৳{(user.totalEarnings || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
                 </div>
                 <div className="bg-black/20 rounded-xl py-1.5 px-1">
                   <span className="text-[10px] text-blue-200 block">{currentLang === 'bn' ? 'সক্রিয় ইউনিট' : 'Active Units'}</span>
-                  <span className="text-xs font-bold text-white font-mono">2 {currentLang === 'bn' ? 'টি' : 'Units'}</span>
+                  <span className="text-xs font-bold text-white font-mono">
+                    {user.activeUnits || 0} {currentLang === 'bn' ? 'টি' : 'Units'}
+                  </span>
                 </div>
                 <div className="bg-black/20 rounded-xl py-1.5 px-1">
                   <span className="text-[10px] text-blue-200 block">{currentLang === 'bn' ? 'দৈনিক রিওয়ার্ড' : 'Daily Rewards'}</span>
-                  <span className="text-xs font-bold text-emerald-300 font-mono">৳185.00</span>
+                  <span className="text-xs font-bold text-emerald-300 font-mono">
+                    ৳{(user.dailyRewards || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
                 </div>
               </div>
             </div>
@@ -1635,7 +1768,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 : 'text-slate-400 hover:text-slate-200 font-medium'
             }`}
           >
-            <Rocket className={`w-5 h-5 ${currentTab === 'invest' ? 'text-cyan-400 drop-shadow-[0_0_8px_rgba(6,182,212,0.5)]' : 'text-slate-400'}`} />
+            <TrendingUp className={`w-5 h-5 ${currentTab === 'invest' ? 'text-cyan-400 drop-shadow-[0_0_8px_rgba(6,182,212,0.5)]' : 'text-slate-400'}`} />
             <span className="text-[11px] mt-0.5">{currentLang === 'bn' ? 'ইনভেস্ট' : 'Invest'}</span>
             {currentTab === 'invest' && (
               <span className="absolute -bottom-1 w-5 h-1 bg-cyan-400 rounded-full shadow-[0_0_8px_#06b6d4]" />

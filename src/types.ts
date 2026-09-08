@@ -61,6 +61,18 @@ export interface UserProfile {
   email?: string;
   avatarUrl?: string;
   fullName?: string;
+  vipLevel?: number;
+  totalEarnings?: number;
+  activeUnits?: number;
+  dailyRewards?: number;
+  activeInvestments?: Array<{
+    id: string;
+    name: string;
+    amount: number;
+    dailyYield: number;
+    vipLevel: number;
+    date: string;
+  }>;
   transactions?: any[];
 }
 

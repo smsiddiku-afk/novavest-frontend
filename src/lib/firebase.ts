@@ -112,6 +112,24 @@ export const normalizePhone = (phone: string): string => {
 };
 
 /**
+ * Strips all undefined fields recursively from an object before sending to Firestore
+ * to ensure Firestore setDoc/updateDoc never fails with 'Unsupported field value: undefined'
+ */
+export function sanitizeFirestoreData<T extends Record<string, any>>(obj: T): Record<string, any> {
+  const result: Record<string, any> = {};
+  for (const [key, val] of Object.entries(obj)) {
+    if (val !== undefined) {
+      if (val !== null && typeof val === 'object' && !(val instanceof Date) && !('nanoseconds' in val) && !Array.isArray(val)) {
+        result[key] = sanitizeFirestoreData(val);
+      } else {
+        result[key] = val;
+      }
+    }
+  }
+  return result;
+}
+
+/**
  * Create a new user profile in Firestore
  */
 export const createFirestoreUserProfile = async (
@@ -137,6 +155,8 @@ export const createFirestoreUserProfile = async (
     cleanMemberId.replace(/[^A-Z0-9]/gi, '').slice(-6).toUpperCase() ||
     Math.random().toString(36).substring(2, 8).toUpperCase();
 
+  const cleanReferredBy = data.referredBy?.trim().toUpperCase() || '';
+
   const profile: UserProfile = {
     uid,
     name: data.name.trim() || 'NVT Member',
@@ -144,7 +164,7 @@ export const createFirestoreUserProfile = async (
     email: data.email.trim(),
     memberId: cleanMemberId,
     referralCode,
-    referredBy: data.referredBy?.trim().toUpperCase() || undefined,
+    referredBy: cleanReferredBy || undefined,
     walletBalance:
       typeof data.walletBalance === 'number' && data.walletBalance !== 12450.0
         ? data.walletBalance
@@ -153,15 +173,30 @@ export const createFirestoreUserProfile = async (
     isVerified: true,
   };
 
+  const docPayload: Record<string, any> = {
+    uid,
+    name: profile.name,
+    phone: profile.phone,
+    email: profile.email,
+    memberId: cleanMemberId,
+    referralCode,
+    walletBalance: profile.walletBalance,
+    memberSince,
+    isVerified: true,
+    phoneNormalized: normalizePhone(profile.phone),
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  };
+
+  if (cleanReferredBy) {
+    docPayload.referredBy = cleanReferredBy;
+  }
+
   try {
-    await setDoc(userDocRef, {
-      ...profile,
-      phoneNormalized: normalizePhone(profile.phone),
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    });
+    await setDoc(userDocRef, sanitizeFirestoreData(docPayload), { merge: true });
     return profile;
   } catch (error) {
+    console.error('[Firebase] Error in createFirestoreUserProfile:', error);
     handleFirestoreError(error, OperationType.CREATE, `users/${uid}`);
     return profile;
   }
@@ -207,6 +242,16 @@ export const findEmailByPhone = async (rawPhone: string): Promise<string | null>
   const normalized = normalizePhone(rawPhone);
   if (!normalized) return null;
 
+  // Check localStorage client cache first
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const cached = localStorage.getItem(`nvt_phone_email_${normalized}`);
+      if (cached) return cached;
+    }
+  } catch {
+    // ignore
+  }
+
   try {
     const usersRef = collection(db, 'users');
     const q = query(usersRef, where('phoneNormalized', '==', normalized));
@@ -217,7 +262,7 @@ export const findEmailByPhone = async (rawPhone: string): Promise<string | null>
     }
     return null;
   } catch (err) {
-    console.warn('[Firebase] Query phone failed:', err);
+    console.warn('[Firebase] Query phone notice:', err);
     return null;
   }
 };
@@ -250,7 +295,7 @@ export const updateFirestoreUserProfile = async (uid: string, updates: Partial<U
     if (updates.phone) {
       payload.phoneNormalized = normalizePhone(updates.phone);
     }
-    await updateDoc(userDocRef, payload);
+    await updateDoc(userDocRef, sanitizeFirestoreData(payload));
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, `users/${uid}`);
   }

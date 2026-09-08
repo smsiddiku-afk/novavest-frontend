@@ -213,62 +213,7 @@ export function getReferralTreeForUser(userCode: string): ReferralTreeSummary {
     });
   });
 
-  // If the user is brand new with no team yet, provide standard initial starter members
-  // or use empty if real-time dynamic
-  if (members.length === 0) {
-    // Standard baseline sample members for pristine UX demonstration if brand new
-    const sampleMembers: TeamMember[] = [
-      {
-        id: 'REF-101',
-        phone: '017*****412',
-        level: 1,
-        date: '2026-09-05 14:23',
-        investAmount: 2000,
-        commissionEarned: 140, // 7%
-        status: 'active',
-      },
-      {
-        id: 'REF-102',
-        phone: '018*****891',
-        level: 1,
-        date: '2026-09-04 19:10',
-        investAmount: 5000,
-        commissionEarned: 350, // 7%
-        status: 'active',
-      },
-      {
-        id: 'REF-103',
-        phone: '019*****234',
-        level: 2,
-        date: '2026-09-04 11:45',
-        investAmount: 3000,
-        commissionEarned: 90, // 3%
-        status: 'active',
-      },
-      {
-        id: 'REF-104',
-        phone: '016*****778',
-        level: 2,
-        date: '2026-09-03 16:30',
-        investAmount: 1500,
-        commissionEarned: 45, // 3%
-        status: 'active',
-      },
-      {
-        id: 'REF-105',
-        phone: '015*****552',
-        level: 3,
-        date: '2026-09-02 20:15',
-        investAmount: 4000,
-        commissionEarned: 40, // 1%
-        status: 'active',
-      },
-    ];
-
-    sampleMembers.forEach((m) => members.push(m));
-  }
-
-  // Calculate statistics
+  // Calculate statistics from real registered members
   let l1Count = 0;
   let l2Count = 0;
   let l3Count = 0;
@@ -291,12 +236,12 @@ export function getReferralTreeForUser(userCode: string): ReferralTreeSummary {
 
   const totalEarn = l1Earn + l2Earn + l3Earn;
 
-  // Available rewards in cash rewards wallet
-  let savedRewards = 245.5;
+  // Real available rewards in cash rewards wallet (defaults to 0.0)
+  let savedRewards = 0.0;
   try {
     const raw = localStorage.getItem(STORAGE_KEY_REWARDS);
     if (raw !== null) {
-      savedRewards = Number(raw);
+      savedRewards = Math.max(0, Number(raw));
     }
   } catch {
     // ignore
@@ -312,8 +257,8 @@ export function getReferralTreeForUser(userCode: string): ReferralTreeSummary {
     level2Earnings: l2Earn,
     level3Earnings: l3Earn,
     totalEarnings: totalEarn,
-    todayEarnings: Number((totalEarn * 0.08).toFixed(2)) || 15.5,
-    yesterdayEarnings: Number((totalEarn * 0.12).toFixed(2)) || 28.0,
+    todayEarnings: 0.0,
+    yesterdayEarnings: 0.0,
     availableRewards: savedRewards,
     members,
   };

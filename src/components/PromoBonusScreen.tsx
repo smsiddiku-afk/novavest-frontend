@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { scrollAppToTop } from '../utils/scrollHelper';
 import {
   ChevronLeft,
@@ -7,6 +7,8 @@ import {
   Users,
 } from 'lucide-react';
 import { Language } from '../types';
+import { getReferralTreeForUser } from '../utils/referralService';
+import { getPersistedAuthUser } from '../utils/authService';
 
 export interface TierLevelItem {
   id: string;
@@ -153,30 +155,18 @@ export const PromoBonusScreen: React.FC<PromoBonusScreenProps> = ({
   // Currency view: default to BDT (৳) as requested, with 1-click toggle to USDT
   const [currency, setCurrency] = useState<'USDT' | 'BDT'>('BDT');
 
-  // Team stats state for Level 1, Level 2, Level 3
-  const [teamStats, setTeamStats] = useState<{ level1: number; level2: number; level3: number }>(() => {
-    try {
-      const saved = localStorage.getItem('promo_team_stats');
-      if (saved) {
-        return JSON.parse(saved);
-      }
-    } catch {
-      // ignore
-    }
-    return {
-      level1: 0,
-      level2: 0,
-      level3: 0,
-    };
-  });
+  // User referral stats: completely real from real registered referrals
+  const authUser = getPersistedAuthUser();
+  const userCode = authUser?.referralCode || authUser?.memberId?.slice(-6).toUpperCase() || '';
+  const realTree = useMemo(() => getReferralTreeForUser(userCode), [userCode]);
 
-  // Calculate total members (Level 1 + Level 2 + Level 3)
-  const totalTeam = teamStats.level1 + teamStats.level2 + teamStats.level3;
+  const level1Count = realTree.level1Count;
+  const totalTeam = realTree.totalTeamCount;
 
   // Track claimed tiers
   const [claimedTiers, setClaimedTiers] = useState<Record<string, boolean>>(() => {
     try {
-      const saved = localStorage.getItem('promo_claimed_levels');
+      const saved = localStorage.getItem(`promo_claimed_levels_${userCode}`);
       return saved ? JSON.parse(saved) : {};
     } catch {
       return {};
@@ -186,21 +176,34 @@ export const PromoBonusScreen: React.FC<PromoBonusScreenProps> = ({
   // Save changes
   useEffect(() => {
     try {
-      localStorage.setItem('promo_team_stats', JSON.stringify(teamStats));
-      localStorage.setItem('promo_claimed_levels', JSON.stringify(claimedTiers));
+      if (userCode) {
+        localStorage.setItem(`promo_claimed_levels_${userCode}`, JSON.stringify(claimedTiers));
+      }
     } catch {
       // ignore
     }
-  }, [teamStats, claimedTiers]);
+  }, [userCode, claimedTiers]);
 
   // Auto-scroll window to top whenever navigating to Promo Bonus page
   useEffect(() => {
     scrollAppToTop();
   }, []);
 
-  // Handle claim
+  // Handle claim strictly verified against real member targets
   const handleClaim = (tier: TierLevelItem) => {
     if (claimedTiers[tier.id]) return;
+
+    const currentProgress = tier.type === 'direct' ? level1Count : totalTeam;
+    if (currentProgress < tier.targetCount) {
+      if (showToast) {
+        showToast(
+          lang === 'en'
+            ? `Target not reached yet. Current: ${currentProgress}/${tier.targetCount}`
+            : `লক্ষ্য এখনো পূরণ হয়নি। বর্তমান অগ্রগতি: ${currentProgress}/${tier.targetCount}`
+        );
+      }
+      return;
+    }
 
     setClaimedTiers((prev) => ({
       ...prev,
@@ -315,7 +318,7 @@ export const PromoBonusScreen: React.FC<PromoBonusScreenProps> = ({
                 {lang === 'en' ? '1st Level' : '১ম লেভেল'}
               </span>
               <span className="text-[18px] sm:text-[20px] font-bold text-[#a3e635] font-mono my-0.5">
-                {teamStats.level1}
+                {level1Count}
               </span>
               <span className="text-[10px] text-slate-500">
                 {lang === 'en' ? 'Direct' : 'সরাসরি'}
@@ -328,7 +331,7 @@ export const PromoBonusScreen: React.FC<PromoBonusScreenProps> = ({
                 {lang === 'en' ? '2nd Level' : '২য় লেভেল'}
               </span>
               <span className="text-[18px] sm:text-[20px] font-bold text-[#38bdf8] font-mono my-0.5">
-                {teamStats.level2}
+                {realTree.level2Count}
               </span>
               <span className="text-[10px] text-slate-500">
                 {lang === 'en' ? 'Sub-team' : 'সাব-টিম'}
@@ -341,7 +344,7 @@ export const PromoBonusScreen: React.FC<PromoBonusScreenProps> = ({
                 {lang === 'en' ? '3rd Level' : '৩য় লেভেল'}
               </span>
               <span className="text-[18px] sm:text-[20px] font-bold text-[#fbbf24] font-mono my-0.5">
-                {teamStats.level3}
+                {realTree.level3Count}
               </span>
               <span className="text-[10px] text-slate-500">
                 {lang === 'en' ? 'Network' : 'নেটওয়ার্ক'}
@@ -357,7 +360,7 @@ export const PromoBonusScreen: React.FC<PromoBonusScreenProps> = ({
           {TIER_LEVELS.map((tier) => {
             const isCompleted = !!claimedTiers[tier.id];
             // V1-V4 count from direct level 1; V5-V8 count from total team (L1 + L2 + L3)
-            const currentProgress = tier.type === 'direct' ? teamStats.level1 : totalTeam;
+            const currentProgress = tier.type === 'direct' ? level1Count : totalTeam;
             const isReadyToClaim = currentProgress >= tier.targetCount && !isCompleted;
 
             return (

@@ -32,6 +32,7 @@ export const InvestTabContent: React.FC<InvestTabContentProps> = ({
 
   const [activeInvestModal, setActiveInvestModal] = useState<EnergyPackage | null>(null);
   const [successCelebration, setSuccessCelebration] = useState<string | null>(null);
+  const [insufficientError, setInsufficientError] = useState<string | null>(null);
 
   // Auto-scroll window to top whenever navigating to Invest page
   useEffect(() => {
@@ -39,6 +40,7 @@ export const InvestTabContent: React.FC<InvestTabContentProps> = ({
   }, []);
 
   const handleOpenInvest = (pkg: EnergyPackage) => {
+    setInsufficientError(null);
     setActiveInvestModal(pkg);
   };
 
@@ -47,13 +49,11 @@ export const InvestTabContent: React.FC<InvestTabContentProps> = ({
     const requiredAmount = activeInvestModal.minInvestment;
 
     if (userBalance < requiredAmount) {
-      alert(
+      setInsufficientError(
         isBn
-          ? `অপর্যাপ্ত ব্যালেন্স! আপনার ব্যালেন্স ৳${userBalance.toLocaleString()}, প্রয়োজন ৳${requiredAmount.toLocaleString()}। অনুগ্রহ করে আগে রিচার্জ করুন।`
-          : `Insufficient balance! You have ৳${userBalance.toLocaleString()}, required ৳${requiredAmount.toLocaleString()}. Please recharge first.`
+          ? `অপর্যাপ্ত ব্যালেন্স! আপনার ব্যালেন্স ৳${userBalance.toLocaleString()}, প্রয়োজন ৳${requiredAmount.toLocaleString()}। অনুগ্রহ করে রিচার্জ করুন।`
+          : `Insufficient balance! You have ৳${userBalance.toLocaleString()}, required ৳${requiredAmount.toLocaleString()}. Please recharge.`
       );
-      onOpenRecharge();
-      setActiveInvestModal(null);
       return;
     }
 
@@ -65,6 +65,7 @@ export const InvestTabContent: React.FC<InvestTabContentProps> = ({
         : `Congratulations! "${pkgName}" contract activated successfully. Daily yields will credit to your wallet.`
     );
     setActiveInvestModal(null);
+    setInsufficientError(null);
 
     setTimeout(() => {
       setSuccessCelebration(null);
@@ -378,6 +379,24 @@ export const InvestTabContent: React.FC<InvestTabContentProps> = ({
                 ৳{userBalance.toLocaleString('en-US', { minimumFractionDigits: 2 })}
               </span>
             </div>
+
+            {/* Insufficient balance notice */}
+            {insufficientError && (
+              <div className="p-3 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs space-y-2">
+                <p>{insufficientError}</p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveInvestModal(null);
+                    setInsufficientError(null);
+                    onOpenRecharge();
+                  }}
+                  className="w-full py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs cursor-pointer shadow-md transition-all"
+                >
+                  {isBn ? 'ওয়ালেট রিচার্জ করুন' : 'Recharge Wallet'}
+                </button>
+              </div>
+            )}
 
             {/* Confirm Activation Button */}
             <button

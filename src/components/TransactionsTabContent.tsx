@@ -20,87 +20,21 @@ export const TransactionsTabContent: React.FC<TransactionsTabContentProps> = ({
   const [selectedReceipt, setSelectedReceipt] = useState<any | null>(null);
   const [copiedTrx, setCopiedTrx] = useState(false);
 
-  const defaultTransactions = [
-    {
-      id: 'TRX-98214',
-      type: 'yield',
-      title: isBn ? 'সোলার সাবস্টেশন দৈনিক উৎপাদন আয়' : 'Solar Substation Daily Yield',
-      desc: isBn ? 'এআই পাওয়ার জেনারেশন ডিভিডেন্ড' : 'AI generation dividend',
-      amount: '+৳473.10',
-      time: isBn ? 'আজ, ১২:৩০ পিএম' : 'Today, 12:30 PM',
-      date: '04 Sep 2026',
-      status: isBn ? 'সফল' : 'Completed',
-      channel: 'Solar Grid Unit #04',
-      isCredit: true,
-    },
-    {
-      id: 'TRX-97812',
-      type: 'bonus',
-      title: isBn ? 'দৈনিক এআই গ্রিড বোনাস' : 'Daily AI Grid Reward',
-      desc: isBn ? 'লগইন পুরস্কার বোনাস' : 'Platform login dividend',
-      amount: '+৳50.00',
-      time: isBn ? 'আজ, ০৮:১৫ এএম' : 'Today, 08:15 AM',
-      date: '04 Sep 2026',
-      status: isBn ? 'সফল' : 'Completed',
-      channel: 'Daily Node Check-in',
-      isCredit: true,
-    },
-    {
-      id: 'TRX-96541',
-      type: 'recharge',
-      title: isBn ? 'ওয়ালেট রিচার্জ (বিকাশ)' : 'Wallet Recharge (bKash)',
-      desc: isBn ? 'ডিপোজিট TrxID: BK762910' : 'Deposit via TrxID: BK762910',
-      amount: '+৳5,000.00',
-      time: isBn ? 'গতকাল, ০৪:২০ পিএম' : 'Yesterday, 04:20 PM',
-      date: '03 Sep 2026',
-      status: isBn ? 'সফল' : 'Completed',
-      channel: 'bKash Merchant Gateway',
-      isCredit: true,
-    },
-    {
-      id: 'TRX-95112',
-      type: 'withdraw',
-      title: isBn ? 'ব্যালেন্স উত্তোলন (নগদ)' : 'Balance Withdrawal (Nagad)',
-      desc: isBn ? 'প্রেরিত +880 1712-345678' : 'Sent to +880 1712-345678',
-      amount: '-৳2,000.00',
-      time: '02 Sep 2026, 06:14 PM',
-      date: '02 Sep 2026',
-      status: isBn ? 'সফল' : 'Completed',
-      channel: 'Nagad Payout Engine',
-      isCredit: false,
-    },
-    {
-      id: 'TRX-94883',
-      type: 'yield',
-      title: isBn ? 'বিইএসএস ব্যাটারি ফ্রিকোয়েন্সি লভ্যাংশ' : 'BESS Battery Frequency Dividend',
-      desc: isBn ? 'গ্রিড লোড ব্যালেন্সিং আয়' : 'Grid load balancing yield',
-      amount: '+৳620.00',
-      time: '01 Sep 2026, 11:00 AM',
-      date: '01 Sep 2026',
-      status: isBn ? 'সফল' : 'Completed',
-      channel: 'BESS Matrix Node #2',
-      isCredit: true,
-    },
-  ];
-
-  // Combine user's real Firestore transactions with defaults
-  const transactions = [
-    ...userTransactions.map((tx: any) => ({
-      id: tx.id || tx.hash || `TRX-${Date.now()}`,
-      type: tx.type || (tx.amount > 0 || (typeof tx.amount === 'string' && tx.amount.startsWith('+')) ? 'recharge' : 'withdraw'),
-      title: tx.title || (tx.type === 'withdrawal' ? 'ব্যালেন্স উত্তোলন' : 'ওয়ালেট ডিপোজিট'),
-      desc: tx.desc || tx.description || `TrxID: ${tx.id || tx.hash || 'Verified'}`,
-      amount: typeof tx.amount === 'number'
-        ? (tx.amount > 0 ? `+৳${tx.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}` : `-৳${Math.abs(tx.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}`)
-        : String(tx.amount || '+৳0.00'),
-      time: tx.time || tx.timestamp || 'আজ, সম্প্রতি',
-      date: tx.date || new Date().toLocaleDateString('en-GB'),
-      status: isBn ? 'সফল' : 'Completed',
-      channel: tx.channel || 'NVT Cloud Settlement',
-      isCredit: tx.isCredit ?? (typeof tx.amount === 'number' ? tx.amount > 0 : !String(tx.amount).startsWith('-')),
-    })),
-    ...defaultTransactions,
-  ];
+  // Real transactions from user session and Firestore
+  const transactions = userTransactions.map((tx: any) => ({
+    id: tx.id || tx.hash || `TRX-${Date.now()}`,
+    type: tx.type || (tx.amount > 0 || (typeof tx.amount === 'string' && tx.amount.startsWith('+')) ? 'recharge' : 'withdraw'),
+    title: tx.title || (tx.type === 'withdrawal' || tx.type === 'withdraw' ? (isBn ? 'ব্যালেন্স উত্তোলন' : 'Balance Withdrawal') : (isBn ? 'ওয়ালেট ডিপোজিট' : 'Wallet Deposit')),
+    desc: tx.desc || tx.description || `TrxID: ${tx.id || tx.hash || 'Verified'}`,
+    amount: typeof tx.amount === 'number'
+      ? (tx.amount > 0 ? `+৳${tx.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}` : `-৳${Math.abs(tx.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}`)
+      : String(tx.amount || '+৳0.00'),
+    time: tx.time || tx.timestamp || (isBn ? 'আজ, সম্প্রতি' : 'Just now'),
+    date: tx.date || new Date().toLocaleDateString('en-GB'),
+    status: tx.status === 'pending' ? (isBn ? 'অপেক্ষমাণ' : 'Pending') : tx.status === 'failed' ? (isBn ? 'ব্যর্থ' : 'Failed') : (isBn ? 'সফল' : 'Completed'),
+    channel: tx.channel || 'WatchPay / Gateway',
+    isCredit: tx.isCredit ?? (typeof tx.amount === 'number' ? tx.amount > 0 : !String(tx.amount).startsWith('-')),
+  }));
 
   const filtered = transactions.filter((trx) => {
     if (activeFilter === 'all') return true;
@@ -159,60 +93,78 @@ export const TransactionsTabContent: React.FC<TransactionsTabContentProps> = ({
         ))}
       </div>
 
-      {/* Transaction List (Responsive: 1 col on mobile, 2 cols on desktop) */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-        {filtered.map((trx) => (
-          <div
-            key={trx.id}
-            onClick={() => setSelectedReceipt(trx)}
-            className="p-3.5 rounded-2xl bg-[#081224] border border-slate-800/80 hover:border-cyan-500/40 flex items-center justify-between transition-all cursor-pointer group"
-          >
-            <div className="flex items-center gap-3">
-              <div
-                className={`w-10 h-10 rounded-2xl flex items-center justify-center border shrink-0 transition-transform group-hover:scale-105 ${
-                  trx.type === 'recharge'
-                    ? 'bg-blue-500/15 border-blue-500/30 text-blue-400'
-                    : trx.type === 'withdraw'
-                    ? 'bg-rose-500/15 border-rose-500/30 text-rose-400'
-                    : trx.type === 'bonus'
-                    ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400'
-                    : 'bg-cyan-500/15 border-cyan-500/30 text-cyan-400'
-                }`}
-              >
-                {trx.type === 'recharge' && <ArrowDownToLine className="w-5 h-5" />}
-                {trx.type === 'withdraw' && <ArrowUpFromLine className="w-5 h-5" />}
-                {trx.type === 'bonus' && <Gift className="w-5 h-5" />}
-                {trx.type === 'yield' && <Zap className="w-5 h-5 fill-current" />}
-              </div>
-              <div>
-                <h4 className="text-xs font-bold text-white leading-tight group-hover:text-cyan-300 transition-colors">
-                  {trx.title}
-                </h4>
-                <p className="text-[11px] text-slate-400 mt-0.5">{trx.desc}</p>
-                <div className="flex items-center gap-2 mt-1">
-                  <span className="text-[10px] text-slate-500">{trx.time}</span>
-                  <span className="text-[10px] font-mono text-cyan-400 bg-cyan-950/40 px-1.5 py-0.2 rounded border border-cyan-500/20">
-                    {trx.id}
-                  </span>
+      {/* Transaction List or Empty State */}
+      {filtered.length === 0 ? (
+        <div className="w-full py-12 px-4 rounded-2xl bg-[#081224] border border-slate-800/80 text-center flex flex-col items-center justify-center space-y-3">
+          <div className="w-12 h-12 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400">
+            <FileText className="w-6 h-6" />
+          </div>
+          <div>
+            <h4 className="text-sm font-bold text-white">
+              {isBn ? 'কোনো ট্রানজেকশন রেকর্ড নেই' : 'No Transaction Records Found'}
+            </h4>
+            <p className="text-xs text-slate-400 mt-1 max-w-xs mx-auto">
+              {isBn
+                ? 'আসল পেমেন্ট বা ডিপোজিট সম্পন্ন হলে রিয়েল ট্রানজেকশন হিস্ট্রি এখানে দেখা যাবে।'
+                : 'Real verified transactions will appear here once deposits or rewards are credited.'}
+            </p>
+          </div>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+          {filtered.map((trx) => (
+            <div
+              key={trx.id}
+              onClick={() => setSelectedReceipt(trx)}
+              className="p-3.5 rounded-2xl bg-[#081224] border border-slate-800/80 hover:border-cyan-500/40 flex items-center justify-between transition-all cursor-pointer group"
+            >
+              <div className="flex items-center gap-3">
+                <div
+                  className={`w-10 h-10 rounded-2xl flex items-center justify-center border shrink-0 transition-transform group-hover:scale-105 ${
+                    trx.type === 'recharge'
+                      ? 'bg-blue-500/15 border-blue-500/30 text-blue-400'
+                      : trx.type === 'withdraw'
+                      ? 'bg-rose-500/15 border-rose-500/30 text-rose-400'
+                      : trx.type === 'bonus'
+                      ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400'
+                      : 'bg-cyan-500/15 border-cyan-500/30 text-cyan-400'
+                  }`}
+                >
+                  {trx.type === 'recharge' && <ArrowDownToLine className="w-5 h-5" />}
+                  {trx.type === 'withdraw' && <ArrowUpFromLine className="w-5 h-5" />}
+                  {trx.type === 'bonus' && <Gift className="w-5 h-5" />}
+                  {trx.type === 'yield' && <Zap className="w-5 h-5 fill-current" />}
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-white leading-tight group-hover:text-cyan-300 transition-colors">
+                    {trx.title}
+                  </h4>
+                  <p className="text-[11px] text-slate-400 mt-0.5">{trx.desc}</p>
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className="text-[10px] text-slate-500">{trx.time}</span>
+                    <span className="text-[10px] font-mono text-cyan-400 bg-cyan-950/40 px-1.5 py-0.2 rounded border border-cyan-500/20">
+                      {trx.id}
+                    </span>
+                  </div>
                 </div>
               </div>
-            </div>
 
-            <div className="text-right shrink-0">
-              <span
-                className={`text-sm font-extrabold font-mono ${
-                  trx.isCredit ? 'text-emerald-400' : 'text-rose-400'
-                }`}
-              >
-                {trx.amount}
-              </span>
-              <span className="block text-[10px] text-slate-400 mt-0.5 font-medium">
-                {trx.status}
-              </span>
+              <div className="text-right shrink-0">
+                <span
+                  className={`text-sm font-extrabold font-mono ${
+                    trx.isCredit ? 'text-emerald-400' : 'text-rose-400'
+                  }`}
+                >
+                  {trx.amount}
+                </span>
+                <span className="block text-[10px] text-slate-400 mt-0.5 font-medium">
+                  {trx.status}
+                </span>
+              </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
 
       {/* Transaction Details Modal */}
       {selectedReceipt && (

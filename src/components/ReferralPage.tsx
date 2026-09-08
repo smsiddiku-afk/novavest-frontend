@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   ChevronLeft,
   X,
@@ -28,10 +28,12 @@ import {
   Lock,
 } from 'lucide-react';
 import { Language } from '../types';
+import { getReferralTreeForUser } from '../utils/referralService';
 
-interface ReferralMember {
+export interface ReferralMember {
   id: string;
   phone: string;
+  username?: string;
   level: 1 | 2 | 3;
   date: string;
   investAmount: number;
@@ -47,63 +49,6 @@ interface ReferralPageProps {
   showToast?: (msg: string) => void;
   userBalance?: number;
 }
-
-const ACTIVE_TEAM_MEMBERS: ReferralMember[] = [
-  {
-    id: 'REF-101',
-    phone: '017*****412',
-    level: 1,
-    date: '2026-09-05 14:23',
-    investAmount: 2000,
-    commissionEarned: 140, // 7%
-    status: 'active',
-  },
-  {
-    id: 'REF-102',
-    phone: '018*****891',
-    level: 1,
-    date: '2026-09-04 19:10',
-    investAmount: 5000,
-    commissionEarned: 350, // 7%
-    status: 'active',
-  },
-  {
-    id: 'REF-103',
-    phone: '019*****234',
-    level: 2,
-    date: '2026-09-04 11:45',
-    investAmount: 3000,
-    commissionEarned: 90, // 3%
-    status: 'active',
-  },
-  {
-    id: 'REF-104',
-    phone: '016*****778',
-    level: 2,
-    date: '2026-09-03 16:30',
-    investAmount: 1500,
-    commissionEarned: 45, // 3%
-    status: 'active',
-  },
-  {
-    id: 'REF-105',
-    phone: '015*****552',
-    level: 3,
-    date: '2026-09-02 20:15',
-    investAmount: 4000,
-    commissionEarned: 40, // 1%
-    status: 'active',
-  },
-  {
-    id: 'REF-106',
-    phone: '013*****910',
-    level: 1,
-    date: '2026-09-01 09:50',
-    investAmount: 1000,
-    commissionEarned: 70, // 7%
-    status: 'active',
-  },
-];
 
 export const ReferralPage: React.FC<ReferralPageProps> = ({
   currentLang = 'bn',
@@ -126,13 +71,28 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
   const [copiedCode, setCopiedCode] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
 
-  // Available Cash Rewards state
+  // Real referral network data for this user
+  const teamTree = useMemo(() => getReferralTreeForUser(userCode), [userCode]);
+  const realMembers: ReferralMember[] = useMemo(() => {
+    return (teamTree.members || []).map((m) => ({
+      id: m.id,
+      phone: m.phone,
+      username: m.username,
+      level: m.level,
+      date: m.date,
+      investAmount: m.investAmount,
+      commissionEarned: m.commissionEarned,
+      status: m.status,
+    }));
+  }, [teamTree]);
+
+  // Available Cash Rewards state (real commissions waiting to be claimed, default 0.0)
   const [availableRewards, setAvailableRewards] = useState<number>(() => {
     try {
       const saved = localStorage.getItem('referral_cash_rewards');
-      return saved !== null ? Number(saved) : 245.5;
+      return saved !== null ? Math.max(0, Number(saved)) : 0.0;
     } catch {
-      return 245.5;
+      return 0.0;
     }
   });
 
@@ -194,12 +154,12 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
     );
   };
 
-  const filteredMembers = ACTIVE_TEAM_MEMBERS.filter((m) => {
+  const filteredMembers = realMembers.filter((m) => {
     if (tierFilter === 'all') return true;
     return m.level.toString() === tierFilter;
   });
 
-  const totalCommissionsEarned = ACTIVE_TEAM_MEMBERS.reduce(
+  const totalCommissionsEarned = realMembers.reduce(
     (sum, m) => sum + m.commissionEarned,
     0
   );
@@ -987,7 +947,7 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
                   {currentLang === 'bn' ? 'মোট সদস্য' : 'Total Team Size'}
                 </span>
                 <span className="text-xl sm:text-2xl font-black text-cyan-300 font-mono">
-                  {ACTIVE_TEAM_MEMBERS.length} {currentLang === 'bn' ? 'জন' : 'Members'}
+                  {realMembers.length} {currentLang === 'bn' ? 'জন' : 'Members'}
                 </span>
               </div>
             </div>
@@ -1003,7 +963,7 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
                     : 'bg-slate-900 text-slate-400 border border-slate-800 hover:text-white'
                 }`}
               >
-                {currentLang === 'bn' ? 'সব সদস্য' : 'All Tiers'} ({ACTIVE_TEAM_MEMBERS.length})
+                {currentLang === 'bn' ? 'সব সদস্য' : 'All Tiers'} ({realMembers.length})
               </button>
 
               <button

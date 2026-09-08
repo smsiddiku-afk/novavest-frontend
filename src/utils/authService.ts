@@ -10,6 +10,7 @@ import {
   findEmailByPhone,
   normalizePhone,
 } from '../lib/firebase';
+import { registerUserInReferralNetwork } from './referralService';
 import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
@@ -224,13 +225,15 @@ export const persistAuthUser = (user: UserProfile): void => {
     // 3. Document Cookie
     setCookie('nvt_user_session', serialized, 30);
 
-    // 4. Custom Broadcast Event (emulates onAuthStateChanged)
+    // 4. Custom Broadcast Event (emulates onAuthStateChanged) - deferred to microtask/timeout to prevent React render-phase update collisions
     try {
-      window.dispatchEvent(
-        new CustomEvent('nvt-auth-state-changed', {
-          detail: user,
-        })
-      );
+      setTimeout(() => {
+        window.dispatchEvent(
+          new CustomEvent('nvt-auth-state-changed', {
+            detail: user,
+          })
+        );
+      }, 0);
     } catch {
       // ignore
     }
@@ -269,11 +272,13 @@ export const clearPersistedAuthUser = (): void => {
     deleteCookie('nvt_user_session');
 
     try {
-      window.dispatchEvent(
-        new CustomEvent('nvt-auth-state-changed', {
-          detail: null,
-        })
-      );
+      setTimeout(() => {
+        window.dispatchEvent(
+          new CustomEvent('nvt-auth-state-changed', {
+            detail: null,
+          })
+        );
+      }, 0);
     } catch {
       // ignore
     }
@@ -385,8 +390,32 @@ export const getFriendlyFirebaseError = (error: any, lang: 'bn' | 'en' = 'bn'): 
       return lang === 'bn'
         ? 'অতিরিক্ত ভুল চেষ্টার কারণে অ্যাকাউন্ট সাময়িক লক হয়েছে। কিছুক্ষণ পর চেষ্টা করুন।'
         : 'Access temporarily blocked due to too many failed attempts. Try again later.';
-    default:
-      return error?.message || (lang === 'bn' ? 'লগইন করতে সমস্যা হয়েছে।' : 'Authentication failed.');
+    default: {
+      const msg = error?.message || '';
+      if (typeof msg === 'string') {
+        try {
+          const parsed = JSON.parse(msg);
+          if (parsed?.error) {
+            if (
+              parsed.error.includes('already registered') ||
+              parsed.error.includes('already in use') ||
+              parsed.error.includes('email-already-in-use')
+            ) {
+              return lang === 'bn'
+                ? 'এই অ্যাকাউন্টটি ইতিমধ্যে নিবন্ধিত রয়েছে। অনুগ্রহ করে সাইন ইন করুন।'
+                : 'This account is already registered. Please sign in.';
+            }
+            return lang === 'bn'
+              ? 'নিবন্ধন সম্পন্ন করতে সমস্যা হয়েছে, অনুগ্রহ করে পুনরায় চেষ্টা করুন।'
+              : parsed.error;
+          }
+        } catch {
+          // not JSON
+        }
+        return msg;
+      }
+      return lang === 'bn' ? 'লগইন বা নিবন্ধন করতে সমস্যা হয়েছে।' : 'Authentication failed.';
+    }
   }
 };
 
@@ -431,6 +460,16 @@ export const signInWithFirebase = async (
       });
     }
 
+    // Cache phone to email mapping
+    if (user.phone && user.email && typeof window !== 'undefined' && window.localStorage) {
+      try {
+        const norm = normalizePhone(user.phone);
+        if (norm) localStorage.setItem(`nvt_phone_email_${norm}`, user.email);
+      } catch {
+        // ignore
+      }
+    }
+
     persistAuthUser(user);
     attachFirestoreListener(user.uid!);
 
@@ -457,18 +496,46 @@ export const registerWithFirebase = async (
   },
   lang: 'bn' | 'en' = 'bn'
 ): Promise<{ success: boolean; user?: UserProfile; error?: string }> => {
+  let finalEmail = data.email?.trim();
+  if (!finalEmail) {
+    const digits = normalizePhone(data.phone);
+    finalEmail = `${digits || 'user_' + Date.now()}@novavest.local`;
+  }
+
+  const uplineCode = data.referralCode?.trim().toUpperCase() || undefined;
+
+  // Cache phone-to-email mapping locally so phone sign-in always works
+  const normPhone = normalizePhone(data.phone);
+  if (normPhone && typeof window !== 'undefined' && window.localStorage) {
+    try {
+      localStorage.setItem(`nvt_phone_email_${normPhone}`, finalEmail);
+    } catch {
+      // ignore
+    }
+  }
+
   try {
-    let finalEmail = data.email?.trim();
-    if (!finalEmail) {
-      const digits = normalizePhone(data.phone);
-      finalEmail = `${digits || 'user_' + Date.now()}@novavest.local`;
+    // 1. Create Firebase Auth user
+    let cred: any;
+    try {
+      cred = await createUserWithEmailAndPassword(auth, finalEmail, data.password);
+    } catch (authErr: any) {
+      // Auto-recovery: If user was created in Firebase Auth in a previous step where
+      // Firestore setDoc failed, attempt to sign in with the provided password!
+      if (authErr?.code === 'auth/email-already-in-use') {
+        try {
+          cred = await signInWithEmailAndPassword(auth, finalEmail, data.password);
+        } catch {
+          // Password didn't match existing account -> throw original error
+          throw authErr;
+        }
+      } else {
+        throw authErr;
+      }
     }
 
-    // 1. Create Firebase Auth user
-    const cred = await createUserWithEmailAndPassword(auth, finalEmail, data.password);
-
     // 2. Set Firebase Auth Display Name
-    if (data.username) {
+    if (data.username && cred?.user) {
       try {
         await updateProfile(cred.user, { displayName: data.username.trim() });
       } catch {
@@ -476,14 +543,23 @@ export const registerWithFirebase = async (
       }
     }
 
-    // 3. Create Firestore User Document with real zero initial wallet balance (0.0 BDT)
+    // 3. Create or sync Firestore User Document with real zero initial wallet balance (0.0 BDT)
     const newUser = await createFirestoreUserProfile(cred.user.uid, {
       name: data.username.trim(),
       phone: data.phone.trim(),
       email: finalEmail,
-      memberId: data.referralCode?.trim() || `NVT${Math.floor(100000 + Math.random() * 900000)}`,
+      referredBy: uplineCode,
       walletBalance: 0.0,
     });
+
+    // 4. Register in referral network ledger so the inviter sees the new member immediately
+    registerUserInReferralNetwork(
+      newUser.uid,
+      newUser.referralCode,
+      uplineCode || newUser.referredBy,
+      data.phone.trim(),
+      data.username.trim()
+    );
 
     persistAuthUser(newUser);
     attachFirestoreListener(newUser.uid!);

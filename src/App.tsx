@@ -166,11 +166,14 @@ export default function App() {
     if (current) {
       setAuthUser(current);
     } else {
+      const generatedMemberId = `NVT${Math.floor(100000 + Math.random() * 900000)}`;
       const newUser: UserProfile = {
         name: data.username || 'NVT Member',
         phone: data.phone || '+880 1712-345678',
         email: data.email || 'user@novaterraenergy.io',
-        memberId: data.referralCode || `NVT${Math.floor(100000 + Math.random() * 900000)}`,
+        memberId: generatedMemberId,
+        referralCode: generatedMemberId.slice(-6).toUpperCase(),
+        referredBy: data.referralCode || undefined,
         walletBalance: 0.0,
         memberSince: 'May 2024',
         isVerified: true,

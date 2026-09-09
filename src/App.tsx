@@ -6,6 +6,7 @@ import { SuccessView } from './components/SuccessView';
 import { LegalModal } from './components/LegalModal';
 import { ProfilePage } from './components/ProfilePage';
 import { SpinningLogo } from './components/SpinningLogo';
+import AdminPanel from './AdminPanel'; // <-- Admin Panel যুক্ত করা হলো
 import { LegalDocType, RegisterFormData, Language, UserProfile } from './types';
 import { scrollAppToTop } from './utils/scrollHelper';
 import {
@@ -38,6 +39,8 @@ export default function App() {
   // Determine initial path based on auth state
   const [currentPath, setCurrentPath] = useState<string>(() => {
     const initial = getCleanPath();
+    if (initial === '/admin') return '/admin'; // Admin পাথ সরাসরি চেক
+
     const isStoredAuth = !!getPersistedAuthUser();
 
     if (!isStoredAuth) {
@@ -98,11 +101,10 @@ export default function App() {
 
   // Auth State Listener: Sync user state
   useEffect(() => {
-    // Continuous real-time subscription (mirrors Firebase onAuthStateChanged)
     const unsubscribe = onAuthStateChanged((updatedUser) => {
       setAuthUser((prev) => {
         if (isSameUser(prev, updatedUser)) {
-          return prev; // Identical: preserve reference to avoid downstream cascade
+          return prev;
         }
         return updatedUser;
       });
@@ -113,15 +115,16 @@ export default function App() {
 
   // Protected Route & Guard Enforcement
   useEffect(() => {
-    if (isAuthLoading) return; // Never redirect while verifying session
+    if (isAuthLoading) return;
+
+    // /admin পাথে থাকলে অন্য কোথাও রিডাইরেক্ট করবে না
+    if (currentPath === '/admin') return;
 
     if (!authUser) {
-      // Unauthenticated visitor: Only /login and /register allowed
       if (currentPath !== '/login' && currentPath !== '/register') {
         navigate('/login', true);
       }
     } else {
-      // Authenticated user: Visiting /login or /register or / redirects to /home
       if (currentPath === '/login' || currentPath === '/register' || currentPath === '/') {
         navigate('/home', true);
       }
@@ -133,6 +136,10 @@ export default function App() {
     const handlePopState = () => {
       if (isAuthLoading) return;
       const path = getCleanPath();
+      if (path === '/admin') {
+        setCurrentPath('/admin');
+        return;
+      }
       if (!authUser) {
         if (path !== '/login' && path !== '/register') {
           navigate('/login', true);
@@ -211,13 +218,11 @@ export default function App() {
     navigate('/login', true);
   };
 
-  // Convert current path to active protected tab (e.g. /profile -> 'profile', /invest -> 'invest', /promo or /bonus -> 'wallet')
-  const pathSegment = currentPath.replace('/', '').toLowerCase();
-  let currentTab: ProtectedTab = 'home';
-  if (pathSegment === 'promo' || pathSegment === 'bonus') {
-    currentTab = 'wallet';
-  } else if (PROTECTED_TABS.includes(pathSegment as ProtectedTab)) {
-    currentTab = pathSegment as ProtectedTab;
+  // ─────────────────────────────────────────────────────────────
+  // 0. ADMIN ROUTE (সরাসরি /admin লিংকের জন্য)
+  // ─────────────────────────────────────────────────────────────
+  if (currentPath === '/admin') {
+    return <AdminPanel />;
   }
 
   // Loading Screen while session check initializes
@@ -240,6 +245,14 @@ export default function App() {
   // ─────────────────────────────────────────────────────────────
   // 1. PROTECTED APPLICATION VIEW (Strictly for Authenticated Users)
   // ─────────────────────────────────────────────────────────────
+  const pathSegment = currentPath.replace('/', '').toLowerCase();
+  let currentTab: ProtectedTab = 'home';
+  if (pathSegment === 'promo' || pathSegment === 'bonus') {
+    currentTab = 'wallet';
+  } else if (PROTECTED_TABS.includes(pathSegment as ProtectedTab)) {
+    currentTab = pathSegment as ProtectedTab;
+  }
+
   if (isAuthenticated) {
     return (
       <div className="min-h-screen w-full bg-[#050811] flex flex-col items-center justify-start overflow-x-hidden relative">
@@ -271,7 +284,6 @@ export default function App() {
     <CosmicBackground theme="cosmic-dark">
       <div id="auth-top-anchor" className="w-full h-0 pointer-events-none opacity-0" />
       <main className="w-full max-w-[460px] mx-auto flex flex-col items-center justify-start select-none">
-        {/* Compact 360° Spinning Brand Logo above Login & Register Card */}
         <div className="mb-2 sm:mb-3 flex flex-col items-center justify-center animate-in fade-in zoom-in-95 duration-300">
           <SpinningLogo
             size="sm"
@@ -281,7 +293,6 @@ export default function App() {
           />
         </div>
 
-        {/* Stable container to display Login & Register Card */}
         <div className="w-full flex flex-col items-center justify-start">
           {currentPath === '/register' ? (
             <div className="w-full animate-in fade-in duration-200">
@@ -328,7 +339,6 @@ export default function App() {
         )}
       </main>
 
-      {/* Legal terms & privacy modal */}
       <LegalModal
         type={activeLegalDoc}
         onClose={() => setActiveLegalDoc(null)}

@@ -1,22 +1,31 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { db } from "./firebase";
 import { collection, getDocs, doc, updateDoc } from "firebase/firestore";
 
-// এখানে আপনার গোপন পাসওয়ার্ডটি লিখুন
 const ADMIN_SECRET_KEY = "123456"; 
 
+interface UserItem {
+  id: string;
+  name?: string;
+  email?: string;
+  phone?: string;
+  balance?: number;
+  walletBalance?: number;
+  [key: string]: any;
+}
+
 export default function AdminPanel() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [passwordInput, setPasswordInput] = useState("");
-  const [errorMsg, setErrorMsg] = useState("");
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [passwordInput, setPasswordInput] = useState<string>("");
+  const [errorMsg, setErrorMsg] = useState<string>("");
 
-  const [users, setUsers] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [selectedUser, setSelectedUser] = useState("");
-  const [newAmount, setNewAmount] = useState("");
-  const [statusMsg, setStatusMsg] = useState("");
+  const [users, setUsers] = useState<UserItem[]>([]);
+  const [loading, setLoading] = useState<boolean>(false);
+  const [selectedUser, setSelectedUser] = useState<string>("");
+  const [newAmount, setNewAmount] = useState<string>("");
+  const [statusMsg, setStatusMsg] = useState<string>("");
 
-  const handleLogin = (e) => {
+  const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
     if (passwordInput === ADMIN_SECRET_KEY) {
       setIsAuthenticated(true);
@@ -31,9 +40,9 @@ export default function AdminPanel() {
     setLoading(true);
     try {
       const querySnapshot = await getDocs(collection(db, "users"));
-      const userList = [];
+      const userList: UserItem[] = [];
       querySnapshot.forEach((docSnap) => {
-        userList.push({ id: docSnap.id, ...docSnap.data() });
+        userList.push({ id: docSnap.id, ...(docSnap.data() as any) });
       });
       setUsers(userList);
     } catch (error) {
@@ -43,7 +52,7 @@ export default function AdminPanel() {
     setLoading(false);
   };
 
-  const handleUpdateAmount = async (e) => {
+  const handleUpdateAmount = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedUser || newAmount === "") {
       alert("ইউজার সিলেক্ট করুন এবং অ্যামাউন্ট দিন!");
@@ -53,11 +62,12 @@ export default function AdminPanel() {
     try {
       const userDocRef = doc(db, "users", selectedUser);
       await updateDoc(userDocRef, {
+        walletBalance: Number(newAmount),
         balance: Number(newAmount),
         updatedAt: new Date()
       });
 
-      setStatusMsg("✅ সফলভাবে অ্যামাউন্ট আপডেট হয়েছে!");
+      setStatusMsg("✅ সফলভাবে ব্যালেন্স আপডেট হয়েছে!");
       setNewAmount("");
       fetchUsers();
     } catch (error) {
@@ -68,8 +78,8 @@ export default function AdminPanel() {
 
   if (!isAuthenticated) {
     return (
-      <div style={{ display: "flex", justifyContent: "center", alignItems: "center", minHeight: "100vh", backgroundColor: "#f4f6f8" }}>
-        <div style={{ background: "#fff", padding: "30px", borderRadius: "8px", boxShadow: "0 2px 10px rgba(0,0,0,0.1)", width: "100%", maxWidth: "360px" }}>
+      <div style={{ display: "flex", justifyContent: "center", alignItems: "center", minHeight: "100vh", backgroundColor: "#0b0f19", color: "#fff" }}>
+        <div style={{ background: "#161d2f", padding: "30px", borderRadius: "12px", border: "1px solid #2e3856", width: "100%", maxWidth: "360px" }}>
           <h2 style={{ textAlign: "center", marginBottom: "20px" }}>🔐 Admin Login</h2>
           <form onSubmit={handleLogin}>
             <input
@@ -77,11 +87,11 @@ export default function AdminPanel() {
               placeholder="পাসওয়ার্ড দিন"
               value={passwordInput}
               onChange={(e) => setPasswordInput(e.target.value)}
-              style={{ width: "100%", padding: "10px", boxSizing: "border-box", borderRadius: "5px", border: "1px solid #ccc", marginBottom: "10px" }}
+              style={{ width: "100%", padding: "12px", boxSizing: "border-box", borderRadius: "6px", border: "1px solid #3b476c", backgroundColor: "#0b0f19", color: "#fff", marginBottom: "12px" }}
               required
             />
-            {errorMsg && <p style={{ color: "red", fontSize: "14px", margin: "0 0 10px 0" }}>{errorMsg}</p>}
-            <button type="submit" style={{ width: "100%", padding: "10px", backgroundColor: "#007bff", color: "#fff", border: "none", borderRadius: "5px", cursor: "pointer", fontWeight: "bold" }}>লগইন</button>
+            {errorMsg && <p style={{ color: "#ff5252", fontSize: "14px", margin: "0 0 10px 0" }}>{errorMsg}</p>}
+            <button type="submit" style={{ width: "100%", padding: "12px", backgroundColor: "#00d2ff", color: "#000", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "bold" }}>লগইন</button>
           </form>
         </div>
       </div>
@@ -89,44 +99,44 @@ export default function AdminPanel() {
   }
 
   return (
-    <div style={{ padding: "20px", maxWidth: "900px", margin: "0 auto", fontFamily: "sans-serif" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid #ddd", paddingBottom: "10px", marginBottom: "20px" }}>
+    <div style={{ padding: "20px", maxWidth: "900px", margin: "0 auto", fontFamily: "sans-serif", color: "#fff", minHeight: "100vh" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid #2e3856", paddingBottom: "12px", marginBottom: "20px" }}>
         <h2>⚙️ Admin Control Panel</h2>
-        <button onClick={() => setIsAuthenticated(false)} style={{ backgroundColor: "#dc3545", color: "#fff", border: "none", padding: "8px 16px", borderRadius: "5px", cursor: "pointer" }}>লগআউট</button>
+        <button onClick={() => setIsAuthenticated(false)} style={{ backgroundColor: "#dc3545", color: "#fff", border: "none", padding: "8px 16px", borderRadius: "6px", cursor: "pointer" }}>লগআউট</button>
       </div>
 
-      {statusMsg && <p style={{ padding: "10px", background: "#e8f5e9", color: "#2e7d32", borderRadius: "5px" }}>{statusMsg}</p>}
+      {statusMsg && <p style={{ padding: "10px", background: "#1b4332", color: "#d8f3dc", borderRadius: "6px", border: "1px solid #2d6a4f" }}>{statusMsg}</p>}
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
-        <div style={{ background: "#fff", padding: "20px", borderRadius: "8px", border: "1px solid #ddd" }}>
-          <h3>💰 Set User Amount</h3>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: "20px" }}>
+        <div style={{ background: "#161d2f", padding: "20px", borderRadius: "10px", border: "1px solid #2e3856" }}>
+          <h3>💰 Set User Balance</h3>
           <form onSubmit={handleUpdateAmount} style={{ marginTop: "15px" }}>
-            <label style={{ display: "block", marginBottom: "5px" }}>ইউজার সিলেক্ট করুন:</label>
-            <select value={selectedUser} onChange={(e) => setSelectedUser(e.target.value)} style={{ width: "100%", padding: "8px", marginBottom: "15px", borderRadius: "4px", border: "1px solid #ccc" }} required>
+            <label style={{ display: "block", marginBottom: "6px", fontSize: "14px" }}>ইউজার সিলেক্ট করুন:</label>
+            <select value={selectedUser} onChange={(e) => setSelectedUser(e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px", borderRadius: "6px", border: "1px solid #3b476c", backgroundColor: "#0b0f19", color: "#fff" }} required>
               <option value="">-- ইউজার বেছে নিন --</option>
               {users.map((u) => (
-                <option key={u.id} value={u.id}>{u.name || u.email || u.id} (ব্যালেন্স: {u.balance ?? 0})</option>
+                <option key={u.id} value={u.id}>{u.name || u.email || u.phone || u.id} (ব্যালেন্স: {u.walletBalance ?? u.balance ?? 0})</option>
               ))}
             </select>
 
-            <label style={{ display: "block", marginBottom: "5px" }}>নতুন ব্যালেন্স / অ্যামাউন্ট:</label>
-            <input type="number" placeholder="উদা: 5000" value={newAmount} onChange={(e) => setNewAmount(e.target.value)} style={{ width: "100%", padding: "8px", marginBottom: "15px", borderRadius: "4px", border: "1px solid #ccc", boxSizing: "border-box" }} required />
+            <label style={{ display: "block", marginBottom: "6px", fontSize: "14px" }}>নতুন ব্যালেন্স / অ্যামাউন্ট:</label>
+            <input type="number" placeholder="উদা: 5000" value={newAmount} onChange={(e) => setNewAmount(e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px", borderRadius: "6px", border: "1px solid #3b476c", backgroundColor: "#0b0f19", color: "#fff", boxSizing: "border-box" }} required />
 
-            <button type="submit" style={{ width: "100%", padding: "10px", backgroundColor: "#28a745", color: "#fff", border: "none", borderRadius: "5px", cursor: "pointer", fontWeight: "bold" }}>সেভ করুন</button>
+            <button type="submit" style={{ width: "100%", padding: "12px", backgroundColor: "#00d2ff", color: "#000", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "bold" }}>সেভ করুন</button>
           </form>
         </div>
 
-        <div style={{ background: "#fff", padding: "20px", borderRadius: "8px", border: "1px solid #ddd" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
+        <div style={{ background: "#161d2f", padding: "20px", borderRadius: "10px", border: "1px solid #2e3856" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
             <h3>👥 Users List</h3>
-            <button onClick={fetchUsers} style={{ padding: "5px 10px", cursor: "pointer" }}>🔄 রিফ্রেশ</button>
+            <button onClick={fetchUsers} style={{ padding: "6px 12px", backgroundColor: "#2e3856", color: "#fff", border: "none", borderRadius: "4px", cursor: "pointer" }}>🔄 রিফ্রেশ</button>
           </div>
           {loading ? <p>লোড হচ্ছে...</p> : (
-            <ul style={{ listStyle: "none", padding: 0, maxHeight: "300px", overflowY: "auto" }}>
+            <ul style={{ listStyle: "none", padding: 0, margin: 0, maxHeight: "350px", overflowY: "auto" }}>
               {users.map((u) => (
-                <li key={u.id} style={{ padding: "8px", borderBottom: "1px solid #eee", display: "flex", justifyContent: "space-between" }}>
-                  <span>{u.name || u.email || u.id}</span>
-                  <strong>৳ {u.balance ?? 0}</strong>
+                <li key={u.id} style={{ padding: "10px", borderBottom: "1px solid #2e3856", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ fontSize: "14px" }}>{u.name || u.email || u.phone || u.id}</span>
+                  <strong style={{ color: "#00d2ff" }}>৳ {u.walletBalance ?? u.balance ?? 0}</strong>
                 </li>
               ))}
             </ul>

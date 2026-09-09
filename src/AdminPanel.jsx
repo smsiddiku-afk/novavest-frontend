@@ -2,7 +2,6 @@ import React, { useState } from "react";
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getFirestore, collection, getDocs, doc, updateDoc } from "firebase/firestore";
 
-// Firebase Config
 const firebaseConfig = {
   authDomain: "novavest-a711c.firebaseapp.com",
   projectId: "novavest-a711c",

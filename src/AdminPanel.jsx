@@ -22,6 +22,7 @@ export default function AdminPanel() {
 
   const [users, setUsers] = useState([]);
   const [withdrawals, setWithdrawals] = useState([]);
+  const [deposits, setDeposits] = useState([]); // নতুন ডিপোজিট স্টেট
   const [loading, setLoading] = useState(false);
   
   const [selectedUser, setSelectedUser] = useState("");
@@ -72,7 +73,25 @@ export default function AdminPanel() {
         setWithdrawals(withdrawList);
       }
 
-      // ৩. সাপোর্ট সেটিংস ফেচ
+      // ৩. ডিপোজিট রিকোয়েস্ট ফেচ (নতুন যুক্ত করা হলো)
+      try {
+        const depositQuery = query(collection(db, "deposits"), orderBy("createdAt", "desc"));
+        const depositSnap = await getDocs(depositQuery);
+        const depositList = [];
+        depositSnap.forEach((docSnap) => {
+          depositList.push({ id: docSnap.id, ...docSnap.data() });
+        });
+        setDeposits(depositList);
+      } catch (err) {
+        const fallbackDepositSnap = await getDocs(collection(db, "deposits"));
+        const depositList = [];
+        fallbackDepositSnap.forEach((docSnap) => {
+          depositList.push({ id: docSnap.id, ...docSnap.data() });
+        });
+        setDeposits(depositList);
+      }
+
+      // ৪. সাপোর্ট সেটিংস ফেচ
       const settingsDoc = await getDoc(doc(db, "settings", "support"));
       if (settingsDoc.exists()) {
         const data = settingsDoc.data();
@@ -129,6 +148,35 @@ export default function AdminPanel() {
     } catch (error) {
       console.error("উইথড্র আপডেট এরর:", error);
       setStatusMsg("উইথড্র স্ট্যাটাস পরিবর্তন করা যায়নি।");
+    }
+  };
+
+  // ডিপোজিট স্ট্যাটাস আপডেট (Approve / Reject)
+  const handleDepositAction = async (depositId, userId, amount, action) => {
+    try {
+      const depositRef = doc(db, "deposits", depositId);
+      
+      if (action === "approve") {
+        await updateDoc(depositRef, { status: "Approved" });
+
+        // ডিপোজিট অ্যাপ্রুভ হলে ইউজারের ব্যালেন্স বাড়িয়ে দেওয়া
+        if (userId) {
+          const userRef = doc(db, "users", userId);
+          await updateDoc(userRef, {
+            walletBalance: increment(Number(amount)),
+            balance: increment(Number(amount))
+          });
+        }
+        setStatusMsg("✅ ডিপোজিট সফলভাবে অ্যাপ্রুভ করা হয়েছে এবং ব্যালেন্স যোগ হয়েছে!");
+      } else {
+        await updateDoc(depositRef, { status: "Rejected" });
+        setStatusMsg("❌ ডিপোজিট রিজেক্ট করা হয়েছে।");
+      }
+
+      fetchAllData();
+    } catch (error) {
+      console.error("ডিপোজিট আপডেট এরর:", error);
+      setStatusMsg("ডিপোজিট স্ট্যাটাস পরিবর্তন করা যায়নি।");
     }
   };
 
@@ -222,11 +270,61 @@ export default function AdminPanel() {
           </form>
         </div>
 
-        {/* ৩. উইথড্রল রিকোয়েস্ট ম্যানেজমেন্ট */}
+        {/* ৩. ডিপোজিট রিকোয়েস্ট ম্যানেজমেন্ট (নতুন যুক্ত করা হয়েছে) */}
+        <div style={{ background: "#161d2f", padding: "20px", borderRadius: "10px", border: "1px solid #2e3856", gridColumn: "1 / -1" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+            <h3>📥 Deposit Requests</h3>
+            <button onClick={fetchAllData} style={{ padding: "6px 12px", backgroundColor: "#2e3856", color: "#fff", border: "none", borderRadius: "4px", cursor: "pointer" }}>🔄 রিফ্রেশ</button>
+          </div>
+          {loading ? <p>লোড হচ্ছে...</p> : deposits.length === 0 ? (
+            <p style={{ color: "#94a3b8", fontSize: "14px" }}>কোনো ডিপোজিট রিকোয়েস্ট নেই।</p>
+          ) : (
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "14px" }}>
+                <thead>
+                  <tr style={{ borderBottom: "1px solid #2e3856", color: "#94a3b8" }}>
+                    <th style={{ padding: "10px" }}>ইউজার / নাম</th>
+                    <th style={{ padding: "10px" }}>মেথড / নম্বর</th>
+                    <th style={{ padding: "10px" }}>ট্রানজাকশন আইডি (TrxID)</th>
+                    <th style={{ padding: "10px" }}>অ্যামাউন্ট</th>
+                    <th style={{ padding: "10px" }}>স্ট্যাটাস</th>
+                    <th style={{ padding: "10px", textAlign: "center" }}>অ্যাকশন</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {deposits.map((d) => (
+                    <tr key={d.id} style={{ borderBottom: "1px solid #1e293b" }}>
+                      <td style={{ padding: "10px" }}>{d.userName || d.name || d.email || "N/A"}</td>
+                      <td style={{ padding: "10px" }}>{d.method || "N/A"} ({d.senderNumber || d.phone || "N/A"})</td>
+                      <td style={{ padding: "10px", fontFamily: "monospace", color: "#38bdf8" }}>{d.trxId || d.transactionId || "N/A"}</td>
+                      <td style={{ padding: "10px", color: "#22c55e", fontWeight: "bold" }}>৳ {d.amount || 0}</td>
+                      <td style={{ padding: "10px" }}>
+                        <span style={{ padding: "4px 8px", borderRadius: "4px", fontSize: "12px", background: d.status === "Approved" ? "#14532d" : d.status === "Rejected" ? "#7f1d1d" : "#713f12" }}>
+                          {d.status || "Pending"}
+                        </span>
+                      </td>
+                      <td style={{ padding: "10px", textAlign: "center" }}>
+                        {(!d.status || d.status === "Pending") ? (
+                          <div style={{ display: "flex", gap: "8px", justifyContent: "center" }}>
+                            <button onClick={() => handleDepositAction(d.id, d.userId, d.amount, "approve")} style={{ background: "#22c55e", color: "#fff", border: "none", padding: "5px 10px", borderRadius: "4px", cursor: "pointer", fontSize: "12px" }}>Approve</button>
+                            <button onClick={() => handleDepositAction(d.id, d.userId, d.amount, "reject")} style={{ background: "#dc3545", color: "#fff", border: "none", padding: "5px 10px", borderRadius: "4px", cursor: "pointer", fontSize: "12px" }}>Reject</button>
+                          </div>
+                        ) : (
+                          <span style={{ color: "#94a3b8", fontSize: "12px" }}>সম্পন্ন</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        {/* ৪. উইথড্রল রিকোয়েস্ট ম্যানেজমেন্ট */}
         <div style={{ background: "#161d2f", padding: "20px", borderRadius: "10px", border: "1px solid #2e3856", gridColumn: "1 / -1" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
             <h3>💸 Withdrawal Requests</h3>
-            <button onClick={fetchAllData} style={{ padding: "6px 12px", backgroundColor: "#2e3856", color: "#fff", border: "none", borderRadius: "4px", cursor: "pointer" }}>🔄 রিফ্রেশ</button>
           </div>
           {loading ? <p>লোড হচ্ছে...</p> : withdrawals.length === 0 ? (
             <p style={{ color: "#94a3b8", fontSize: "14px" }}>কোনো উইথড্র রিকোয়েস্ট নেই।</p>
@@ -271,7 +369,7 @@ export default function AdminPanel() {
           )}
         </div>
 
-        {/* ৪. ইউজার নেটওয়ার্ক বা রেফারেল ইনফো */}
+        {/* ৫. ইউজার নেটওয়ার্ক বা রেফারেল ইনফো */}
         <div style={{ background: "#161d2f", padding: "20px", borderRadius: "10px", border: "1px solid #2e3856", gridColumn: "1 / -1" }}>
           <h3>👥 User Network & Referrals</h3>
           {loading ? <p>লোড হচ্ছে...</p> : (

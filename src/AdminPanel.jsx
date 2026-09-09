@@ -1,6 +1,18 @@
 import React, { useState } from "react";
-import { db } from "./firebase";
-import { collection, getDocs, doc, updateDoc } from "firebase/firestore";
+import { initializeApp, getApps, getApp } from "firebase/app";
+import { getFirestore, collection, getDocs, doc, updateDoc } from "firebase/firestore";
+
+// Firebase Config
+const firebaseConfig = {
+  authDomain: "novavest-a711c.firebaseapp.com",
+  projectId: "novavest-a711c",
+  storageBucket: "novavest-a711c.firebasestorage.app",
+  messagingSenderId: "826750954477",
+  appId: "1:826750954477:web:5cc28ef9c0331520855e4"
+};
+
+const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
+const db = getFirestore(app);
 
 const ADMIN_SECRET_KEY = "123456"; 
 

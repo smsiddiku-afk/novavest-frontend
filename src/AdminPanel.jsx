@@ -4,28 +4,18 @@ import { collection, getDocs, doc, updateDoc } from "firebase/firestore";
 
 const ADMIN_SECRET_KEY = "123456"; 
 
-interface UserItem {
-  id: string;
-  name?: string;
-  email?: string;
-  phone?: string;
-  balance?: number;
-  walletBalance?: number;
-  [key: string]: any;
-}
-
 export default function AdminPanel() {
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
-  const [passwordInput, setPasswordInput] = useState<string>("");
-  const [errorMsg, setErrorMsg] = useState<string>("");
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [passwordInput, setPasswordInput] = useState("");
+  const [errorMsg, setErrorMsg] = useState("");
 
-  const [users, setUsers] = useState<UserItem[]>([]);
-  const [loading, setLoading] = useState<boolean>(false);
-  const [selectedUser, setSelectedUser] = useState<string>("");
-  const [newAmount, setNewAmount] = useState<string>("");
-  const [statusMsg, setStatusMsg] = useState<string>("");
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [selectedUser, setSelectedUser] = useState("");
+  const [newAmount, setNewAmount] = useState("");
+  const [statusMsg, setStatusMsg] = useState("");
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = (e) => {
     e.preventDefault();
     if (passwordInput === ADMIN_SECRET_KEY) {
       setIsAuthenticated(true);
@@ -40,9 +30,9 @@ export default function AdminPanel() {
     setLoading(true);
     try {
       const querySnapshot = await getDocs(collection(db, "users"));
-      const userList: UserItem[] = [];
+      const userList = [];
       querySnapshot.forEach((docSnap) => {
-        userList.push({ id: docSnap.id, ...(docSnap.data() as any) });
+        userList.push({ id: docSnap.id, ...docSnap.data() });
       });
       setUsers(userList);
     } catch (error) {
@@ -52,7 +42,7 @@ export default function AdminPanel() {
     setLoading(false);
   };
 
-  const handleUpdateAmount = async (e: React.FormEvent) => {
+  const handleUpdateAmount = async (e) => {
     e.preventDefault();
     if (!selectedUser || newAmount === "") {
       alert("ইউজার সিলেক্ট করুন এবং অ্যামাউন্ট দিন!");

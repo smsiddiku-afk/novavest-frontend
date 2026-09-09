@@ -1678,7 +1678,6 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 </div>
               </div>
             </div>
-            </div>
 
             {/* 2. Account Balance Card with Recharge & Withdraw */}
             <div

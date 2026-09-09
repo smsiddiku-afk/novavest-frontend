@@ -28,7 +28,7 @@ import {
   Lock,
 } from 'lucide-react';
 import { Language } from '../types';
-import { getReferralTreeForUser } from '../utils/referralService';
+import { subscribeToTeamMembers } from "../lib/firebase";
 
 export interface ReferralMember {
   id: string;
@@ -73,20 +73,27 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
   const [copiedCode, setCopiedCode] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
 
-  // Real referral network data for this user
-  const teamTree = useMemo(() => getReferralTreeForUser(userCode), [userCode]);
-  const realMembers: ReferralMember[] = useMemo(() => {
-    return (teamTree.members || []).map((m) => ({
-      id: m.id,
-      phone: m.phone,
-      username: m.username,
-      level: m.level,
-      date: m.date,
-      investAmount: m.investAmount,
-      commissionEarned: m.commissionEarned,
-      status: m.status,
-    }));
-  }, [teamTree]);
+    const [realMembers, setRealMembers] = useState<ReferralMember[]>([]);
+
+  useEffect(() => {
+    if (!userCode) return;
+    const unsub = subscribeToTeamMembers(userCode, (members) => {
+      setRealMembers(members);
+    });
+    return () => unsub();
+  }, [userCode]);
+
+  const teamTree = useMemo(() => ({
+    totalTeamMembers: realMembers.length,
+    tier1Count: realMembers.length,
+    tier2Count: 0,
+    tier3Count: 0,
+    teamTotalInvested: realMembers.reduce((sum, m) => sum + (m.investmentAmount || 0), 0),
+    totalCommissionEarned: 0,
+    todayEarnings: 0,
+    availableRewards: 0,
+    members: realMembers
+  }), [realMembers]);
 
   // Available Cash Rewards state (real commissions waiting to be claimed, default 0.0)
   const [availableRewards, setAvailableRewards] = useState<number>(() => {

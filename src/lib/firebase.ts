@@ -537,3 +537,37 @@ export const subscribeToUserTransactions = (
   );
 };
 
+
+// Real-time listener for referred team members from Firestore
+export const subscribeToTeamMembers = (
+  referralCode: string,
+  onUpdate: (members: any[]) => void
+) => {
+  if (!db || !referralCode) return () => {};
+  try {
+    const usersRef = collection(db, 'users');
+    const q = query(usersRef, where('referredBy', '==', referralCode.trim().toUpperCase()));
+    return onSnapshot(
+      q,
+      (snap) => {
+        const list = snap.docs.map((d) => {
+          const data = d.data();
+          return {
+            id: d.id,
+            phone: data.phone || '01***',
+            username: data.name || data.username || 'Member',
+            level: 1,
+            investmentAmount: data.walletBalance || 0
+          };
+        });
+        onUpdate(list);
+      },
+      (err) => {
+        console.warn('Firebase Team listener error:', err);
+      }
+    );
+  } catch (err) {
+    console.warn('subscribeToTeamMembers error:', err);
+    return () => {};
+  }
+};

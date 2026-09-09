@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { LegalDocType, RegisterFormData, Language } from '../types';
 import { registerWithFirebase } from '../utils/authService';
+import { registerUserInReferralNetwork, generateUniqueReferralCode } from '../utils/referralService';
 
 interface RegistrationCardProps {
   onSwitchToLogin: () => void;
@@ -211,6 +212,16 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
 
       setIsSubmitting(false);
       if (result.success && result.user) {
+        // নতুন ইউজারের ইউনিক রেফারেল কোড জেনারেট করে লোকাল রেফারেল নেটওয়ার্কে যুক্ত করা
+        const newUserCode = generateUniqueReferralCode(username.trim());
+        registerUserInReferralNetwork(
+          result.user.uid || 'user_' + Date.now(),
+          newUserCode,
+          referralCode.trim(),
+          `${countryCode} ${phone}`,
+          username.trim()
+        );
+
         onRegistrationSuccess({
           phone: `${countryCode} ${phone}`,
           username: username.trim(),
@@ -551,7 +562,7 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
           )}
         </div>
 
-        {/* 6. Email Verification Code Room (বড় ও প্রশস্ত ঘর - কোনো ক্যাপচা বক্স নেই) */}
+        {/* 6. Email Verification Code Room */}
         <div>
           <div
             className={`relative flex items-center justify-between min-h-[48px] sm:min-h-[54px] px-3.5 sm:px-4 rounded-xl sm:rounded-2xl bg-[#152037] border transition-all duration-200 ${
@@ -580,7 +591,6 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
               />
             </div>
 
-            {/* Verified indicator badge if code matches */}
             {isCodeCorrect && (
               <span className="shrink-0 flex items-center gap-1 text-xs font-semibold text-emerald-400 bg-emerald-950/50 px-2.5 py-1 rounded-lg border border-emerald-800/60">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400" />

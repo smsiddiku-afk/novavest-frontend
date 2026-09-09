@@ -43,6 +43,7 @@ export interface ReferralMember {
 
 interface ReferralPageProps {
   currentLang?: Language;
+  themeMode?: 'night' | 'day';
   userCode?: string;
   onBack: () => void;
   onClaimReward?: (amount: number) => void;
@@ -52,6 +53,7 @@ interface ReferralPageProps {
 
 export const ReferralPage: React.FC<ReferralPageProps> = ({
   currentLang = 'bn',
+  themeMode = 'night',
   userCode = 'NV8829',
   onBack,
   onClaimReward,
@@ -167,26 +169,40 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
   return (
     <div
       id="full-referral-page"
-      className="w-full min-h-screen bg-[#060b17] text-slate-100 flex flex-col relative select-none pb-28 animate-in fade-in duration-200"
+      className={`w-full min-h-screen flex flex-col relative select-none pb-28 animate-in fade-in duration-200 transition-colors ${
+        themeMode === 'day' ? 'bg-[#f4f6fb] text-slate-800' : 'bg-[#06483A] text-slate-100'
+      }`}
     >
       {/* 1. Top Header Bar (Golden Amber title & Close button matching user screenshot) */}
       <header
         id="referral-page-header"
-        className="sticky top-0 z-30 w-full bg-[#091122]/95 backdrop-blur-md border-b border-slate-800/80 shadow-md"
+        className={`sticky top-0 z-30 w-full backdrop-blur-md shadow-md transition-colors ${
+          themeMode === 'day'
+            ? 'bg-white/95 border-b border-slate-200 text-slate-900'
+            : 'bg-[#091122]/95 border-b border-slate-800/80'
+        }`}
       >
         <div className="w-full px-4 h-14 flex items-center justify-between">
           <button
             id="referral-back-btn"
             type="button"
             onClick={onBack}
-            className="w-9 h-9 rounded-full bg-slate-800/60 hover:bg-slate-700/60 text-slate-300 hover:text-white flex items-center justify-center transition-colors cursor-pointer active:scale-95"
+            className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors cursor-pointer active:scale-95 ${
+              themeMode === 'day'
+                ? 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                : 'bg-slate-800/60 hover:bg-slate-700/60 text-slate-300 hover:text-white'
+            }`}
             aria-label="Go Back"
           >
             <ChevronLeft className="w-5 h-5" />
           </button>
 
           {/* Golden Header Title matching Screenshot */}
-          <h1 className="text-lg sm:text-xl font-extrabold tracking-wide text-transparent bg-clip-text bg-gradient-to-r from-amber-300 via-amber-200 to-yellow-400 drop-shadow-[0_1px_6px_rgba(245,158,11,0.3)]">
+          <h1 className={`text-lg sm:text-xl font-extrabold tracking-wide ${
+            themeMode === 'day'
+              ? 'text-amber-600'
+              : 'text-transparent bg-clip-text bg-gradient-to-r from-amber-300 via-amber-200 to-yellow-400 drop-shadow-[0_1px_6px_rgba(245,158,11,0.3)]'
+          }`}>
             {currentLang === 'bn' ? 'রেফারেল ও টিম কমিশন' : 'Referral'}
           </h1>
 
@@ -194,7 +210,11 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
             id="referral-close-btn"
             type="button"
             onClick={onBack}
-            className="w-9 h-9 rounded-full bg-slate-800/60 hover:bg-slate-700/60 text-amber-300/90 hover:text-amber-200 flex items-center justify-center transition-colors cursor-pointer active:scale-95"
+            className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors cursor-pointer active:scale-95 ${
+              themeMode === 'day'
+                ? 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                : 'bg-slate-800/60 hover:bg-slate-700/60 text-amber-300/90 hover:text-amber-200'
+            }`}
             aria-label="Close"
           >
             <X className="w-5 h-5" />
@@ -202,14 +222,20 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
         </div>
 
         {/* 2. Dual Tabs: Invite | Details (Golden underline active state matching Screenshot) */}
-        <div className="w-full grid grid-cols-2 text-center text-sm font-bold border-t border-slate-800/50">
+        <div className={`w-full grid grid-cols-2 text-center text-sm font-bold border-t ${
+          themeMode === 'day' ? 'border-slate-200' : 'border-slate-800/50'
+        }`}>
           <button
             id="referral-tab-invite"
             type="button"
             onClick={() => setActiveTab('invite')}
             className={`py-3 relative transition-all cursor-pointer ${
               activeTab === 'invite'
-                ? 'text-amber-300 font-extrabold'
+                ? themeMode === 'day'
+                  ? 'text-amber-600 font-extrabold'
+                  : 'text-amber-300 font-extrabold'
+                : themeMode === 'day'
+                ? 'text-slate-500 hover:text-slate-800 font-medium'
                 : 'text-slate-400 hover:text-slate-200 font-medium'
             }`}
           >
@@ -225,7 +251,11 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
             onClick={() => setActiveTab('details')}
             className={`py-3 relative transition-all cursor-pointer ${
               activeTab === 'details'
-                ? 'text-amber-300 font-extrabold'
+                ? themeMode === 'day'
+                  ? 'text-amber-600 font-extrabold'
+                  : 'text-amber-300 font-extrabold'
+                : themeMode === 'day'
+                ? 'text-slate-500 hover:text-slate-800 font-medium'
                 : 'text-slate-400 hover:text-slate-200 font-medium'
             }`}
           >
@@ -773,7 +803,7 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
                     </h5>
                     <p className="text-slate-300 text-[11px] leading-relaxed">
                       {currentLang === 'bn'
-                        ? 'অর্জিত রেফারেল রিওয়ার্ড সম্পূর্ণ লক-মুক্ত। এক ক্লিকে মূল ব্যালেন্সে স্থানান্তর করে বিকাশ, নগদ, রকেট অথবা ইউএসডিটিতে (USDT) তুলতে পারবেন।'
+                        ? 'অর্জিত রেফারেল রিওয়ার্ড সম্পূর্ণ লক-মুক্ত। এক ক্লিকে মূল ব্যালেন্সে স্থানান্তর করে বিকাশ, নগদ বা রকেটে টাকায় তুলতে পারবেন।'
                         : 'Claimed commission transfers seamlessly to your main wallet with 0% hidden deductions, ready for instant mobile banking payout.'}
                     </p>
                   </div>
@@ -887,7 +917,7 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
                     <div className="px-3 pb-3 pt-0 text-[11px] text-slate-300 border-t border-slate-800/60 leading-relaxed mt-1">
                       {currentLang === 'bn'
                         ? 'উপরে "উত্তোলনযোগ্য ক্যাশ রিওয়ার্ড"-এর পাশে থাকা "দাবি করুন" বাটনে চাপ দিলে ব্যালেন্স সাথে সাথে মূল ওয়ালেটে চলে যাবে। এরপর বিকাশ বা নগদ দিয়ে যেকোনো সময় টাকা তুলে নিন।'
-                        : 'Click "Claim" in the Available Cash Rewards section above to transfer rewards into your main wallet, then initiate a standard withdrawal to bKash, Nagad, or USDT.'}
+                        : 'Click "Claim" in the Available Cash Rewards section above to transfer rewards into your main wallet, then initiate a standard withdrawal to bKash, Nagad, or Rocket.'}
                     </div>
                   )}
                 </div>

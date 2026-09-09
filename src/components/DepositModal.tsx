@@ -33,7 +33,7 @@ export const DepositModal: React.FC<DepositModalProps> = ({
   return (
     <div
       id="deposit-modal-full-overlay"
-      className="fixed inset-0 z-50 overflow-y-auto bg-[#050c14] flex flex-col items-center justify-start animate-in fade-in"
+      className="fixed inset-0 z-50 overflow-y-auto bg-[#06483A] flex flex-col items-center justify-start animate-in fade-in"
     >
       <CleanWalletScreen
         currentBalance={currentBalance}

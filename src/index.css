@@ -2,8 +2,8 @@
 
 @layer base {
   body {
-    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    background-color: #0c1322;
+    font-family: 'Plus Jakarta Sans', 'Hind Siliguri', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background-color: #06483A;
     color: #f8fafc;
     overflow-x: hidden;
   }
@@ -242,4 +242,273 @@
   animation: spin-slow 7s linear infinite;
   will-change: transform;
 }
+
+/* ==========================================================================
+   DAY MODE (LIGHT / WHITE THEME) COMPLETE SYSTEM
+   Ensures ALL pages (Home, Invest, Transactions, Wallet, Referral, Profile)
+   render with crystal-clear readability, white cards, and high contrast.
+   ========================================================================== */
+
+html.day-mode,
+html.day-mode body,
+body.day-mode,
+.day-mode {
+  background-color: #f4f6fb !important;
+  color: #0f172a !important;
+}
+
+/* Shell and main containers */
+.day-mode #app-root-shell,
+.day-mode #profile-phone-frame,
+.day-mode #full-referral-page,
+.day-mode #clean-wallet-screen {
+  background-color: #f4f6fb !important;
+  color: #0f172a !important;
+}
+
+/* Dark surfaces converted to clean white cards */
+.day-mode [class*="bg-[#050811]"],
+.day-mode [class*="bg-[#070c17]"],
+.day-mode [class*="bg-[#070e1d]"],
+.day-mode [class*="bg-[#070e1c]"],
+.day-mode [class*="bg-[#070f1e]"],
+.day-mode [class*="bg-[#081224]"],
+.day-mode [class*="bg-[#091122]"],
+.day-mode [class*="bg-[#0a0f1d]"],
+.day-mode [class*="bg-[#0a1224]"],
+.day-mode [class*="bg-[#0b1222]"],
+.day-mode [class*="bg-[#0b162c]"],
+.day-mode [class*="bg-[#0c1322]"],
+.day-mode [class*="bg-[#0c1324]"],
+.day-mode [class*="bg-[#0c162c]"],
+.day-mode [class*="bg-[#0e1628]"],
+.day-mode [class*="bg-[#0e172e]"],
+.day-mode [class*="bg-[#060D1A]"],
+.day-mode [class*="bg-[#060b18]"],
+.day-mode [class*="bg-[#060a14]"],
+.day-mode [class*="bg-[#0d1627]"],
+.day-mode [class*="bg-[#0d172e]"],
+.day-mode [class*="bg-[#11182c]"],
+.day-mode [class*="bg-[#111a30]"],
+.day-mode [class*="bg-[#121c33]"],
+.day-mode [class*="bg-[#131d36]"],
+.day-mode [class*="bg-[#131e36]"],
+.day-mode [class*="bg-[#142140]"],
+.day-mode [class*="bg-[#091325]"],
+.day-mode [class*="bg-[#060b17]"],
+.day-mode [class*="bg-[#050c14]"],
+.day-mode [class*="bg-[#0d1c28]"],
+.day-mode [class*="bg-[#091520]"],
+.day-mode [class*="bg-[#181b22]"],
+.day-mode [class*="bg-[#12141a]"],
+.day-mode [class*="bg-[#15171d]"],
+.day-mode [class*="bg-[#191b22]"],
+.day-mode [class*="bg-[#202530]"],
+.day-mode [class*="bg-[#1e2129]"],
+.day-mode [class*="bg-[#080e1c]"],
+.day-mode [class*="bg-[#081022]"],
+.day-mode [class*="bg-[#0a1428]"],
+.day-mode [class*="bg-[#0d1a36]"],
+.day-mode [class*="bg-[#0c1a33]"],
+.day-mode [class*="bg-[#09152b]"],
+.day-mode [class*="bg-[#121c38]"],
+.day-mode [class*="bg-[#0c1f40]"],
+.day-mode [class*="bg-[#08152c]"],
+.day-mode [class*="bg-[#08111e]"],
+.day-mode [class*="bg-[#0a1020]"],
+.day-mode [class*="bg-[#10182f]"],
+.day-mode [class*="bg-[#090f1d]"],
+.day-mode [class*="bg-[#0C152B]"],
+.day-mode [class*="bg-[#071126]"],
+.day-mode [class*="bg-[#0D1E3F]"],
+.day-mode [class*="bg-[#09152D]"],
+.day-mode [class*="bg-[#08152e]"],
+.day-mode [class*="bg-[#0a1832]"],
+.day-mode [class*="bg-[#0b1e3e]"],
+.day-mode [class*="bg-[#0e2142]"],
+.day-mode [class*="bg-[#081930]"],
+.day-mode [class*="bg-[#0c2345]"],
+.day-mode [class*="bg-[#0a1c36]"] {
+  background-color: #ffffff !important;
+  border-color: #e2e8f0 !important;
+}
+
+/* Dark slate cards */
+.day-mode .bg-slate-900:not(button),
+.day-mode .bg-slate-950:not(button),
+.day-mode [class*="bg-slate-900"]:not(button),
+.day-mode [class*="bg-slate-950"]:not(button) {
+  background-color: #ffffff !important;
+  border-color: #e2e8f0 !important;
+}
+
+.day-mode [class*="hover:bg-[#121c33]"]:hover {
+  background-color: #f1f5f9 !important;
+}
+
+/* Gradients that were dark blue -> subtle light gradients */
+.day-mode [class*="from-[#09152D]"],
+.day-mode [class*="from-[#08152c]"],
+.day-mode [class*="from-[#0d203e]"],
+.day-mode [class*="from-[#0b162c]"],
+.day-mode [class*="from-[#0b1325]"],
+.day-mode [class*="from-[#08111e]"] {
+  background-image: linear-gradient(135deg, #f8fafc 0%, #eff6ff 50%, #f1f5f9 100%) !important;
+  border-color: #e2e8f0 !important;
+}
+
+/* Borders in day mode */
+.day-mode [class*="border-slate-800"],
+.day-mode [class*="border-slate-700"] {
+  border-color: #e2e8f0 !important;
+}
+
+/* Divide borders */
+.day-mode [class*="divide-slate-800"] > :not([hidden]) ~ :not([hidden]) {
+  border-color: #f1f5f9 !important;
+}
+
+/* PRESERVE WHITE TEXT INSIDE COLORED CARDS, BUTTONS, AND BADGES */
+.day-mode #profile-user-card,
+.day-mode #profile-user-card * {
+  color: #ffffff !important;
+}
+.day-mode #profile-user-card .text-blue-100 {
+  color: #dbeafe !important;
+}
+.day-mode #profile-user-card .text-blue-200 {
+  color: #bfdbfe !important;
+}
+.day-mode #profile-user-card .text-cyan-300 {
+  color: #67e8f9 !important;
+}
+.day-mode #profile-user-card .text-emerald-300 {
+  color: #6ee7b7 !important;
+}
+
+/* Retain gradient clips */
+.day-mode [class*="text-transparent"][class*="bg-clip-text"] {
+  color: transparent !important;
+}
+
+/* Solid colored action buttons maintain white text */
+.day-mode button[class*="bg-blue-600"],
+.day-mode button[class*="bg-blue-500"],
+.day-mode button[class*="bg-emerald-600"],
+.day-mode button[class*="bg-emerald-500"],
+.day-mode button[class*="bg-amber-500"],
+.day-mode button[class*="bg-rose-500"],
+.day-mode button[class*="bg-[#18c4e6]"],
+.day-mode button[class*="bg-gradient-to-r"],
+.day-mode button[class*="bg-gradient-to-br"],
+.day-mode button[class*="bg-blue-600"] *,
+.day-mode button[class*="bg-blue-500"] *,
+.day-mode button[class*="bg-emerald-600"] *,
+.day-mode button[class*="bg-emerald-500"] *,
+.day-mode button[class*="bg-amber-500"] *,
+.day-mode button[class*="bg-rose-500"] *,
+.day-mode button[class*="bg-[#18c4e6]"] *,
+.day-mode button[class*="bg-gradient-to-r"] *,
+.day-mode button[class*="bg-gradient-to-br"] * {
+  color: #ffffff !important;
+}
+
+/* Specific buttons with lime background */
+.day-mode button[class*="bg-[#a3e635]"],
+.day-mode button[class*="bg-[#84cc16]"] {
+  color: #022c22 !important;
+}
+
+/* Headings in Day Mode */
+.day-mode h1:not(#profile-user-card *):not([class*="bg-blue-600"] *):not([class*="text-transparent"]):not([class*="bg-clip-text"]),
+.day-mode h2:not(#profile-user-card *):not([class*="bg-blue-600"] *):not([class*="text-transparent"]):not([class*="bg-clip-text"]),
+.day-mode h3:not(#profile-user-card *):not([class*="bg-blue-600"] *):not([class*="text-transparent"]):not([class*="bg-clip-text"]),
+.day-mode h4:not(#profile-user-card *):not([class*="bg-blue-600"] *):not([class*="text-transparent"]):not([class*="bg-clip-text"]),
+.day-mode h5:not(#profile-user-card *):not([class*="bg-blue-600"] *):not([class*="text-transparent"]):not([class*="bg-clip-text"]),
+.day-mode h6:not(#profile-user-card *):not([class*="bg-blue-600"] *):not([class*="text-transparent"]):not([class*="bg-clip-text"]) {
+  color: #0f172a !important;
+}
+
+/* General text on cards and list items in Day Mode */
+.day-mode [class*="text-white"]:not(#profile-user-card *):not([class*="bg-blue-600"] *):not([class*="bg-blue-500"] *):not([class*="bg-emerald-600"] *):not([class*="bg-amber-500"] *):not([class*="bg-rose-500"] *):not([class*="bg-[#18c4e6]"] *):not([class*="bg-gradient-"] *):not([class*="text-transparent"]):not([class*="bg-clip-text"]),
+.day-mode .text-slate-100:not(#profile-user-card *):not([class*="bg-blue-600"] *):not([class*="bg-blue-500"] *):not([class*="bg-emerald-600"] *):not([class*="bg-amber-500"] *):not([class*="bg-rose-500"] *):not([class*="bg-gradient-"] *),
+.day-mode .text-slate-200:not(#profile-user-card *):not([class*="bg-blue-600"] *):not([class*="bg-blue-500"] *):not([class*="bg-emerald-600"] *):not([class*="bg-amber-500"] *):not([class*="bg-rose-500"] *):not([class*="bg-gradient-"] *) {
+  color: #0f172a !important;
+}
+
+.day-mode .text-slate-300:not(#profile-user-card *):not([class*="bg-blue-600"] *):not([class*="bg-blue-500"] *):not([class*="bg-emerald-600"] *):not([class*="bg-amber-500"] *):not([class*="bg-rose-500"] *):not([class*="bg-gradient-"] *) {
+  color: #1e293b !important;
+}
+
+.day-mode .text-slate-400:not(#profile-user-card *):not([class*="bg-blue-600"] *):not([class*="bg-blue-500"] *):not([class*="bg-emerald-600"] *):not([class*="bg-amber-500"] *):not([class*="bg-rose-500"] *):not([class*="bg-gradient-"] *) {
+  color: #334155 !important;
+}
+
+.day-mode .text-slate-500:not(#profile-user-card *):not([class*="bg-blue-600"] *):not([class*="bg-blue-500"] *):not([class*="bg-emerald-600"] *):not([class*="bg-amber-500"] *):not([class*="bg-rose-500"] *):not([class*="bg-gradient-"] *) {
+  color: #475569 !important;
+}
+
+/* High contrast accent colors in Day Mode */
+.day-mode [class*="text-cyan-400"]:not(#profile-user-card *),
+.day-mode [class*="text-cyan-300"]:not(#profile-user-card *) {
+  color: #0284c7 !important;
+}
+
+.day-mode [class*="text-amber-300"]:not(#profile-user-card *),
+.day-mode [class*="text-amber-400"]:not(#profile-user-card *) {
+  color: #b45309 !important;
+}
+
+.day-mode [class*="text-emerald-400"]:not(#profile-user-card *),
+.day-mode [class*="text-emerald-300"]:not(#profile-user-card *) {
+  color: #059669 !important;
+}
+
+/* Input fields in Day Mode */
+.day-mode input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]),
+.day-mode select,
+.day-mode textarea {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+}
+
+.day-mode input::placeholder {
+  color: #94a3b8 !important;
+}
+
+/* Modals and dialogs backdrop */
+.day-mode [class*="bg-black/80"],
+.day-mode [class*="bg-black/85"],
+.day-mode [class*="bg-black/75"],
+.day-mode [class*="bg-black/60"],
+.day-mode [class*="bg-black/50"] {
+  background-color: rgba(15, 23, 42, 0.45) !important;
+}
+
+/* Bottom navbar in Day Mode */
+.day-mode #bottom-navbar {
+  background-color: rgba(255, 255, 255, 0.98) !important;
+  border-color: #e2e8f0 !important;
+}
+
+@keyframes marqueeSlide {
+  0% {
+    transform: translateX(0%);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+.animate-marquee-slide {
+  display: flex;
+  width: max-content;
+  animation: marqueeSlide 28s linear infinite;
+}
+
+.animate-marquee-slide:hover {
+  animation-play-state: paused;
+}
+
 

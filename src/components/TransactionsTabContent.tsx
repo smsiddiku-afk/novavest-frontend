@@ -7,12 +7,14 @@ interface TransactionsTabContentProps {
   userBalance: number;
   currentLang?: Language;
   userTransactions?: any[];
+  themeMode?: 'night' | 'day';
 }
 
 export const TransactionsTabContent: React.FC<TransactionsTabContentProps> = ({
   userBalance,
   currentLang = 'en',
   userTransactions = [],
+  themeMode = 'night',
 }) => {
   const isBn = currentLang === 'bn';
   const t = translations[currentLang];
@@ -51,7 +53,7 @@ export const TransactionsTabContent: React.FC<TransactionsTabContentProps> = ({
   };
 
   return (
-    <div className="w-full space-y-4 pb-4 text-slate-100 animate-in fade-in">
+    <div className={`w-full space-y-4 pb-4 transition-colors duration-200 ${themeMode === 'day' ? 'text-slate-800' : 'text-slate-100'} animate-in fade-in`}>
       {/* Balance Summary Header */}
       <div className="p-4 sm:p-5 rounded-[24px] bg-gradient-to-r from-[#09152D] via-[#0D1E3F] to-[#071126] border border-cyan-500/30 flex items-center justify-between shadow-md">
         <div>

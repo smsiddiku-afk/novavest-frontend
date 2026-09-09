@@ -156,7 +156,7 @@ export const SecuritySettingsPage: React.FC<SecuritySettingsPageProps> = ({
   return (
     <div
       id="security-settings-page-wrapper"
-      className="fixed inset-0 z-50 overflow-y-auto bg-[#070D18] flex flex-col text-slate-100 animate-in fade-in duration-200"
+      className="fixed inset-0 z-50 overflow-y-auto bg-[#06483A] flex flex-col text-slate-100 animate-in fade-in duration-200"
     >
       {/* Top Mobile App Bar Header */}
       <header

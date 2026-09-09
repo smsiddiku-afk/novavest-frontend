@@ -84,6 +84,19 @@ export const AddWalletPaymentModal: React.FC<AddWalletPaymentModalProps> = ({
   // Method selector popup state
   const [isPickerOpen, setIsPickerOpen] = useState(false);
 
+  // Lock body scroll while modal is open to prevent background scrolling leakage
+  useEffect(() => {
+    const originalOverflow = document.body.style.overflow;
+    const originalTouchAction = document.body.style.touchAction;
+    document.body.style.overflow = 'hidden';
+    document.body.style.touchAction = 'none';
+
+    return () => {
+      document.body.style.overflow = originalOverflow;
+      document.body.style.touchAction = originalTouchAction;
+    };
+  }, []);
+
   // Synchronize localStorage
   useEffect(() => {
     try {
@@ -183,12 +196,18 @@ export const AddWalletPaymentModal: React.FC<AddWalletPaymentModalProps> = ({
   return (
     <div
       id="add-wallet-screen-overlay"
-      className="fixed inset-0 z-50 overflow-y-auto bg-[#070D18]/95 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 text-slate-100 animate-in fade-in"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) {
+          onClose();
+        }
+      }}
+      className="fixed inset-0 z-50 overflow-y-auto overscroll-contain bg-[#070D18]/90 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 text-slate-100 animate-in fade-in"
     >
       {/* Mobile Frame Container */}
       <div
         id="add-wallet-mobile-container"
-        className="w-full max-w-md bg-[#08101E] border border-slate-800/90 rounded-[32px] shadow-[0_25px_60px_rgba(0,0,0,0.85)] overflow-hidden flex flex-col my-auto max-h-[96vh] relative"
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-md bg-[#08101E] border border-slate-800/90 rounded-[32px] shadow-[0_25px_60px_rgba(0,0,0,0.85)] overflow-hidden flex flex-col my-auto max-h-[96vh] relative overscroll-contain"
       >
         {/* Soft Background Radial Cyan Glow */}
         <div
@@ -561,8 +580,18 @@ export const AddWalletPaymentModal: React.FC<AddWalletPaymentModalProps> = ({
                 </button>
               </div>
 
-              {/* Action: Add or Re-bind Another Wallet */}
-              <div className="pt-2">
+              {/* Action: Done & Add Another Wallet */}
+              <div className="pt-2 space-y-2">
+                <button
+                  id="wallet-card-done-btn"
+                  type="button"
+                  onClick={onClose}
+                  className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 text-sm font-extrabold flex items-center justify-center gap-2 shadow-lg shadow-emerald-950/40 transition-all cursor-pointer active:scale-[0.99]"
+                >
+                  <Check className="w-4 h-4 stroke-[3]" />
+                  <span>{isBn ? 'সম্পন্ন হয়েছে (ঠিক আছে)' : 'Done / Return'}</span>
+                </button>
+
                 <button
                   type="button"
                   onClick={() => {
@@ -570,7 +599,7 @@ export const AddWalletPaymentModal: React.FC<AddWalletPaymentModalProps> = ({
                     setWalletNumber('');
                     setViewMode('form');
                   }}
-                  className="w-full py-3 px-4 rounded-xl bg-[#101F38] hover:bg-[#162A4D] border border-cyan-500/30 text-cyan-300 text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer"
+                  className="w-full py-2.5 px-4 rounded-xl bg-[#101F38] hover:bg-[#162A4D] border border-slate-700/70 text-slate-300 hover:text-white text-xs font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer"
                 >
                   <Plus className="w-4 h-4" />
                   <span>{isBn ? 'নতুন ওয়ালেট যুক্ত / বাইন্ড করুন' : 'Add Another Wallet'}</span>

@@ -13,6 +13,7 @@ import {
   Activity,
   Sparkles,
   Sun,
+  Moon,
   BatteryCharging,
   Wind,
   Award,
@@ -45,7 +46,12 @@ import {
   Layers,
   HelpCircle,
   Wallet,
-  TrendingUp
+  TrendingUp,
+  ArrowUp,
+  LayoutGrid,
+  Leaf,
+  User,
+  UserCheck
 } from 'lucide-react';
 import { HOURLY_GENERATION_DATA } from '../data/energyData';
 import { EnergySystem, Language } from '../types';
@@ -63,6 +69,8 @@ import { resolveImageSrc, handleImageError } from '../utils/imageUtils';
 interface EnergyHomeTabProps {
   currentLang?: Language;
   onToggleLang?: (lang: Language) => void;
+  themeMode?: 'night' | 'day';
+  onToggleTheme?: (mode: 'night' | 'day') => void;
   userBalance: number;
   userName: string;
   onOpenRecharge: () => void;
@@ -81,6 +89,8 @@ interface EnergyHomeTabProps {
 export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
   currentLang = 'en',
   onToggleLang,
+  themeMode = 'night',
+  onToggleTheme,
   userBalance,
   userName,
   onOpenRecharge,
@@ -113,7 +123,7 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
   // Video player & Voice Narration State
   const [selectedVideoIndex, setSelectedVideoIndex] = useState(0);
   const [isVideoPlaying, setIsVideoPlaying] = useState(false); // strictly manual play: only plays when user clicks play
-  const [isVoiceActive, setIsVoiceActive] = useState(false);
+  const [isVoiceActive, setIsVoiceActive] = useState(true);
   const [videoSeconds, setVideoSeconds] = useState(0);
   const videoElementRef = useRef<HTMLVideoElement | null>(null);
 
@@ -385,48 +395,41 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
   };
 
   const handleToggleVideoPlay = () => {
-    playAudioBeep();
     if (videoElementRef.current) {
       if (videoElementRef.current.paused) {
-        videoElementRef.current.play().catch(() => {});
-        setIsVideoPlaying(true);
-        if (isVoiceActive) {
-          speakEpisodeNarration(selectedVideoIndex);
-        }
+        videoElementRef.current.muted = !isVoiceActive;
+        videoElementRef.current.volume = 1.0;
+        videoElementRef.current.play().then(() => {
+          setIsVideoPlaying(true);
+        }).catch((err) => {
+          console.warn('Video play error:', err);
+          setIsVideoPlaying(true);
+        });
       } else {
         videoElementRef.current.pause();
         setIsVideoPlaying(false);
-        stopVoiceNarration();
       }
     } else {
       const nextPlay = !isVideoPlaying;
       setIsVideoPlaying(nextPlay);
-      if (nextPlay) {
-        if (isVoiceActive) {
-          speakEpisodeNarration(selectedVideoIndex);
-        }
-      } else {
-        stopVoiceNarration();
-      }
     }
   };
 
   const handleToggleVoiceNarration = (e?: React.MouseEvent) => {
     e?.stopPropagation();
-    playAudioBeep();
     const nextVoice = !isVoiceActive;
     setIsVoiceActive(nextVoice);
-    if (nextVoice) {
-      speakEpisodeNarration(selectedVideoIndex);
-      showToast(lang === 'bn' ? '🔊 ধীর ও স্বাভাবিক মানুষের কণ্ঠের ভয়েস চালু করা হয়েছে' : '🔊 Calm, natural voice narration activated');
-    } else {
-      stopVoiceNarration();
-      showToast(lang === 'bn' ? '🔇 ভয়েস মিউট করা হয়েছে' : '🔇 Voice muted');
+    if (videoElementRef.current) {
+      videoElementRef.current.muted = !nextVoice;
     }
+    showToast(
+      nextVoice
+        ? (lang === 'bn' ? '🔊 অডিও চালু করা হয়েছে' : '🔊 Voice unmuted')
+        : (lang === 'bn' ? '🔇 অডিও মিউট করা হয়েছে' : '🔇 Voice muted')
+    );
   };
 
   const handleSelectVideoEpisode = (idx: number) => {
-    playAudioBeep();
     stopVoiceNarration();
     setSelectedVideoIndex(idx);
     setVideoSeconds(0);
@@ -469,28 +472,129 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
     };
   }, []);
 
-  // FAQ Accordion State
-  const [expandedFaqId, setExpandedFaqId] = useState<string | null>('faq-1');
-
-  // Chart state
-  const [perfMetric, setPerfMetric] = useState<'hourly' | 'monthly'>('hourly');
-  const [hoveredHour, setHoveredHour] = useState<number | null>(null);
+  // Chart & Slide State
+  const [activeSlide, setActiveSlide] = useState(0);
+  const [livePayoutIndex, setLivePayoutIndex] = useState(0);
 
   // Live Telemetry Simulation
-  const [liveGeneration, setLiveGeneration] = useState(4820.4);
+  const [liveGeneration, setLiveGeneration] = useState(4820.9);
   const [liveEfficiency, setLiveEfficiency] = useState(98.4);
-  const [liveFrequency, setLiveFrequency] = useState(50.02);
+  const [liveFrequency, setLiveFrequency] = useState(50);
   const [liveCapacity] = useState(6500);
 
   // Live telemetry pulse
   useEffect(() => {
     const interval = setInterval(() => {
-      setLiveGeneration((prev) => +(prev + (Math.random() * 0.8 - 0.35)).toFixed(1));
-      setLiveEfficiency((prev) => +(98.2 + Math.random() * 0.4).toFixed(1));
-      setLiveFrequency((prev) => +(50.0 + (Math.random() * 0.04 - 0.02)).toFixed(2));
-    }, 3000);
+      setLiveGeneration((prev) => +(prev + (Math.random() * 0.4 - 0.2)).toFixed(1));
+      setLiveEfficiency((prev) => +(98.3 + Math.random() * 0.2).toFixed(1));
+    }, 4000);
     return () => clearInterval(interval);
   }, []);
+
+  // Top Power Systems Photographic Carousel (Pure Clean Power Infrastructure matching screenshot)
+  const heroSlides = useMemo(() => [
+    {
+      id: 'slide-green-power',
+      tag: lang === 'bn' ? 'গ্রিন পাওয়ার ইনফ্রাস্ট্রাকচার' : 'Green Power Infrastructure',
+      title1: lang === 'bn' ? 'ক্লিন এনার্জিতে বিনিয়োগ করুন' : 'Invest in Clean Energy',
+      title2: lang === 'bn' ? 'টেকসই ভবিষ্যৎ গড়ে তুলুন' : 'Build a Sustainable Future',
+      desc: lang === 'bn'
+        ? 'গ্লোবাল রিনিউয়েবল এনার্জি প্রকল্পে অংশীদার হয়ে প্রতিদিন মুনাফা অর্জন করুন। আপনার আজকের বিনিয়োগ এনে দেবে একটি সবুজ ভবিষ্যৎ।'
+        : 'Partner with global renewable energy projects and earn daily profits. Your investment today creates a greener tomorrow.',
+      badge: lang === 'bn' ? '🌱 সাসটেইনেবল এনার্জি • গ্লোবাল গ্রোথ' : '🌱 Sustainable Energy • Global Growth',
+      image: '/images/energy-hero.jpg',
+      fallback: 'https://images.unsplash.com/photo-1509391365360-2e959784a276?auto=format&fit=crop&w=1200&q=80',
+    },
+    {
+      id: 'slide-wind-turbines',
+      tag: lang === 'bn' ? 'অফশোর উইন্ড পাওয়ার' : 'Offshore Wind Generation',
+      title1: lang === 'bn' ? 'উইন্ড টারবাইন মেগা পার্ক' : 'Oceanic Wind Turbine Park',
+      title2: lang === 'bn' ? 'নিরবচ্ছিন্ন সবুজ বিদ্যুৎ' : 'Zero-Carbon Grid Power',
+      desc: lang === 'bn'
+        ? 'সমুদ্রের শক্তিশালী বায়ুপ্রবাহ কাজে লাগিয়ে জাতীয় গ্রিডে ৫০ হার্জ ক্লিন বিদ্যুৎ সরবরাহ করা হচ্ছে।'
+        : 'Harnessing oceanic wind currents with zero emissions for continuous 50 Hz green power transmission.',
+      badge: lang === 'bn' ? '⚡ ৫০ হার্জ গ্রিড সিঙ্ক্রোনাইজেশন' : '⚡ 50 Hz Grid Synchronization',
+      image: '/images/novawind-facility.jpg',
+      fallback: 'https://images.unsplash.com/photo-1466611653911-95081537e5b7?auto=format&fit=crop&w=1200&q=80',
+    },
+    {
+      id: 'slide-solar-farm',
+      tag: lang === 'bn' ? 'স্মার্ট এআই সাবস্টেশন' : 'Smart AI Power Grid',
+      title1: lang === 'bn' ? 'হাই-ভোল্টেজ অটোমেশন' : 'Automated Load Dispatch',
+      title2: lang === 'bn' ? '৯৮.৪% প্ল্যান্ট এফিসিয়েন্সি' : '98.4% Plant Efficiency',
+      desc: lang === 'bn'
+        ? 'স্বয়ংক্রিয় এআই ডেসপ্যাচার ভোল্টেজ ও ফ্রিকোয়েন্সি নিয়ন্ত্রণ করে বাণিজ্যিক ও শিল্পাঞ্চলে বিদ্যুৎ সরবরাহ বজায় রাখে।'
+        : 'Automated AI dispatchers stabilize voltage and frequency, supplying reliable power across commercial hubs.',
+      badge: lang === 'bn' ? '☀️ ৯৮.৪% এফিসিয়েন্সি মেট্রিক্স' : '☀️ 98.4% Efficiency Matrix',
+      image: '/images/solar_ai_substation_1788465992131.jpg',
+      fallback: 'https://images.unsplash.com/photo-1473341304170-971dccb5ac1e?auto=format&fit=crop&w=1200&q=80',
+    },
+    {
+      id: 'slide-bess-storage',
+      tag: lang === 'bn' ? 'BESS ব্যাটারি স্টোরেজ' : 'BESS Energy Storage',
+      title1: lang === 'bn' ? 'লিথিয়াম ফসফেট রিজার্ভ' : 'Advanced LFP Battery Reserve',
+      title2: lang === 'bn' ? '২৪/৭ পিক আওয়ার ব্যাকআপ' : '24/7 Peak Demand Backup',
+      desc: lang === 'bn'
+        ? 'উদ্বৃত্ত শক্তি বিশাল ব্যাটারি স্টোরেজে সঞ্চয় করে রাতে ও পিক আওয়ারের বিদ্যুৎ চাহিদা মেটানো হয়।'
+        : 'Industrial battery reserves guarantee round-the-clock power reliability and steady daily returns.',
+      badge: lang === 'bn' ? '🔋 ফাস্ট ডিসচার্জ ব্যাকআপ' : '🔋 Fast LFP Discharge Reserve',
+      image: '/images/vanguard-bess-storage.jpg',
+      fallback: '/images/bess_storage_facility_1788466008161.jpg',
+    },
+  ], [lang]);
+
+  // Auto-advance banner slides every 3.5 seconds
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setActiveSlide((prev) => (prev + 1) % heroSlides.length);
+    }, 3500);
+    return () => clearInterval(timer);
+  }, [heroSlides.length]);
+
+  // Single-line withdrawal notification alerts under carousel (matching user screenshot)
+  const [liveWithdrawalAlertIndex, setLiveWithdrawalAlertIndex] = useState(0);
+  const liveWithdrawalAlerts = useMemo(() => [
+    { id: '18**36', amount: '4500' },
+    { id: '17**92', amount: '5000' },
+    { id: '19**44', amount: '2500' },
+    { id: '18**11', amount: '12000' },
+    { id: '16**90', amount: '8500' },
+    { id: '13**21', amount: '3000' },
+    { id: '17**94', amount: '10000' },
+    { id: '15**08', amount: '6200' },
+    { id: '18**10', amount: '15000' },
+    { id: '19**23', amount: '4500' },
+    { id: '17**31', amount: '20000' },
+  ], []);
+
+  useEffect(() => {
+    const alertTimer = setInterval(() => {
+      setLiveWithdrawalAlertIndex((prev) => (prev + 1) % liveWithdrawalAlerts.length);
+    }, 2600);
+    return () => clearInterval(alertTimer);
+  }, [liveWithdrawalAlerts.length]);
+
+  // Live Payouts data (Bangladesh mobile banking & withdrawals for detailed feed)
+  const livePayouts = useMemo(() => [
+    { phone: '017****5892', amount: '৳৫,০০০', method: 'bKash', time: lang === 'bn' ? 'এইমাত্র' : 'Just now', type: lang === 'bn' ? 'উত্তোলন সফল' : 'Withdrawal Paid', brandBg: 'bg-[#e2136e]', brandText: 'bKash' },
+    { phone: '019****4412', amount: '৳২,৫০০', method: 'Nagad', time: lang === 'bn' ? '১ মিনিট আগে' : '1m ago', type: lang === 'bn' ? 'উত্তোলন সফল' : 'Withdrawal Paid', brandBg: 'bg-[#f7941d]', brandText: 'Nagad' },
+    { phone: '018****1154', amount: '৳১২,০০০', method: 'Rocket', time: lang === 'bn' ? '২ মিনিট আগে' : '2m ago', type: lang === 'bn' ? 'উত্তোলন সফল' : 'Withdrawal Paid', brandBg: 'bg-[#8c3494]', brandText: 'Rocket' },
+    { phone: '016****7890', amount: '৳৮,৫০০', method: 'bKash', time: lang === 'bn' ? '৩ মিনিট আগে' : '3m ago', type: lang === 'bn' ? 'উত্তোলন সফল' : 'Withdrawal Paid', brandBg: 'bg-[#e2136e]', brandText: 'bKash' },
+    { phone: '013****6621', amount: '৳৩,০০০', method: 'Nagad', time: lang === 'bn' ? '৩ মিনিট আগে' : '3m ago', type: lang === 'bn' ? 'টাকা গ্রহণ সফল' : 'Payout Received', brandBg: 'bg-[#f7941d]', brandText: 'Nagad' },
+    { phone: '017****2394', amount: '৳১০,০০০', method: 'bKash', time: lang === 'bn' ? '৪ মিনিট আগে' : '4m ago', type: lang === 'bn' ? 'উত্তোলন সফল' : 'Withdrawal Paid', brandBg: 'bg-[#e2136e]', brandText: 'bKash' },
+    { phone: '015****9908', amount: '৳৬,২০০', method: 'Rocket', time: lang === 'bn' ? '৫ মিনিট আগে' : '5m ago', type: lang === 'bn' ? 'উত্তোলন সফল' : 'Withdrawal Paid', brandBg: 'bg-[#8c3494]', brandText: 'Rocket' },
+    { phone: '018****3410', amount: '৳১৫,০০০', method: 'bKash', time: lang === 'bn' ? '৬ মিনিট আগে' : '6m ago', type: lang === 'bn' ? 'উত্তোলন সফল' : 'Withdrawal Paid', brandBg: 'bg-[#e2136e]', brandText: 'bKash' },
+    { phone: '019****7823', amount: '৳৪,৫০০', method: 'Nagad', time: lang === 'bn' ? '৭ মিনিট আগে' : '7m ago', type: lang === 'bn' ? 'উত্তোলন সফল' : 'Withdrawal Paid', brandBg: 'bg-[#f7941d]', brandText: 'Nagad' },
+    { phone: '017****4931', amount: '৳২০,০০০', method: 'bKash', time: lang === 'bn' ? '৮ মিনিট আগে' : '8m ago', type: lang === 'bn' ? 'উত্তোলন সফল' : 'Withdrawal Paid', brandBg: 'bg-[#e2136e]', brandText: 'bKash' },
+  ], [lang]);
+
+  // Live Payout rotator timer
+  useEffect(() => {
+    const payoutTimer = setInterval(() => {
+      setLivePayoutIndex((prev) => (prev + 1) % livePayouts.length);
+    }, 2800);
+    return () => clearInterval(payoutTimer);
+  }, [livePayouts.length]);
 
   const handleCopyReferral = () => {
     navigator.clipboard.writeText('https://nvt-energy.io/portal/ref?code=NVT123456');
@@ -502,872 +606,708 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
     setActiveModal('system-details');
   };
 
-  const scrollToSection = (id: string) => {
-    const el = document.getElementById(id);
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth' });
-    }
-    setIsDrawerOpen(false);
-  };
-
   return (
-    <div className="w-full flex flex-col space-y-4 pb-6 text-slate-100 animate-in fade-in duration-200">
+    <div className={`w-full flex flex-col space-y-4 pb-6 transition-colors duration-200 ${themeMode === 'day' ? 'text-slate-800' : 'text-slate-100'} animate-in fade-in duration-200`}>
       {/* ───────────────────────────────────────────────────────────
-          1. TOP HEADER BAR: [ ☰ ]  [ ⚡ AI ENERGY ]  [ 🌐 EN/বাং ] [ 🔔 ]
+          1. TOP HEADER BAR: [ ☰ ]  [ AI ENERGY ]  [ 🌐 বাংলা ∨ ] [ 🔔 ]
+          (Screenshot matching: Clean 3-bar hamburger menu on left, Sun/Leaf badge + AI ENERGY in center, language + bell on right)
       ─────────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between pt-1 pb-1">
-        {/* Left: Drawer Toggle ☰ */}
+        {/* Left: 3-bar clean hamburger Menu button */}
         <button
           type="button"
           onClick={() => setIsDrawerOpen(true)}
-          className="w-9 h-9 rounded-xl bg-slate-900 border border-slate-800 hover:border-cyan-500/50 flex items-center justify-center text-slate-300 hover:text-cyan-400 transition-all cursor-pointer shadow-sm"
-          aria-label="Open Navigation Drawer"
+          className="p-1.5 rounded-xl hover:bg-white/10 transition-colors cursor-pointer text-white"
+          aria-label="Open Navigation Menu"
+          title="Menu"
         >
-          <Menu className="w-5 h-5" />
+          <Menu className="w-6 h-6 text-white" />
         </button>
 
-        {/* Center: ⚡ AI ENERGY */}
+        {/* Center: Modern Clean Energy Branding with Sun/Leaf Icon (Excluding 'SDRL' as requested) */}
         <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-blue-600 via-cyan-500 to-emerald-400 p-[1.5px] shadow-md shadow-cyan-500/20">
-            <div className="w-full h-full bg-[#070c17] rounded-[6px] flex items-center justify-center">
-              <Zap className="w-4 h-4 text-cyan-400 fill-cyan-400/30" />
-            </div>
+          {/* Sun + Leaf Icon */}
+          <div className="relative flex items-center justify-center shrink-0">
+            <svg className="w-7 h-7 sm:w-8 sm:h-8" viewBox="0 0 36 36" fill="none">
+              <circle cx="18" cy="18" r="6.5" fill="#f59e0b" />
+              <path d="M18 4V7M18 29V32M4 18H7M29 18H32M8.1 8.1L10.5 10.5M25.5 25.5L27.9 27.9M8.1 27.9L10.5 25.5M25.5 10.5L27.9 8.1" stroke="#fbbf24" strokeWidth="2" strokeLinecap="round" />
+              <path d="M12 28C12 28 14 17 25 14C25 14 26 23 15 27C13.8 27.4 12.8 27.8 12 28Z" fill="#00e676" />
+              <path d="M15 25C18 22 21 19 23 16" stroke="#a7f3d0" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
           </div>
-          <div className="flex items-center gap-1.5">
-            <span className="text-base font-extrabold tracking-tight text-white">
-              AI <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-400">ENERGY</span>
-            </span>
-            <span className="px-1.5 py-0.2 rounded-full bg-cyan-500/15 border border-cyan-400/30 text-[9px] font-extrabold text-cyan-300">
-              GRID v4.2
+          <div className="flex flex-col">
+            <div className="flex items-center gap-1 font-black text-lg sm:text-xl tracking-wider leading-none">
+              <span className={themeMode === 'day' ? 'text-slate-900' : 'text-white'}>AI</span>
+              <span className="text-[#00e676]">ENERGY</span>
+            </div>
+            <span className="text-[10px] text-slate-400 font-medium tracking-tight mt-0.5">
+              Clean Energy | Better Tomorrow
             </span>
           </div>
         </div>
 
-        {/* Right: Language Pill & 🔔 Notification Bell */}
+        {/* Right: Language Dropdown & Notification Bell */}
         <div className="flex items-center gap-1.5 sm:gap-2">
-          {/* Quick Language Toggle */}
+          {/* Language Toggle Pill: [ 🌐 বাংলা ∨ ] */}
           <button
             type="button"
             onClick={() => onToggleLang && onToggleLang(lang === 'en' ? 'bn' : 'en')}
-            className="px-2.5 py-1.5 rounded-xl bg-[#0d172e] border border-cyan-500/30 hover:border-cyan-400 text-xs font-bold text-cyan-300 flex items-center gap-1.5 cursor-pointer transition-all shadow-sm"
+            className={`px-2.5 py-1.5 rounded-full border text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all shadow-xs ${
+              themeMode === 'day'
+                ? 'bg-white border-slate-300 text-slate-800 hover:bg-slate-50'
+                : 'bg-[#071936] border-slate-700/80 hover:border-slate-600 text-slate-200'
+            }`}
             title={lang === 'en' ? 'Switch to Bengali' : 'Switch to English'}
           >
             <Globe className="w-3.5 h-3.5 text-cyan-400" />
-            <span>{lang === 'en' ? 'বাং' : 'EN'}</span>
+            <span className="text-xs font-bold">{lang === 'en' ? 'English' : 'বাংলা'}</span>
+            <ChevronDown className="w-3 h-3 text-slate-400" />
           </button>
 
-          {/* Notifications */}
+          {/* Notifications 🔔 with Red Alert Badge */}
           <button
             type="button"
             onClick={onOpenNotifications}
-            className="w-8.5 h-8.5 sm:w-9 sm:h-9 rounded-xl bg-slate-900 border border-slate-800 hover:border-cyan-500/50 flex items-center justify-center text-slate-300 hover:text-white transition-all relative cursor-pointer shadow-sm shrink-0"
+            className={`w-8 h-8 rounded-full border flex items-center justify-center transition-all relative cursor-pointer shadow-xs shrink-0 ${
+              themeMode === 'day'
+                ? 'bg-white border-slate-300 text-slate-700 hover:text-slate-900'
+                : 'bg-[#071936] border-slate-700/80 hover:border-slate-600 text-slate-200 hover:text-white'
+            }`}
             aria-label="Notifications"
           >
-            <Bell className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
-            <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-cyan-400 ring-2 ring-[#050811]" />
+            <Bell className="w-4 h-4 text-white" />
+            <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-rose-500 ring-2 ring-[#001228] animate-pulse" />
           </button>
         </div>
       </div>
 
       {/* ───────────────────────────────────────────────────────────
-          2. AI ENERGY BANNER (Electricity System, [Explore Systems])
+          2. SLIDING HERO BANNER (Matching Screenshot Exactly)
+          "উপরে ব্যানার গুলা যেরকম দিছি অইরকম ভাবে স্লাইড হবে"
       ─────────────────────────────────────────────────────────── */}
-      <div className="relative overflow-hidden rounded-[24px] bg-gradient-to-b from-[#0b162c] via-[#091122] to-[#060a14] border border-cyan-500/30 shadow-[0_12px_36px_-10px_rgba(6,182,212,0.25)]">
-        {/* Background Image with Ambient Glow */}
-        <div className="absolute inset-0 z-0">
-          <img
-            src={resolveImageSrc('/images/energy_hero_facility_1788465969350.jpg', 'default')}
-            alt="AI Electricity Generation Facility"
-            className="w-full h-full object-cover object-center opacity-30 mix-blend-luminosity scale-105 transition-transform duration-1000"
-            referrerPolicy="no-referrer"
-            onError={(e) => handleImageError(e, 'default')}
-          />
-          <div className="absolute inset-0 bg-gradient-to-t from-[#060a14] via-[#091122]/90 to-[#0b162c]/85" />
-        </div>
+      <div className="relative w-full overflow-hidden rounded-2xl shadow-xl bg-[#001228] min-h-[220px] sm:min-h-[240px] border border-cyan-500/20">
+        {heroSlides.map((slide, idx) => (
+          <div
+            key={slide.id}
+            className={`absolute inset-0 transition-opacity duration-700 ease-in-out ${
+              activeSlide === idx ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'
+            }`}
+          >
+            {/* Background Image of Green Energy Systems */}
+            <img
+              src={resolveImageSrc(slide.image, 'offshore')}
+              alt={slide.title1}
+              className="w-full h-full object-cover object-right"
+              referrerPolicy="no-referrer"
+              onError={(e) => {
+                const target = e.currentTarget;
+                if (slide.fallback && target.src !== slide.fallback) {
+                  target.src = slide.fallback;
+                } else {
+                  handleImageError(e, 'offshore');
+                }
+              }}
+            />
 
-        {/* Ambient Glow Orbs */}
-        <div className="absolute -top-16 -right-16 w-44 h-44 rounded-full bg-cyan-500/15 blur-3xl pointer-events-none" />
-        <div className="absolute -bottom-16 -left-16 w-44 h-44 rounded-full bg-blue-600/20 blur-3xl pointer-events-none" />
+            {/* Dark gradient overlay on left half for pristine text contrast */}
+            <div className="absolute inset-0 bg-gradient-to-r from-[#001228] via-[#001228]/85 to-transparent/30 sm:to-transparent" />
 
-        <div className="relative z-10 p-5 space-y-3.5">
-          {/* Top Tag */}
-          <div className="flex items-center justify-between">
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-400/30 text-[10px] font-bold text-cyan-300">
-              <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
-              <span>{t.bannerBadge}</span>
-            </div>
-            <span className="text-[10px] text-emerald-400 font-mono font-bold flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              {t.bannerLive}
-            </span>
-          </div>
+            {/* Banner Text Overlaid matching screenshot */}
+            <div className="absolute inset-0 p-4 sm:p-5 flex flex-col justify-between max-w-[85%] sm:max-w-[70%] z-10">
+              <div className="space-y-1 sm:space-y-1.5">
+                <span className="text-[11px] sm:text-xs font-extrabold text-[#00e676] tracking-wide block">
+                  {slide.tag}
+                </span>
+                <h1 className="text-lg sm:text-xl md:text-2xl font-black text-white leading-tight">
+                  {slide.title1} <br />
+                  <span className="text-[#00e676]">{slide.title2}</span>
+                </h1>
+                <p className="text-[11px] sm:text-xs text-slate-200 line-clamp-3 leading-relaxed mt-1">
+                  {slide.desc}
+                </p>
+              </div>
 
-          {/* Title & Subtitle */}
-          <div>
-            <h1 className="text-xl sm:text-2xl font-black text-white tracking-tight leading-tight">
-              {t.bannerTitlePrefix}{' '}
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-sky-300 to-blue-400">
-                {t.bannerTitleHighlight}
-              </span>
-            </h1>
-            <p className="text-xs text-slate-300 mt-1.5 leading-relaxed">
-              {t.bannerDescription}
-            </p>
-          </div>
-
-          {/* Embedded Mini Telemetry Strip */}
-          <div className="grid grid-cols-3 gap-2 py-2 px-3 rounded-xl bg-black/50 border border-slate-800/90 backdrop-blur-sm text-center">
-            <div>
-              <span className="text-[9px] text-slate-400 block font-medium">{t.bannerActiveLoad}</span>
-              <span className="text-xs sm:text-sm font-bold text-cyan-300 font-mono">{liveGeneration} MW</span>
-            </div>
-            <div className="border-x border-slate-800">
-              <span className="text-[9px] text-slate-400 block font-medium">{t.bannerNeuralEfficiency}</span>
-              <span className="text-xs sm:text-sm font-bold text-emerald-400 font-mono">{liveEfficiency}%</span>
-            </div>
-            <div>
-              <span className="text-[9px] text-slate-400 block font-medium">{t.bannerFrequency}</span>
-              <span className="text-xs sm:text-sm font-bold text-blue-400 font-mono">{liveFrequency} Hz</span>
+              {/* Bottom pill badge */}
+              <div className="pt-2">
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#00e676]/15 border border-[#00e676]/40 text-[#00e676] text-[11px] font-bold shadow-xs">
+                  {slide.badge}
+                </span>
+              </div>
             </div>
           </div>
+        ))}
+
+        {/* Carousel Pagination Dots at Bottom Center */}
+        <div className="absolute bottom-2.5 right-4 z-20 flex items-center gap-1.5 pointer-events-auto">
+          {heroSlides.map((_, dotIdx) => (
+            <button
+              key={dotIdx}
+              type="button"
+              onClick={() => setActiveSlide(dotIdx)}
+              className={`h-1.5 transition-all duration-300 cursor-pointer ${
+                activeSlide === dotIdx
+                  ? 'w-6 rounded-full bg-[#00e676] shadow-md'
+                  : 'w-1.5 rounded-full bg-white/40 hover:bg-white/80'
+              }`}
+              aria-label={`Go to slide ${dotIdx + 1}`}
+            />
+          ))}
         </div>
       </div>
 
       {/* ───────────────────────────────────────────────────────────
-          3. QUICK MENU (8 Dedicated Icons as requested:
-             Recharge, Withdraw, Company, Employee, New, Invite, Supply, Support)
+          3. POWER GRID TELEMETRY METRICS (Matching Screenshot: 3 Columns, Borderless)
+             Power Dispatched 4820.9 MW | Plant Efficiency 98.4% | Grid Frequency 50 Hz
       ─────────────────────────────────────────────────────────── */}
-      <div className="rounded-[22px] bg-[#0c1324] border border-slate-800/80 p-3.5 shadow-sm">
-        <div className="flex items-center justify-between mb-3 px-1">
-          <span className="text-[11px] font-bold text-slate-400 tracking-wider uppercase">
-            {t.quickMenuTitle}
+      <div className="grid grid-cols-3 gap-2 py-2 px-1 text-center bg-transparent border-0 border-none shadow-none">
+        {/* 1. Power Dispatched */}
+        <div className="flex flex-col items-center justify-center border-0">
+          <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-full bg-[#00e676]/15 text-[#00e676] flex items-center justify-center mb-1.5">
+            <Zap className="w-5 h-5 fill-[#00e676]" />
+          </div>
+          <span className="text-xs sm:text-[13px] text-slate-300 font-medium leading-tight block">
+            {lang === 'bn' ? 'বিদ্যুৎ সরবরাহ' : 'Power Dispatched'}
           </span>
-          <span className="text-[10px] text-cyan-400 font-medium">{t.quickMenuShortcutsCount}</span>
+          <span className="text-sm sm:text-base font-bold text-[#38bdf8] font-mono tracking-tight mt-0.5 block">
+            {liveGeneration} MW
+          </span>
         </div>
 
-        <div className="grid grid-cols-4 md:grid-cols-8 gap-2 sm:gap-2.5">
-          {/* 1. 💳 Recharge */}
+        {/* 2. Plant Efficiency */}
+        <div className="flex flex-col items-center justify-center border-0">
+          <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-full bg-[#00e676]/15 text-[#00e676] flex items-center justify-center mb-1.5">
+            <Leaf className="w-5 h-5 fill-[#00e676]" />
+          </div>
+          <span className="text-xs sm:text-[13px] text-slate-300 font-medium leading-tight block">
+            {lang === 'bn' ? 'প্ল্যান্ট দক্ষতা' : 'Plant Efficiency'}
+          </span>
+          <span className="text-sm sm:text-base font-bold text-[#38bdf8] font-mono tracking-tight mt-0.5 block">
+            {liveEfficiency}%
+          </span>
+        </div>
+
+        {/* 3. Grid Frequency */}
+        <div className="flex flex-col items-center justify-center border-0">
+          <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-full bg-[#0284c7]/20 text-[#38bdf8] flex items-center justify-center mb-1.5">
+            <Activity className="w-5 h-5" />
+          </div>
+          <span className="text-xs sm:text-[13px] text-slate-300 font-medium leading-tight block">
+            {lang === 'bn' ? 'গ্রিড ফ্রিকোয়েন্সি' : 'Grid Frequency'}
+          </span>
+          <span className="text-sm sm:text-base font-bold text-[#38bdf8] font-mono tracking-tight mt-0.5 block">
+            {liveFrequency} Hz
+          </span>
+        </div>
+      </div>
+
+      {/* ───────────────────────────────────────────────────────────
+          4. QUICK SERVICES (8 Cards Grid - Matching Screenshot Colors & Icons)
+      ─────────────────────────────────────────────────────────── */}
+      <div className="space-y-2.5">
+        <div className="flex items-center justify-between px-1">
+          <div className="flex items-center gap-2">
+            <LayoutGrid className="w-4 h-4 text-cyan-400" />
+            <h2 className="text-sm sm:text-base font-extrabold tracking-wide text-white">
+              {lang === 'bn' ? 'কুইক সার্ভিস' : 'Quick Services'}
+            </h2>
+          </div>
+          <span className="text-xs font-bold text-cyan-400 flex items-center gap-0.5 cursor-pointer hover:underline">
+            8 Actions <ChevronRight className="w-3.5 h-3.5" />
+          </span>
+        </div>
+
+        {/* 8-Card Grid (2 Rows of 4 Cards) */}
+        <div className="grid grid-cols-4 gap-2 sm:gap-2.5">
+          {/* Card 1: Deposit (Royal Blue, Wallet) */}
           <button
             type="button"
             onClick={onOpenRecharge}
-            className="flex flex-col items-center justify-center p-2.5 rounded-xl bg-[#111c36] hover:bg-[#162447] border border-blue-500/20 hover:border-blue-400/40 transition-all text-center group cursor-pointer active:scale-95"
+            className="p-2.5 sm:p-3 rounded-2xl bg-gradient-to-b from-[#1d4ed8] to-[#1e40af] text-white flex flex-col items-center justify-center text-center shadow-md active:scale-95 transition-all cursor-pointer group"
           >
-            <div className="w-9 h-9 rounded-full bg-blue-500/15 border border-blue-500/30 flex items-center justify-center text-blue-400 group-hover:scale-110 transition-transform mb-1">
-              <ArrowDownToLine className="w-4.5 h-4.5" />
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-white/20 flex items-center justify-center mb-1 group-hover:scale-110 transition-transform">
+              <Wallet className="w-4.5 h-4.5 text-white" />
             </div>
-            <span className="text-[11px] font-bold text-white leading-tight">{t.qmRecharge}</span>
-            <span className="text-[9px] text-slate-400">{t.qmRechargeSub}</span>
+            <span className="text-xs sm:text-sm font-bold leading-tight block truncate w-full">
+              {lang === 'bn' ? 'ডিপোজিট' : 'Deposit'}
+            </span>
+            <span className="text-[9.5px] sm:text-[10px] text-blue-200 font-medium flex items-center gap-0.5 mt-0.5">
+              {lang === 'bn' ? 'অ্যাড ফান্ড' : 'Add Funds'} <ChevronRight className="w-2.5 h-2.5" />
+            </span>
           </button>
 
-          {/* 2. 💰 Withdraw */}
+          {/* Card 2: Withdraw (Emerald Green, Up Arrow) */}
           <button
             type="button"
             onClick={onOpenWithdraw}
-            className="flex flex-col items-center justify-center p-2.5 rounded-xl bg-[#111c36] hover:bg-[#162447] border border-cyan-500/20 hover:border-cyan-400/40 transition-all text-center group cursor-pointer active:scale-95"
+            className="p-2.5 sm:p-3 rounded-2xl bg-gradient-to-b from-[#059669] to-[#047857] text-white flex flex-col items-center justify-center text-center shadow-md active:scale-95 transition-all cursor-pointer group"
           >
-            <div className="w-9 h-9 rounded-full bg-cyan-500/15 border border-cyan-500/30 flex items-center justify-center text-cyan-400 group-hover:scale-110 transition-transform mb-1">
-              <ArrowUpFromLine className="w-4.5 h-4.5" />
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-white/20 flex items-center justify-center mb-1 group-hover:scale-110 transition-transform">
+              <ArrowUp className="w-4.5 h-4.5 text-white" />
             </div>
-            <span className="text-[11px] font-bold text-white leading-tight">{t.qmWithdraw}</span>
-            <span className="text-[9px] text-slate-400">{t.qmWithdrawSub}</span>
+            <span className="text-xs sm:text-sm font-bold leading-tight block truncate w-full">
+              {lang === 'bn' ? 'উত্তোলন' : 'Withdraw'}
+            </span>
+            <span className="text-[9.5px] sm:text-[10px] text-emerald-200 font-medium flex items-center gap-0.5 mt-0.5">
+              {lang === 'bn' ? 'ক্যাশ আউট' : 'Cash Out'} <ChevronRight className="w-2.5 h-2.5" />
+            </span>
           </button>
 
-          {/* 3. 🏢 Company (Company Profile) */}
+          {/* Card 3: Company Profile (Warm Amber, Person/Profile) */}
           <button
             type="button"
             onClick={() => setActiveModal('company')}
-            className="flex flex-col items-center justify-center p-2.5 rounded-xl bg-[#111c36] hover:bg-[#162447] border border-amber-500/20 hover:border-amber-400/40 transition-all text-center group cursor-pointer active:scale-95"
+            className="p-2.5 sm:p-3 rounded-2xl bg-gradient-to-b from-[#d97706] to-[#b45309] text-white flex flex-col items-center justify-center text-center shadow-md active:scale-95 transition-all cursor-pointer group"
           >
-            <div className="w-9 h-9 rounded-full bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 group-hover:scale-110 transition-transform mb-1">
-              <Building2 className="w-4.5 h-4.5" />
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-white/20 flex items-center justify-center mb-1 group-hover:scale-110 transition-transform">
+              <User className="w-4.5 h-4.5 text-white" />
             </div>
-            <span className="text-[11px] font-bold text-white leading-tight">{t.qmCompany}</span>
-            <span className="text-[9px] text-amber-300">{t.qmCompanySub}</span>
+            <span className="text-xs sm:text-sm font-bold leading-tight block truncate w-full">
+              {lang === 'bn' ? 'কোম্পানি' : 'Company Profile'}
+            </span>
+            <span className="text-[9.5px] sm:text-[10px] text-amber-200 font-medium flex items-center gap-0.5 mt-0.5 truncate max-w-full">
+              {lang === 'bn' ? 'লাইসেন্স' : 'Licenses & Docs'} <ChevronRight className="w-2.5 h-2.5 shrink-0" />
+            </span>
           </button>
 
-          {/* 4. 👷 Employee (Employee Team) */}
+          {/* Card 4: Leadership (Violet/Purple, User) */}
           <button
             type="button"
             onClick={() => setActiveModal('employee')}
-            className="flex flex-col items-center justify-center p-2.5 rounded-xl bg-[#111c36] hover:bg-[#162447] border border-indigo-500/20 hover:border-indigo-400/40 transition-all text-center group cursor-pointer active:scale-95"
+            className="p-2.5 sm:p-3 rounded-2xl bg-gradient-to-b from-[#7c3aed] to-[#6d28d9] text-white flex flex-col items-center justify-center text-center shadow-md active:scale-95 transition-all cursor-pointer group"
           >
-            <div className="w-9 h-9 rounded-full bg-indigo-500/15 border border-indigo-500/30 flex items-center justify-center text-indigo-400 group-hover:scale-110 transition-transform mb-1">
-              <HardHat className="w-4.5 h-4.5" />
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-white/20 flex items-center justify-center mb-1 group-hover:scale-110 transition-transform">
+              <UserCheck className="w-4.5 h-4.5 text-white" />
             </div>
-            <span className="text-[11px] font-bold text-white leading-tight">{t.qmEmployee}</span>
-            <span className="text-[9px] text-indigo-300">{t.qmEmployeeSub}</span>
+            <span className="text-xs sm:text-sm font-bold leading-tight block truncate w-full">
+              {lang === 'bn' ? 'নেতৃত্ব' : 'Leadership'}
+            </span>
+            <span className="text-[9.5px] sm:text-[10px] text-purple-200 font-medium flex items-center gap-0.5 mt-0.5 truncate max-w-full">
+              {lang === 'bn' ? 'ইঞ্জিনিয়ার' : 'Engineers'} <ChevronRight className="w-2.5 h-2.5 shrink-0" />
+            </span>
           </button>
 
-          {/* 5. 🆕 New (New Projects) */}
+          {/* Card 5: New Projects (Teal, Gift) */}
           <button
             type="button"
             onClick={() => setActiveModal('new-projects')}
-            className="flex flex-col items-center justify-center p-2.5 rounded-xl bg-[#111c36] hover:bg-[#162447] border border-emerald-500/20 hover:border-emerald-400/40 transition-all text-center group cursor-pointer active:scale-95"
+            className="p-2.5 sm:p-3 rounded-2xl bg-gradient-to-b from-[#0d9488] to-[#0f766e] text-white flex flex-col items-center justify-center text-center shadow-md active:scale-95 transition-all cursor-pointer group"
           >
-            <div className="w-9 h-9 rounded-full bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400 group-hover:scale-110 transition-transform mb-1">
-              <Sparkles className="w-4.5 h-4.5" />
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-white/20 flex items-center justify-center mb-1 group-hover:scale-110 transition-transform">
+              <Gift className="w-4.5 h-4.5 text-white" />
             </div>
-            <span className="text-[11px] font-bold text-white leading-tight">{t.qmNew}</span>
-            <span className="text-[9px] text-emerald-300">{t.qmNewSub}</span>
+            <span className="text-xs sm:text-sm font-bold leading-tight block truncate w-full">
+              {lang === 'bn' ? 'নতুন প্রজেক্ট' : 'New Projects'}
+            </span>
+            <span className="text-[9.5px] sm:text-[10px] text-teal-200 font-medium flex items-center gap-0.5 mt-0.5 truncate max-w-full">
+              {lang === 'bn' ? 'আসন্ন ২০২৬' : 'Upcoming 2026-27'} <ChevronRight className="w-2.5 h-2.5 shrink-0" />
+            </span>
           </button>
 
-          {/* 6. 🔗 Invite (হোম পেজের ইনভাইটেশন অপশন) */}
+          {/* Card 6: Invite (Magenta/Rose, Share2) */}
           <button
             id="home-quick-invite-btn"
             type="button"
             onClick={() => {
-              if (onOpenInvite) {
-                onOpenInvite();
-              } else {
-                handleCopyReferral();
-              }
+              if (onOpenInvite) onOpenInvite();
+              else handleCopyReferral();
             }}
-            className="flex flex-col items-center justify-center p-2.5 rounded-xl bg-[#111c36] hover:bg-[#162447] border border-amber-500/30 hover:border-amber-400/50 transition-all text-center group cursor-pointer active:scale-95 shadow-sm"
+            className="p-2.5 sm:p-3 rounded-2xl bg-gradient-to-b from-[#e11d48] to-[#be123c] text-white flex flex-col items-center justify-center text-center shadow-md active:scale-95 transition-all cursor-pointer group"
           >
-            <div className="w-9 h-9 rounded-full bg-amber-500/15 border border-amber-500/40 flex items-center justify-center text-amber-400 group-hover:scale-110 transition-transform mb-1 shadow-[0_0_8px_rgba(245,158,11,0.2)]">
-              <Share2 className="w-4.5 h-4.5" />
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-white/20 flex items-center justify-center mb-1 group-hover:scale-110 transition-transform">
+              <Share2 className="w-4.5 h-4.5 text-white" />
             </div>
-            <span className="text-[11px] font-bold text-white leading-tight">{t.qmInvite}</span>
-            <span className="text-[9px] text-amber-300 font-semibold">{t.qmInviteSub}</span>
+            <span className="text-xs sm:text-sm font-bold leading-tight block truncate w-full">
+              {lang === 'bn' ? 'ইনভাইট' : 'Invite'}
+            </span>
+            <span className="text-[9.5px] sm:text-[10px] text-pink-200 font-medium flex items-center gap-0.5 mt-0.5 truncate max-w-full">
+              {lang === 'bn' ? 'রেফার ও আয়' : 'Refer & Earn'} <ChevronRight className="w-2.5 h-2.5 shrink-0" />
+            </span>
           </button>
 
-          {/* 7. ⚡ Supply (Power Supply Status) */}
+          {/* Card 7: Power Grid (Electric Blue, Zap) */}
           <button
             type="button"
             onClick={() => setActiveModal('supply')}
-            className="flex flex-col items-center justify-center p-2.5 rounded-xl bg-[#111c36] hover:bg-[#162447] border border-yellow-500/20 hover:border-yellow-400/40 transition-all text-center group cursor-pointer active:scale-95"
+            className="p-2.5 sm:p-3 rounded-2xl bg-gradient-to-b from-[#1d4ed8] to-[#1e3a8a] text-white flex flex-col items-center justify-center text-center shadow-md active:scale-95 transition-all cursor-pointer group"
           >
-            <div className="w-9 h-9 rounded-full bg-yellow-500/15 border border-yellow-500/30 flex items-center justify-center text-yellow-400 group-hover:scale-110 transition-transform mb-1">
-              <Zap className="w-4.5 h-4.5" />
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-white/20 flex items-center justify-center mb-1 group-hover:scale-110 transition-transform">
+              <Zap className="w-4.5 h-4.5 text-white fill-white" />
             </div>
-            <span className="text-[11px] font-bold text-white leading-tight">{t.qmSupply}</span>
-            <span className="text-[9px] text-yellow-300">{t.qmSupplySub}</span>
+            <span className="text-xs sm:text-sm font-bold leading-tight block truncate w-full">
+              {lang === 'bn' ? 'পাওয়ার গ্রিড' : 'Power Grid'}
+            </span>
+            <span className="text-[9.5px] sm:text-[10px] text-blue-200 font-medium flex items-center gap-0.5 mt-0.5 truncate max-w-full">
+              {lang === 'bn' ? 'লাইভ স্ট্যাটাস' : 'Live Status'} <ChevronRight className="w-2.5 h-2.5 shrink-0" />
+            </span>
           </button>
 
-          {/* 8. 🎧 Support */}
+          {/* Card 8: Support (Sky Cyan, Headphones) */}
           <button
             type="button"
             onClick={() => setActiveModal('support')}
-            className="flex flex-col items-center justify-center p-2.5 rounded-xl bg-[#111c36] hover:bg-[#162447] border border-teal-500/20 hover:border-teal-400/40 transition-all text-center group cursor-pointer active:scale-95"
+            className="p-2.5 sm:p-3 rounded-2xl bg-gradient-to-b from-[#0284c7] to-[#0369a1] text-white flex flex-col items-center justify-center text-center shadow-md active:scale-95 transition-all cursor-pointer group"
           >
-            <div className="w-9 h-9 rounded-full bg-teal-500/15 border border-teal-500/30 flex items-center justify-center text-teal-400 group-hover:scale-110 transition-transform mb-1">
-              <Headphones className="w-4.5 h-4.5" />
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-white/20 flex items-center justify-center mb-1 group-hover:scale-110 transition-transform">
+              <Headphones className="w-4.5 h-4.5 text-white" />
             </div>
-            <span className="text-[11px] font-bold text-white leading-tight">{t.qmSupport}</span>
-            <span className="text-[9px] text-teal-300">{t.qmSupportSub}</span>
-          </button>
-        </div>
-
-        {/* Bonus Strip */}
-        <div className="mt-3 pt-2.5 border-t border-slate-800/80 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Gift className="w-4 h-4 text-emerald-400" />
-            <span className="text-xs font-semibold text-slate-300">{t.dailyBonusTitle}</span>
-          </div>
-          <button
-            type="button"
-            onClick={onClaimDailyBonus}
-            className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-              hasClaimedBonus
-                ? 'bg-slate-800 text-slate-400 cursor-not-allowed'
-                : 'bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/30 active:scale-95'
-            }`}
-          >
-            {hasClaimedBonus ? t.dailyBonusClaimed : t.dailyBonusClaim}
-          </button>
-        </div>
-      </div>
-
-      {/* ───────────────────────────────────────────────────────────
-          3.5 🎁 INVITATION & REFERRAL REWARDS BANNER (হোম পেজের ইনভাইটেশন অপশন)
-      ─────────────────────────────────────────────────────────── */}
-      <div
-        id="home-referral-invitation-card"
-        onClick={() => {
-          if (onOpenInvite) onOpenInvite();
-          else handleCopyReferral();
-        }}
-        className="rounded-[22px] bg-gradient-to-r from-[#0c1a33] via-[#09152b] to-[#121c38] border border-amber-500/30 hover:border-amber-400/50 p-3.5 sm:p-4 shadow-lg shadow-amber-950/20 relative overflow-hidden cursor-pointer transition-all group active:scale-[0.99]"
-      >
-        <div className="absolute -top-12 -right-12 w-32 h-32 bg-amber-500/10 rounded-full blur-2xl pointer-events-none" />
-        <div className="flex items-center justify-between gap-3 relative z-10">
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-amber-400 via-amber-500 to-yellow-600 flex items-center justify-center text-slate-950 font-black shadow-md shadow-amber-500/30 group-hover:scale-105 transition-transform shrink-0">
-              <Share2 className="w-5 h-5 text-slate-950" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs sm:text-sm font-bold text-white group-hover:text-amber-300 transition-colors">
-                  {lang === 'bn' ? 'আমন্ত্রণ ও রেফারেল রিওয়ার্ড' : 'Invitation & Referral Rewards'}
-                </span>
-                <span className="px-1.5 py-0.5 rounded-full bg-amber-400/20 text-amber-300 border border-amber-400/30 text-[9px] font-bold font-mono">
-                  7% + 3% + 1%
-                </span>
-              </div>
-              <p className="text-[10px] text-slate-300 line-clamp-1 mt-0.5">
-                {lang === 'bn'
-                  ? 'বন্ধুদের ইনভাইট করুন, কিউআর কোড ও সরাসরি ক্যাশ কমিশন তুলুন'
-                  : 'Invite friends, view QR code & claim instant cash commission'}
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-1 shrink-0">
-            <span className="text-[11px] font-bold text-amber-300 hidden xs:inline">
-              {lang === 'bn' ? 'ওপেন' : 'Open'}
+            <span className="text-xs sm:text-sm font-bold leading-tight block truncate w-full">
+              {lang === 'bn' ? 'সাপোর্ট' : 'Support'}
             </span>
-            <div className="w-7 h-7 rounded-full bg-amber-500/20 flex items-center justify-center text-amber-400 group-hover:translate-x-0.5 transition-transform">
-              <ChevronRight className="w-4 h-4" />
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* ───────────────────────────────────────────────────────────
-          4. 🎬 WATCH VIDEO: Live Streaming & Voice Narration
-      ─────────────────────────────────────────────────────────── */}
-      <div id="ai-energy-video" className="rounded-[24px] bg-[#0c1324] border border-cyan-500/40 overflow-hidden shadow-xl shadow-cyan-500/10 space-y-0">
-        {/* Player Header with Status & Mode Controls */}
-        <div className="p-4 pb-3 flex items-center justify-between border-b border-slate-800/80 bg-[#080e1c]">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-cyan-500/20 border border-cyan-400/40 flex items-center justify-center text-cyan-300 shrink-0">
-              <Play className="w-4 h-4 fill-current" />
-            </div>
-            <div>
-              <div className="flex items-center gap-1.5">
-                <h3 className="text-xs font-bold text-white tracking-wide">
-                  {lang === 'bn' ? 'NVT এনার্জি ভিডিও ও পরিদর্শন' : 'NVT Energy Video & Tour'}
-                </h3>
-                <span className="px-1.5 py-0.2 rounded-full bg-emerald-500/20 border border-emerald-400/30 text-[9px] font-medium text-emerald-300">
-                  {lang === 'bn' ? 'ধীর মানুষের কণ্ঠ' : 'Natural Voice'}
-                </span>
-              </div>
-              <p className="text-[10px] text-slate-400 flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block animate-pulse" />
-                {lang === 'bn' ? 'শান্ত, স্বাভাবিক ও স্পষ্ট ধারাভাষ্য (Human Cadence)' : 'Calm, steady human voice narration'}
-              </p>
-            </div>
-          </div>
-
-          {/* Voice Audio Toggle Button */}
-          <button
-            type="button"
-            onClick={handleToggleVoiceNarration}
-            className={`px-3 py-1.5 rounded-xl transition-all border cursor-pointer flex items-center gap-1.5 text-xs font-medium ${
-              isVoiceActive
-                ? 'bg-emerald-500/20 border-emerald-400/60 text-emerald-300 shadow-sm shadow-emerald-500/30'
-                : 'bg-slate-800/80 border-slate-700 text-slate-300 hover:text-white'
-            }`}
-            title={isVoiceActive ? (lang === 'bn' ? 'ভয়েস মিউট করুন' : 'Mute Voice') : (lang === 'bn' ? 'মানুষের কণ্ঠের ভয়েস শুনুন' : 'Listen with Human Voice')}
-          >
-            {isVoiceActive ? (
-              <>
-                <Volume2 className="w-4 h-4 text-emerald-400 animate-pulse" />
-                <span className="hidden xs:inline">{lang === 'bn' ? 'ভয়েস চালু' : 'Voice ON'}</span>
-              </>
-            ) : (
-              <>
-                <VolumeX className="w-4 h-4 text-slate-400" />
-                <span className="hidden xs:inline">{lang === 'bn' ? 'ভয়েস শুনুন' : 'Voice OFF'}</span>
-              </>
-            )}
+            <span className="text-[9.5px] sm:text-[10px] text-cyan-200 font-medium flex items-center gap-0.5 mt-0.5 truncate max-w-full">
+              {lang === 'bn' ? '২৪/৭ হেল্পলাইন' : '24/7 Helpline'} <ChevronRight className="w-2.5 h-2.5 shrink-0" />
+            </span>
           </button>
         </div>
-
-        {/* Video Screen / Canvas View */}
-        <div className="p-3 sm:p-4 space-y-3">
-          <div className="relative h-52 sm:h-60 rounded-2xl overflow-hidden bg-black border border-slate-800 group shadow-inner">
-            {/* Native Clean Video Element (No YouTube branding/logos, manual play only) */}
-            <video
-              ref={videoElementRef}
-              src={videoEpisodes[selectedVideoIndex].videoSrc}
-              poster={resolveImageSrc(videoEpisodes[selectedVideoIndex].image, 'solar')}
-              className="w-full h-full object-cover"
-              playsInline
-              preload="metadata"
-              loop
-              onPlay={() => setIsVideoPlaying(true)}
-              onPause={() => setIsVideoPlaying(false)}
-              onClick={handleToggleVideoPlay}
-            />
-
-            <div className="absolute inset-0 bg-gradient-to-t from-[#060a14] via-black/20 to-black/40 pointer-events-none" />
-
-            {/* Grid Scan Lines Effect */}
-            <div className="absolute inset-0 bg-[radial-gradient(#00f0ff_1px,transparent_1px)] [background-size:24px_24px] opacity-10 pointer-events-none" />
-
-            {/* Center Interactive Play Button Prompt when not playing (Only plays when clicked) */}
-            {!isVideoPlaying ? (
-              <div
-                onClick={handleToggleVideoPlay}
-                className="absolute inset-0 flex flex-col items-center justify-center bg-black/40 backdrop-blur-[1px] cursor-pointer transition-all hover:bg-black/30"
-              >
-                <div className="w-16 h-16 rounded-full bg-cyan-500 hover:bg-cyan-400 border border-cyan-300 text-black flex items-center justify-center shadow-2xl shadow-cyan-500/50 transform hover:scale-110 active:scale-95 transition-all">
-                  <Play className="w-8 h-8 fill-current ml-1" />
-                </div>
-                <div className="mt-3 px-3 py-1 rounded-full bg-black/80 border border-cyan-500/40 text-[11px] font-bold text-cyan-300 shadow-md">
-                  {lang === 'bn' ? 'ভিডিও চালু করতে প্লে বাটনে ক্লিক করুন' : 'Click Play Button to Start Video'}
-                </div>
-              </div>
-            ) : (
-              /* Center Interactive Play/Pause Button on hover when playing */
-              <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-                <button
-                  type="button"
-                  onClick={handleToggleVideoPlay}
-                  className="w-14 h-14 rounded-full bg-black/60 hover:bg-black/80 border border-cyan-400/60 backdrop-blur-md flex items-center justify-center text-white shadow-2xl transition-all hover:scale-110 cursor-pointer pointer-events-auto"
-                  title="Pause"
-                >
-                  <Pause className="w-6 h-6 fill-current" />
-                </button>
-              </div>
-            )}
-
-            {/* Subtitle / Closed-Caption Box */}
-            {isVideoPlaying && (
-              <div className="absolute bottom-12 inset-x-3 text-center pointer-events-none">
-                <div className="inline-block max-w-[92%] px-3 py-1.5 rounded-xl bg-black/85 border border-cyan-500/40 backdrop-blur-md text-xs sm:text-sm text-cyan-200 font-medium shadow-xl animate-in fade-in duration-300">
-                  {videoEpisodes[selectedVideoIndex].captions.find(
-                    (c) => (videoSeconds % 25) >= c.start && (videoSeconds % 25) < c.end
-                  )?.text || videoEpisodes[selectedVideoIndex].captions[0]?.text}
-                </div>
-              </div>
-            )}
-
-            {/* Bottom Control Bar */}
-            <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/95 via-black/80 to-transparent p-2.5 pt-4 space-y-1.5">
-              {/* Scrubber Progress Bar */}
-              <div
-                onClick={() => {
-                  setVideoSeconds((prev) => prev + 5);
-                  playAudioBeep();
-                }}
-                className="w-full bg-slate-800/90 rounded-full h-1.5 overflow-hidden cursor-pointer group/bar relative"
-              >
-                <div
-                  className="bg-gradient-to-r from-blue-500 via-cyan-400 to-emerald-400 h-full rounded-full transition-all duration-300 relative"
-                  style={{
-                    width: `${Math.min(
-                      100,
-                      Math.round(
-                        ((videoSeconds % videoEpisodes[selectedVideoIndex].totalSec) /
-                          videoEpisodes[selectedVideoIndex].totalSec) *
-                          100
-                      )
-                    )}%`,
-                  }}
-                >
-                  <span className="absolute right-0 top-1/2 -translate-y-1/2 w-2.5 h-2.5 bg-white rounded-full shadow-md scale-0 group-hover/bar:scale-100 transition-transform" />
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between text-white text-xs">
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={handleToggleVideoPlay}
-                    className="p-1 text-cyan-300 hover:text-white cursor-pointer"
-                  >
-                    {isVideoPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 fill-current" />}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={handleToggleVoiceNarration}
-                    className={`p-1 cursor-pointer transition-colors ${isVoiceActive ? 'text-emerald-400 hover:text-emerald-300' : 'text-slate-400 hover:text-slate-200'}`}
-                    title={isVoiceActive ? 'Mute Voice' : 'Unmute Voice'}
-                  >
-                    {isVoiceActive ? <Volume2 className="w-4 h-4 animate-pulse" /> : <VolumeX className="w-4 h-4" />}
-                  </button>
-
-                  {/* Soundwave equalizer indicator when voice is active */}
-                  {isVoiceActive && (
-                    <div className="flex items-center gap-0.5 px-2 py-0.5 rounded-full bg-emerald-950/80 border border-emerald-500/40 text-[9px] text-emerald-300 font-mono">
-                      <span className="w-0.5 h-2 bg-emerald-400 rounded-full animate-bounce [animation-delay:-0.3s]" />
-                      <span className="w-0.5 h-3 bg-emerald-400 rounded-full animate-bounce [animation-delay:-0.15s]" />
-                      <span className="w-0.5 h-1.5 bg-emerald-400 rounded-full animate-bounce" />
-                      <span className="ml-1 text-[9px] hidden xs:inline">{lang === 'bn' ? 'মানুষের কণ্ঠ' : 'Human Voice'}</span>
-                    </div>
-                  )}
-
-                  <span className="text-[10px] font-mono text-slate-300">
-                    {Math.floor((videoSeconds % videoEpisodes[selectedVideoIndex].totalSec) / 60)
-                      .toString()
-                      .padStart(2, '0')}
-                    :
-                    {Math.floor((videoSeconds % videoEpisodes[selectedVideoIndex].totalSec) % 60)
-                      .toString()
-                      .padStart(2, '0')}{' '}
-                    / {videoEpisodes[selectedVideoIndex].duration}
-                  </span>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <span className="text-[11px] font-semibold text-white truncate max-w-[140px] sm:max-w-[200px]">
-                    {videoEpisodes[selectedVideoIndex].title}
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Video Episode Selector Tabs */}
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between px-1">
-              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-                {lang === 'bn' ? 'ভিডিও তালিকা (ভয়েস সহ)' : 'Video Playlist (With Voice)'}
-              </span>
-              <span className="text-[10px] text-emerald-400 font-medium flex items-center gap-1">
-                <CheckCircle2 className="w-3 h-3" />
-                {lang === 'bn' ? 'অফিসিয়াল এইচডী ভিডিও' : 'Official HD Video'}
-              </span>
-            </div>
-
-            <div className="grid grid-cols-3 gap-1.5">
-              {videoEpisodes.map((ep, idx) => (
-                <button
-                  key={ep.id}
-                  type="button"
-                  onClick={() => handleSelectVideoEpisode(idx)}
-                  className={`p-2 rounded-xl text-left transition-all border cursor-pointer ${
-                    selectedVideoIndex === idx
-                      ? 'bg-[#122347] border-cyan-400/80 shadow-md shadow-cyan-500/10'
-                      : 'bg-[#091122] border-slate-800/90 hover:border-slate-700 opacity-75 hover:opacity-100'
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-[9px] font-mono text-cyan-400 font-bold">
-                      #{idx + 1}
-                    </span>
-                    <span className="text-[9px] font-mono text-slate-400">
-                      {ep.duration}
-                    </span>
-                  </div>
-                  <div className="text-[11px] font-bold text-white line-clamp-1">
-                    {ep.title}
-                  </div>
-                  <div className="text-[9px] text-slate-400 line-clamp-1 mt-0.5">
-                    {ep.subtitle}
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
       </div>
 
+
       {/* ───────────────────────────────────────────────────────────
-          5. ENERGY STATUS:
-             ⚡ Generated  🔋 System  📊 Capacity  📈 Output
+          5. LIVE WITHDRAWAL & PAYOUT SLIDING NOTIFICATIONS
+             "উইথড্র লাইভ সিস্টেম আরো একটু নিচে যাবে"
       ─────────────────────────────────────────────────────────── */}
-      <div className="rounded-[22px] bg-[#0c1324] border border-slate-800/80 p-4 space-y-3">
-        <div className="flex items-center justify-between">
+      <div className="space-y-2.5 pt-1">
+        {/* Header with pulsating live indicator */}
+        <div className="flex items-center justify-between px-1">
           <div className="flex items-center gap-2">
-            <Activity className="w-4 h-4 text-cyan-400" />
-            <h3 className="text-xs font-bold text-white tracking-wide uppercase">
-              {t.statusSectionTitle}
-            </h3>
+            <span className="relative flex h-2.5 w-2.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
+            </span>
+            <span className={`text-xs sm:text-sm font-extrabold tracking-wide ${
+              themeMode === 'day' ? 'text-slate-900' : 'text-white'
+            }`}>
+              {lang === 'bn' ? 'সরাসরি উত্তোলন ও টাকা গ্রহণ নোটিফিকেশন' : 'Live Withdrawal & Cashout Notifications'}
+            </span>
           </div>
-          <span className="text-[10px] text-emerald-400 font-semibold flex items-center gap-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
-            {t.statusSectionSubtitle}
+          <span className="text-[10px] sm:text-xs font-bold text-emerald-400 flex items-center gap-1">
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+            {lang === 'bn' ? 'লাইভ ভেরিফাইড' : 'Live Verified'}
           </span>
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
-          {/* ⚡ Generated */}
-          <div className="p-3 rounded-xl bg-[#10182f] border border-slate-800">
-            <div className="flex items-center justify-between text-[11px] text-slate-400 mb-1">
-              <span className="flex items-center gap-1">
-                <Zap className="w-3.5 h-3.5 text-cyan-400" />
-                {t.statGeneratedTitle}
-              </span>
-              <span className="text-[9px] text-emerald-400 font-mono">+14.2%</span>
-            </div>
-            <span className="text-lg font-bold text-white font-mono">{liveGeneration} MW</span>
-            <span className="block text-[10px] text-slate-400 mt-0.5">{t.statGeneratedSubtitle}</span>
-          </div>
-
-          {/* 🔋 System */}
-          <div className="p-3 rounded-xl bg-[#10182f] border border-slate-800">
-            <div className="flex items-center justify-between text-[11px] text-slate-400 mb-1">
-              <span className="flex items-center gap-1">
-                <BatteryCharging className="w-3.5 h-3.5 text-blue-400" />
-                {t.statSystemTitle}
-              </span>
-              <span className="text-[9px] text-blue-400 font-mono">88%</span>
-            </div>
-            <span className="text-lg font-bold text-white font-mono">1,280 MWh</span>
-            <span className="block text-[10px] text-slate-400 mt-0.5">{t.statSystemSubtitle}</span>
-          </div>
-
-          {/* 📊 Capacity */}
-          <div className="p-3 rounded-xl bg-[#10182f] border border-slate-800">
-            <div className="flex items-center justify-between text-[11px] text-slate-400 mb-1">
-              <span className="flex items-center gap-1">
-                <Gauge className="w-3.5 h-3.5 text-amber-400" />
-                {t.statCapacityTitle}
-              </span>
-              <span className="text-[9px] text-amber-400 font-mono">500kV</span>
-            </div>
-            <span className="text-lg font-bold text-white font-mono">{liveCapacity} MW</span>
-            <span className="block text-[10px] text-slate-400 mt-0.5">{t.statCapacitySubtitle}</span>
-          </div>
-
-          {/* 📈 Output */}
-          <div className="p-3 rounded-xl bg-[#10182f] border border-slate-800">
-            <div className="flex items-center justify-between text-[11px] text-slate-400 mb-1">
-              <span className="flex items-center gap-1">
-                <Cpu className="w-3.5 h-3.5 text-emerald-400" />
-                {t.statOutputTitle}
-              </span>
-              <span className="text-[9px] text-emerald-400 font-mono">98.4%</span>
-            </div>
-            <span className="text-lg font-bold text-white font-mono">{liveEfficiency}%</span>
-            <span className="block text-[10px] text-slate-400 mt-0.5">{t.statOutputSubtitle}</span>
-          </div>
-        </div>
-      </div>
-
-      {/* ───────────────────────────────────────────────────────────
-          6. AI TECHNOLOGY
-      ─────────────────────────────────────────────────────────── */}
-      <div className="rounded-[22px] bg-[#0c1324] border border-slate-800/80 p-4 space-y-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Cpu className="w-4 h-4 text-cyan-400" />
-            <h3 className="text-xs font-bold text-white tracking-wide uppercase">
-              {t.aiTechTitle}
-            </h3>
-          </div>
-          <span className="text-[10px] text-cyan-400 font-semibold">{t.aiTechSubtitle}</span>
-        </div>
-
-        <div className="space-y-2 text-xs">
-          <div className="p-2.5 rounded-xl bg-[#10182f] border border-slate-800/80 flex items-start gap-3">
-            <div className="w-7 h-7 rounded-lg bg-cyan-500/15 border border-cyan-500/30 flex items-center justify-center text-cyan-400 shrink-0 mt-0.5">
-              <Zap className="w-4 h-4" />
-            </div>
-            <div>
-              <h5 className="font-bold text-white">{t.tech1Title}</h5>
-              <p className="text-[11px] text-slate-400 mt-0.5">
-                {t.tech1Desc}
-              </p>
-            </div>
-          </div>
-
-          <div className="p-2.5 rounded-xl bg-[#10182f] border border-slate-800/80 flex items-start gap-3">
-            <div className="w-7 h-7 rounded-lg bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0 mt-0.5">
-              <Gauge className="w-4 h-4" />
-            </div>
-            <div>
-              <h5 className="font-bold text-white">{t.tech2Title}</h5>
-              <p className="text-[11px] text-slate-400 mt-0.5">
-                {t.tech2Desc}
-              </p>
-            </div>
-          </div>
-
-          <div className="p-2.5 rounded-xl bg-[#10182f] border border-slate-800/80 flex items-start gap-3">
-            <div className="w-7 h-7 rounded-lg bg-blue-500/15 border border-blue-500/30 flex items-center justify-center text-blue-400 shrink-0 mt-0.5">
-              <Radio className="w-4 h-4" />
-            </div>
-            <div>
-              <h5 className="font-bold text-white">{t.tech3Title}</h5>
-              <p className="text-[11px] text-slate-400 mt-0.5">
-                {t.tech3Desc}
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* ───────────────────────────────────────────────────────────
-          8. ENERGY PERFORMANCE (Interactive Generation Chart)
-      ─────────────────────────────────────────────────────────── */}
-      <div className="rounded-[22px] bg-[#0c1324] border border-slate-800/80 p-4 space-y-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <BarChart3 className="w-4 h-4 text-cyan-400" />
-            <h3 className="text-xs font-bold text-white tracking-wide uppercase">
-              {t.perfTitle}
-            </h3>
-          </div>
-          <div className="flex items-center gap-1 bg-[#10182f] p-0.5 rounded-lg border border-slate-800">
-            <button
-              type="button"
-              onClick={() => setPerfMetric('hourly')}
-              className={`px-2 py-0.5 rounded text-[10px] font-bold transition-colors cursor-pointer ${
-                perfMetric === 'hourly' ? 'bg-cyan-500 text-black' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              {t.perfHourly}
-            </button>
-            <button
-              type="button"
-              onClick={() => setPerfMetric('monthly')}
-              className={`px-2 py-0.5 rounded text-[10px] font-bold transition-colors cursor-pointer ${
-                perfMetric === 'monthly' ? 'bg-cyan-500 text-black' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              {t.perfMonthly}
-            </button>
-          </div>
-        </div>
-
-        {/* Dynamic Interactive Chart Bars */}
-        <div className="p-3 rounded-xl bg-[#10182f] border border-slate-800/80 space-y-2.5">
-          <div className="flex items-center justify-between text-[11px] text-slate-400">
-            <span>Peak Dispatch: <strong className="text-white font-mono">1,480 MW</strong></span>
-            <span>Avg Daily Efficiency: <strong className="text-emerald-400 font-mono">98.3%</strong></span>
-          </div>
-
-          <div className="h-28 flex items-end justify-between gap-1.5 pt-4 pb-1 px-1">
-            {HOURLY_GENERATION_DATA.slice(0, 8).map((data, idx) => {
-              const heightPercent = Math.min(100, Math.max(25, (data.generation / 1500) * 100));
-              const isHovered = hoveredHour === idx;
-
-              return (
-                <div
-                  key={data.hour}
-                  onMouseEnter={() => setHoveredHour(idx)}
-                  onMouseLeave={() => setHoveredHour(null)}
-                  className="flex-1 flex flex-col items-center gap-1 h-full justify-end cursor-pointer group"
-                >
-                  {isHovered && (
-                    <div className="absolute -top-7 px-1.5 py-0.5 rounded bg-cyan-950 border border-cyan-500/50 text-[9px] font-mono text-cyan-300 font-bold whitespace-nowrap z-20 shadow-md">
-                      {data.generation} MW
-                    </div>
-                  )}
-                  <div
-                    style={{ height: `${heightPercent}%` }}
-                    className={`w-full rounded-t transition-all ${
-                      isHovered
-                        ? 'bg-cyan-300 shadow-[0_0_12px_rgba(6,182,212,0.8)]'
-                        : 'bg-gradient-to-t from-blue-700 to-cyan-500 group-hover:from-blue-600 group-hover:to-cyan-400'
-                    }`}
-                  />
-                  <span className="text-[9px] font-mono text-slate-400">{data.hour}</span>
+        {/* Featured Live Payout Card (Rotates every 2.8s) */}
+        <div className={`rounded-2xl p-3 sm:p-3.5 transition-all relative overflow-hidden ${
+          themeMode === 'day'
+            ? 'bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-100/70 border border-emerald-200'
+            : 'bg-gradient-to-r from-[#071b26] via-[#092230] to-[#071724] border border-emerald-500/30'
+        }`}>
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold text-base shrink-0">
+                ✓
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className={`text-xs sm:text-sm font-black ${
+                    themeMode === 'day' ? 'text-slate-900' : 'text-white'
+                  }`}>
+                    {livePayouts[livePayoutIndex].phone}
+                  </span>
+                  <span className={`px-2 py-0.2 rounded-full text-[10px] font-bold text-white ${livePayouts[livePayoutIndex].brandBg}`}>
+                    {livePayouts[livePayoutIndex].brandText}
+                  </span>
                 </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-
-      {/* ───────────────────────────────────────────────────────────
-          8. HOW POWER GRID WORKS & COMPANY PROFILE (Full Workflow, Video, Real Activities & Transparency)
-      ─────────────────────────────────────────────────────────── */}
-      <HowPowerGridWorksSection
-        currentLang={currentLang}
-        onOpenLicensesModal={() => setActiveModal('company')}
-      />
-
-      {/* ───────────────────────────────────────────────────────────
-          11. NEW PROJECTS
-      ─────────────────────────────────────────────────────────── */}
-      <div className="rounded-[22px] bg-[#0c1324] border border-slate-800/80 p-4 space-y-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-cyan-400" />
-            <h3 className="text-xs font-bold text-white tracking-wide uppercase">
-              {t.newProjectsTitle}
-            </h3>
-          </div>
-          <span className="text-[10px] text-cyan-400 font-medium font-mono">2026 - 2027</span>
-        </div>
-
-        <div className="space-y-2.5">
-          {newProjectsList.map((proj) => (
-            <div key={proj.id} className="p-3 rounded-xl bg-[#10182f] border border-slate-800 space-y-1.5">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-white">{proj.name}</span>
-                <span className="px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-300 border border-cyan-500/20 text-[9px] font-bold">
-                  {proj.expectedDate}
-                </span>
-              </div>
-              <p className="text-[11px] text-slate-400">
-                {proj.description}
-              </p>
-              <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1">
-                <span>{proj.location}</span>
-                <span className="text-cyan-300 font-mono font-bold">{proj.capacity}</span>
-              </div>
-              <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
-                <div className="bg-cyan-400 h-full rounded-full" style={{ width: `${proj.progressPercent}%` }} />
+                <p className="text-[11px] text-emerald-400 font-semibold mt-0.5">
+                  {livePayouts[livePayoutIndex].type}: {lang === 'bn' ? 'সরাসরি ওয়ালেটে পৌঁছে গেছে' : 'Credited to mobile wallet'}
+                </p>
               </div>
             </div>
-          ))}
+
+            <div className="text-right shrink-0">
+              <span className="text-base sm:text-lg font-black text-emerald-400 font-mono block leading-tight">
+                {livePayouts[livePayoutIndex].amount}
+              </span>
+              <span className="text-[10px] text-slate-400">
+                {livePayouts[livePayoutIndex].time}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Continuous Horizontal Sliding Marquee Ticker */}
+        <div className="overflow-hidden rounded-xl bg-black/40 py-2 border border-slate-800/80">
+          <div className="animate-marquee-slide flex items-center gap-3">
+            {[...livePayouts, ...livePayouts].map((payout, i) => (
+              <div
+                key={i}
+                className="inline-flex items-center gap-2 px-3 py-1 rounded-lg bg-[#0c1629] border border-slate-800 text-xs shrink-0 whitespace-nowrap"
+              >
+                <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
+                <span className="text-white font-bold font-mono">{payout.phone}</span>
+                <span className={`px-1.5 py-0.2 rounded text-[9px] font-bold text-white ${payout.brandBg}`}>
+                  {payout.brandText}
+                </span>
+                <span className="text-emerald-400 font-black font-mono">{payout.amount}</span>
+                <span className="text-slate-400 text-[10px]">{payout.time}</span>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 
-
       {/* ───────────────────────────────────────────────────────────
-          13. FAQ
+          6. 🎬 VIDEO PLAYER (ভিডিও নিচে নাম্বে আরো পেজে যেনো সুন্দর লাগে)
       ─────────────────────────────────────────────────────────── */}
-      <div className="rounded-[22px] bg-[#0c1324] border border-slate-800/80 p-4 space-y-3">
-        <div className="flex items-center gap-2">
-          <HelpCircle className="w-4 h-4 text-cyan-400" />
-          <h3 className="text-xs font-bold text-white tracking-wide uppercase">
-            {t.faqTitle}
-          </h3>
-        </div>
+      <div id="ai-energy-video" className="rounded-3xl bg-black overflow-hidden shadow-2xl space-y-0 border-0 border-none">
+        {/* Video Canvas View (NO BORDER) */}
+        <div className="relative h-56 sm:h-64 rounded-3xl overflow-hidden bg-black group border-0 border-none">
+          {/* Native Clean Video Element */}
+          <video
+            ref={videoElementRef}
+            src={videoEpisodes[selectedVideoIndex].videoSrc}
+            poster={resolveImageSrc(videoEpisodes[selectedVideoIndex].image, 'solar')}
+            className="w-full h-full object-cover"
+            playsInline
+            preload="auto"
+            loop
+            onPlay={() => setIsVideoPlaying(true)}
+            onPause={() => setIsVideoPlaying(false)}
+            onTimeUpdate={(e) => setVideoSeconds(Math.floor(e.currentTarget.currentTime))}
+            onClick={handleToggleVideoPlay}
+          />
 
-        <div className="space-y-2 text-xs">
-          {faqList.map((faq) => (
-            <div key={faq.id} className="rounded-xl bg-[#10182f] border border-slate-800 overflow-hidden">
+          <div className="absolute inset-0 bg-gradient-to-t from-[#060a14] via-black/20 to-black/40 pointer-events-none" />
+
+          {/* Center Interactive Play Prompt when stopped */}
+          {!isVideoPlaying ? (
+            <div
+              onClick={handleToggleVideoPlay}
+              className="absolute inset-0 flex flex-col items-center justify-center bg-black/40 backdrop-blur-[1px] cursor-pointer transition-all hover:bg-black/30"
+            >
+              <div className="w-16 h-16 rounded-full bg-gradient-to-tr from-cyan-400 to-emerald-400 text-black flex items-center justify-center shadow-2xl shadow-cyan-500/50 transform hover:scale-110 active:scale-95 transition-all">
+                <Play className="w-8 h-8 fill-current ml-1" />
+              </div>
+              <div className="mt-3 px-3.5 py-1.5 rounded-full bg-black/80 text-xs font-bold text-cyan-300 shadow-md">
+                {lang === 'bn' ? 'ভিডিও দেখতে এখানে ক্লিক করুন' : 'Click to Watch Facility Video'}
+              </div>
+            </div>
+          ) : (
+            <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
               <button
                 type="button"
-                onClick={() => setExpandedFaqId(expandedFaqId === faq.id ? null : faq.id)}
-                className="w-full p-3 text-left font-bold text-white flex items-center justify-between hover:text-cyan-300 transition-colors"
+                onClick={handleToggleVideoPlay}
+                className="w-14 h-14 rounded-full bg-black/70 hover:bg-black/90 flex items-center justify-center text-white shadow-2xl transition-all hover:scale-110 cursor-pointer pointer-events-auto"
+                title="Pause"
               >
-                <span>{faq.question}</span>
-                <ChevronDown className={`w-4 h-4 transition-transform ${expandedFaqId === faq.id ? 'rotate-180 text-cyan-400' : 'text-slate-400'}`} />
+                <Pause className="w-6 h-6 fill-current" />
               </button>
-              {expandedFaqId === faq.id && (
-                <div className="px-3 pb-3 text-slate-300 text-[11px] leading-relaxed border-t border-slate-800/60 pt-2">
-                  {faq.answer}
-                </div>
-              )}
             </div>
-          ))}
+          )}
+
+          {/* Captions / Subtitles */}
+          {isVideoPlaying && (
+            <div className="absolute bottom-12 inset-x-3 text-center pointer-events-none">
+              <div className="inline-block max-w-[92%] px-3.5 py-1.5 rounded-xl bg-black/85 text-xs sm:text-sm text-cyan-200 font-medium shadow-xl animate-in fade-in duration-300">
+                {videoEpisodes[selectedVideoIndex].captions.find(
+                  (c) => (videoSeconds % 25) >= c.start && (videoSeconds % 25) < c.end
+                )?.text || videoEpisodes[selectedVideoIndex].captions[0]?.text}
+              </div>
+            </div>
+          )}
+
+          {/* Bottom Control Bar */}
+          <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/95 via-black/80 to-transparent p-3 pt-4 space-y-2">
+            {/* Scrubber Progress Bar */}
+            <div
+              onClick={() => {
+                if (videoElementRef.current) {
+                  const currentTotal = videoEpisodes[selectedVideoIndex]?.totalSec || 30;
+                  const nextTime = (videoElementRef.current.currentTime + 5) % currentTotal;
+                  videoElementRef.current.currentTime = nextTime;
+                  setVideoSeconds(Math.floor(nextTime));
+                } else {
+                  setVideoSeconds((prev) => prev + 5);
+                }
+              }}
+              className="w-full bg-slate-800/90 rounded-full h-1.5 overflow-hidden cursor-pointer group/bar relative"
+            >
+              <div
+                className="bg-gradient-to-r from-emerald-400 via-cyan-400 to-blue-500 h-full rounded-full transition-all duration-300 relative"
+                style={{
+                  width: `${Math.min(
+                    100,
+                    Math.round(
+                      ((videoSeconds % videoEpisodes[selectedVideoIndex].totalSec) /
+                        videoEpisodes[selectedVideoIndex].totalSec) *
+                        100
+                    )
+                  )}%`,
+                }}
+              />
+            </div>
+
+            <div className="flex items-center justify-between text-white text-xs">
+              <div className="flex items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={handleToggleVideoPlay}
+                  className="p-1 text-cyan-300 hover:text-white cursor-pointer"
+                >
+                  {isVideoPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 fill-current" />}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleToggleVoiceNarration}
+                  className={`p-1 cursor-pointer transition-colors ${
+                    isVoiceActive ? 'text-emerald-400 hover:text-emerald-300' : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                  title={isVoiceActive ? 'Mute Voice' : 'Unmute Voice'}
+                >
+                  {isVoiceActive ? <Volume2 className="w-4 h-4 animate-pulse" /> : <VolumeX className="w-4 h-4" />}
+                </button>
+
+                <span className="text-[10px] font-mono text-slate-300">
+                  {Math.floor((videoSeconds % videoEpisodes[selectedVideoIndex].totalSec) / 60)
+                    .toString()
+                    .padStart(2, '0')}
+                  :
+                  {Math.floor((videoSeconds % videoEpisodes[selectedVideoIndex].totalSec) % 60)
+                    .toString()
+                    .padStart(2, '0')}{' '}
+                  / {videoEpisodes[selectedVideoIndex].duration}
+                </span>
+              </div>
+
+              <span className="text-[11px] font-semibold text-white truncate max-w-[170px] sm:max-w-[240px]">
+                {videoEpisodes[selectedVideoIndex].title}
+              </span>
+            </div>
+          </div>
         </div>
       </div>
 
       {/* ───────────────────────────────────────────────────────────
-          14. FOOTER
+          6.1 HOW THE POWER GRID WORKS (কিভাবে পাওয়ার গ্রিড কাজ করে)
+          (Borderless, matching screenshot's warm palette, filling the page nicely)
       ─────────────────────────────────────────────────────────── */}
-      <footer className="pt-2 pb-6 text-center space-y-3">
+      <div className="w-full space-y-3 pt-2">
+        {/* Section Header */}
+        <div className="flex items-center justify-between px-1">
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1">
+              <span className="w-1.5 h-4 rounded-full bg-[#f97316]" />
+              <span className="w-1.5 h-5 rounded-full bg-[#10b981]" />
+              <span className="w-1.5 h-3.5 rounded-full bg-[#06b6d4]" />
+            </div>
+            <span className={`text-sm sm:text-base font-extrabold tracking-wide ${
+              themeMode === 'day' ? 'text-slate-900' : 'text-white'
+            }`}>
+              {lang === 'bn' ? 'কিভাবে এআই পাওয়ার গ্রিড কাজ করে' : 'How the AI Power Grid Works'}
+            </span>
+          </div>
+          <span className="text-[11px] font-bold text-amber-500 dark:text-amber-400">
+            {lang === 'bn' ? 'স্মার্ট অটোমেশন' : 'Smart Automation'}
+          </span>
+        </div>
+
+        {/* 4 Process Cards - matching the screenshot's warm peach/cream tint, borderless */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          {/* Card 1: Clean Power Generation */}
+          <div className="p-3.5 rounded-2xl bg-[#fff8f0] dark:bg-[#131c2d] border-0 border-none shadow-xs space-y-1.5 transition-all">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="w-6 h-6 rounded-lg bg-[#f97316]/15 text-[#ea580c] dark:text-[#fb923c] flex items-center justify-center text-xs font-black">
+                  ১
+                </span>
+                <span className="text-xs sm:text-[13px] font-bold text-slate-900 dark:text-white">
+                  {lang === 'bn' ? 'ক্লিন বিদ্যুৎ উৎপাদন' : 'Clean Power Generation'}
+                </span>
+              </div>
+              <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
+                100% Zero-Carbon
+              </span>
+            </div>
+            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+              {lang === 'bn'
+                ? 'সুবিশাল সৌর পার্ক ও অফশোর উইন্ড টারবাইনের মাধ্যমে প্রাকৃতিক শক্তি থেকে নিরবচ্ছিন্ন ক্লিন বিদ্যুৎ উৎপাদন করা হয়।'
+                : 'Zero-emission clean electricity is generated continuously from massive solar parks and offshore wind turbines.'}
+            </p>
+          </div>
+
+          {/* Card 2: AI Grid Synchronization */}
+          <div className="p-3.5 rounded-2xl bg-[#fff8f0] dark:bg-[#131c2d] border-0 border-none shadow-xs space-y-1.5 transition-all">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="w-6 h-6 rounded-lg bg-[#10b981]/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center text-xs font-black">
+                  ২
+                </span>
+                <span className="text-xs sm:text-[13px] font-bold text-slate-900 dark:text-white">
+                  {lang === 'bn' ? 'এআই গ্রিড ডেসপ্যাচ' : 'AI Smart Grid Dispatch'}
+                </span>
+              </div>
+              <span className="text-[10px] font-semibold text-cyan-600 dark:text-cyan-400">
+                50 Hz Sync
+              </span>
+            </div>
+            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+              {lang === 'bn'
+                ? 'স্বয়ংক্রিয় এআই কন্ট্রোলারের মাধ্যমে ভোল্টেজ ও ৫০ হার্জ ফ্রিকোয়েন্সি নিয়ন্ত্রণ করে সরাসরি জাতীয় পাওয়ার গ্রিডে বিদ্যুৎ সরবরাহ হয়।'
+                : 'Automated AI dispatchers stabilize voltage and grid frequency at 50 Hz, supplying reliable power directly to national grids.'}
+            </p>
+          </div>
+
+          {/* Card 3: BESS Battery Reserve */}
+          <div className="p-3.5 rounded-2xl bg-[#fff8f0] dark:bg-[#131c2d] border-0 border-none shadow-xs space-y-1.5 transition-all">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="w-6 h-6 rounded-lg bg-[#06b6d4]/15 text-cyan-600 dark:text-cyan-400 flex items-center justify-center text-xs font-black">
+                  ৩
+                </span>
+                <span className="text-xs sm:text-[13px] font-bold text-slate-900 dark:text-white">
+                  {lang === 'bn' ? 'ব্যাটারি স্টোরেজ (BESS)' : 'BESS Energy Storage'}
+                </span>
+              </div>
+              <span className="text-[10px] font-semibold text-amber-600 dark:text-amber-400">
+                24/7 Backup
+              </span>
+            </div>
+            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+              {lang === 'bn'
+                ? 'উদ্বৃত্ত শক্তি উন্নত লিথিয়াম আয়রন ফসফেট ব্যাটারিতে সঞ্চয় করে রাতে ও পিক আওয়ারের বিদ্যুৎ চাহিদা পূরণ করা হয়।'
+                : 'Surplus power is stored in high-capacity LFP energy storage systems to guarantee uninterrupted power during peak hours.'}
+            </p>
+          </div>
+
+          {/* Card 4: Daily Revenue & Payout */}
+          <div className="p-3.5 rounded-2xl bg-[#fff8f0] dark:bg-[#131c2d] border-0 border-none shadow-xs space-y-1.5 transition-all">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="w-6 h-6 rounded-lg bg-[#e11d48]/15 text-rose-600 dark:text-rose-400 flex items-center justify-center text-xs font-black">
+                  ৪
+                </span>
+                <span className="text-xs sm:text-[13px] font-bold text-slate-900 dark:text-white">
+                  {lang === 'bn' ? 'দৈনিক বিদ্যুৎ মুনাফা' : 'Daily Revenue Dividends'}
+                </span>
+              </div>
+              <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
+                Auto-Credit
+              </span>
+            </div>
+            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+              {lang === 'bn'
+                ? 'গ্রিডে বিদ্যুৎ বিক্রির অর্জিত রাজস্ব স্বয়ংক্রিয়ভাবে হিসাব হয়ে প্রতিদিন বিনিয়োগকারীদের ওয়ালেটে লভ্যাংশ হিসেবে জমা হয়।'
+                : 'Commercial electricity revenues are automatically calculated and distributed daily straight to members wallets.'}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* ───────────────────────────────────────────────────────────
+          7. MINIMAL CLEAN FOOTER (তাছাড়া এক্সট্রা সব লেখা রিমুভ)
+      ─────────────────────────────────────────────────────────── */}
+      <footer className="pt-4 pb-4 text-center space-y-2 border-t border-slate-900">
         <div className="flex items-center justify-center gap-2">
-          <div className="w-5 h-5 rounded-md bg-gradient-to-tr from-amber-500 to-cyan-400 flex items-center justify-center p-0.5">
+          <div className="w-5 h-5 rounded-md bg-gradient-to-tr from-emerald-400 to-cyan-400 flex items-center justify-center p-0.5">
             <Zap className="w-3.5 h-3.5 text-black" />
           </div>
-          <span className="text-xs font-bold text-white">NVT • Nova Terra Energy Grid</span>
+          <span className="text-xs font-bold text-white">AI ENERGY • Clean Infrastructure</span>
         </div>
-        <p className="text-[10px] text-slate-400 max-w-xs mx-auto leading-relaxed">
-          {t.footerGridDesc}
+        <p className="text-[10px] text-slate-500">
+          © 2026 AI Energy Infrastructure. All Rights Reserved.
         </p>
-        <div className="flex items-center justify-center gap-4 text-[10px] text-cyan-400">
-          <button
-            type="button"
-            onClick={() => setActiveModal('company')}
-            className="hover:underline cursor-pointer"
-          >
-            {t.companyTitle}
-          </button>
-          <span>•</span>
-          <button type="button" onClick={() => setActiveModal('support')} className="hover:underline cursor-pointer">
-            {t.qmSupport}
-          </button>
-          <span>•</span>
-          <button type="button" onClick={onGoToProfile} className="hover:underline cursor-pointer">
-            {t.tabProfile}
-          </button>
-        </div>
-        <span className="block text-[9px] text-slate-500">
-          {t.footerCopyright}
-        </span>
       </footer>
+
 
       {/* ───────────────────────────────────────────────────────────
           SLIDING NAVIGATION DRAWER (From ☰)

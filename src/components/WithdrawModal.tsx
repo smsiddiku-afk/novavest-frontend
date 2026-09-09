@@ -92,6 +92,19 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
     return () => window.removeEventListener('storage', handleStorage);
   }, []);
 
+  // Lock body scroll while WithdrawModal is open
+  useEffect(() => {
+    const originalOverflow = document.body.style.overflow;
+    const originalTouchAction = document.body.style.touchAction;
+    document.body.style.overflow = 'hidden';
+    document.body.style.touchAction = 'none';
+
+    return () => {
+      document.body.style.overflow = originalOverflow;
+      document.body.style.touchAction = originalTouchAction;
+    };
+  }, []);
+
   // Selected method: 'bKash' | 'Nagad' | 'Bank Transfer'
   const [selectedMethod, setSelectedMethod] = useState<'bKash' | 'Nagad' | 'Bank Transfer'>(() => {
     if (boundWallets.length > 0) {
@@ -341,7 +354,7 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
   return (
     <div
       id="withdraw-page-overlay"
-      className="fixed inset-0 z-50 overflow-y-auto bg-[#070E1C] flex flex-col text-slate-100 font-sans animate-in fade-in duration-200"
+      className="fixed inset-0 z-50 overflow-y-auto bg-[#06483A] flex flex-col text-slate-100 font-sans animate-in fade-in duration-200"
     >
       {/* 1. Top Header Matching Main Site Design */}
       <header

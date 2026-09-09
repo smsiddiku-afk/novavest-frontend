@@ -27,6 +27,7 @@ export interface ManualDepositDetails {
 interface CleanWalletScreenProps {
   currentBalance: number;
   currentLang?: Language;
+  themeMode?: 'night' | 'day';
   initialTab?: 'recharge' | 'withdraw';
   onBack?: () => void;
   onOpenHistory?: () => void;
@@ -52,6 +53,7 @@ const OFFICIAL_MERCHANT_NUMBERS: Record<PaymentMethodType, { number: string; typ
 export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
   currentBalance,
   currentLang = 'en',
+  themeMode = 'night',
   initialTab = 'recharge',
   onBack,
   onOpenHistory,
@@ -221,11 +223,17 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
   return (
     <div
       id="clean-wallet-screen"
-      className="w-full max-w-[540px] mx-auto min-h-screen bg-[#050c14] text-white flex flex-col p-4 sm:p-6 relative overflow-y-auto font-sans select-none"
+      className={`w-full max-w-[540px] mx-auto min-h-screen flex flex-col p-4 sm:p-6 relative overflow-y-auto font-sans select-none transition-colors duration-200 ${
+        themeMode === 'day' ? 'bg-[#f4f6fb] text-slate-800' : 'bg-[#06483A] text-white'
+      }`}
     >
-      {/* Background ambient teal glows */}
-      <div className="absolute -top-16 -left-16 w-64 h-64 bg-[#18c4e6]/10 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute top-1/4 -right-20 w-72 h-72 bg-[#0a3548]/25 rounded-full blur-3xl pointer-events-none" />
+      {/* Background ambient teal glows (only in dark mode) */}
+      {themeMode === 'night' && (
+        <>
+          <div className="absolute -top-16 -left-16 w-64 h-64 bg-[#18c4e6]/10 rounded-full blur-3xl pointer-events-none" />
+          <div className="absolute top-1/4 -right-20 w-72 h-72 bg-[#0a3548]/25 rounded-full blur-3xl pointer-events-none" />
+        </>
+      )}
 
       {/* Local Toast Alert */}
       {localToast && (
@@ -242,13 +250,19 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
             id="wallet-top-back-btn"
             type="button"
             onClick={onBack}
-            className="w-11 h-11 rounded-2xl bg-[#0d1c28] border border-slate-800/80 hover:border-cyan-500/50 flex items-center justify-center text-white transition-all active:scale-95 cursor-pointer shadow-sm"
+            className={`w-11 h-11 rounded-2xl flex items-center justify-center transition-all active:scale-95 cursor-pointer shadow-sm ${
+              themeMode === 'day'
+                ? 'bg-white border border-slate-200 text-slate-700 hover:text-slate-900 shadow-sm'
+                : 'bg-[#0d1c28] border border-slate-800/80 hover:border-cyan-500/50 text-white'
+            }`}
           >
             <ArrowLeft className="w-5 h-5 stroke-[2.5]" />
           </button>
 
           {/* Centered Title */}
-          <h1 className="text-xl sm:text-2xl font-black text-white tracking-wide">
+          <h1 className={`text-xl sm:text-2xl font-black tracking-wide ${
+            themeMode === 'day' ? 'text-slate-900' : 'text-white'
+          }`}>
             {currentLang === 'bn' ? (activeTab === 'recharge' ? 'রিচার্জ ওয়ালেট' : 'উইথড্র ওয়ালেট') : 'Wallet'}
           </h1>
 
@@ -258,7 +272,11 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
               id="wallet-top-history-btn"
               type="button"
               onClick={onOpenHistory}
-              className="w-11 h-11 rounded-2xl bg-[#0d1c28] border border-slate-800/80 hover:border-cyan-500/50 flex items-center justify-center text-white transition-all active:scale-95 cursor-pointer shadow-sm"
+              className={`w-11 h-11 rounded-2xl flex items-center justify-center transition-all active:scale-95 cursor-pointer shadow-sm ${
+                themeMode === 'day'
+                  ? 'bg-white border border-slate-200 text-slate-700 hover:text-slate-900 shadow-sm'
+                  : 'bg-[#0d1c28] border border-slate-800/80 hover:border-cyan-500/50 text-white'
+              }`}
               title={currentLang === 'bn' ? 'লেনদেনের ইতিহাস' : 'Transaction History'}
             >
               <History className="w-5 h-5 stroke-[2.5]" />
@@ -267,7 +285,11 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
         </div>
 
         {/* Segmented Pill Tabs: Recharge | Withdraw */}
-        <div className="p-1.5 rounded-2xl bg-[#091520] border border-slate-800 flex items-center gap-1.5 shadow-inner my-2.5">
+        <div className={`p-1.5 rounded-2xl flex items-center gap-1.5 shadow-inner my-2.5 ${
+          themeMode === 'day'
+            ? 'bg-slate-200/90 border border-slate-300'
+            : 'bg-[#091520] border border-slate-800'
+        }`}>
           <button
             id="wallet-tab-recharge-btn"
             type="button"
@@ -277,7 +299,11 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
             }}
             className={`flex-1 py-3 sm:py-3.5 rounded-xl font-black text-sm sm:text-base tracking-wide transition-all cursor-pointer flex items-center justify-center gap-2 ${
               activeTab === 'recharge'
-                ? 'bg-[#18c4e6] text-[#051119] shadow-[0_4px_16px_rgba(24,196,230,0.4)] font-black scale-[1.01]'
+                ? themeMode === 'day'
+                  ? 'bg-blue-600 text-white shadow-md font-black scale-[1.01]'
+                  : 'bg-[#18c4e6] text-[#051119] shadow-[0_4px_16px_rgba(24,196,230,0.4)] font-black scale-[1.01]'
+                : themeMode === 'day'
+                ? 'text-slate-600 hover:text-slate-900 font-bold'
                 : 'text-slate-400 hover:text-white font-semibold'
             }`}
           >
@@ -293,7 +319,11 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
             }}
             className={`flex-1 py-3 sm:py-3.5 rounded-xl font-black text-sm sm:text-base tracking-wide transition-all cursor-pointer flex items-center justify-center gap-2 ${
               activeTab === 'withdraw'
-                ? 'bg-[#18c4e6] text-[#051119] shadow-[0_4px_16px_rgba(24,196,230,0.4)] font-black scale-[1.01]'
+                ? themeMode === 'day'
+                  ? 'bg-blue-600 text-white shadow-md font-black scale-[1.01]'
+                  : 'bg-[#18c4e6] text-[#051119] shadow-[0_4px_16px_rgba(24,196,230,0.4)] font-black scale-[1.01]'
+                : themeMode === 'day'
+                ? 'text-slate-600 hover:text-slate-900 font-bold'
                 : 'text-slate-400 hover:text-white font-semibold'
             }`}
           >

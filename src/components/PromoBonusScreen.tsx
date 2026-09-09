@@ -134,6 +134,7 @@ const LimeRobotIcon: React.FC<{ className?: string }> = ({ className = 'w-7 h-7 
 
 interface PromoBonusScreenProps {
   currentLang?: Language;
+  themeMode?: 'night' | 'day';
   onBack?: () => void;
   onClaimReward?: (amount: number, level: string) => void;
   showToast?: (msg: string) => void;
@@ -142,6 +143,7 @@ interface PromoBonusScreenProps {
 
 export const PromoBonusScreen: React.FC<PromoBonusScreenProps> = ({
   currentLang = 'bn',
+  themeMode = 'night',
   onBack,
   onClaimReward,
   showToast,
@@ -152,8 +154,7 @@ export const PromoBonusScreen: React.FC<PromoBonusScreenProps> = ({
     return currentLang === 'en' ? 'en' : 'bn';
   });
 
-  // Currency view: default to BDT (৳) as requested, with 1-click toggle to USDT
-  const [currency, setCurrency] = useState<'USDT' | 'BDT'>('BDT');
+  // Currency is fixed to pure Bangladeshi Taka (৳ BDT) across the application
 
   // User referral stats: completely real from real registered referrals
   const authUser = getPersistedAuthUser();
@@ -210,10 +211,7 @@ export const PromoBonusScreen: React.FC<PromoBonusScreenProps> = ({
       [tier.id]: true,
     }));
 
-    const rewardText =
-      currency === 'USDT'
-        ? `${tier.rewardUsdt.toFixed(2)} USDT`
-        : `৳${tier.rewardBdt.toLocaleString()}`;
+    const rewardText = `৳${tier.rewardBdt.toLocaleString()}`;
 
     const msg =
       lang === 'en'
@@ -236,10 +234,16 @@ export const PromoBonusScreen: React.FC<PromoBonusScreenProps> = ({
 
   return (
     <div
-      className="w-full flex flex-col items-center text-slate-100 select-none pb-12 relative"
-      style={{
-        background: 'radial-gradient(circle at 10% 0%, rgba(132, 204, 22, 0.12) 0%, #111317 40%, #0d0f12 100%)',
-      }}
+      className={`w-full flex flex-col items-center select-none pb-12 relative transition-colors duration-200 ${
+        themeMode === 'day' ? 'bg-[#f4f6fb] text-slate-800' : 'text-slate-100'
+      }`}
+      style={
+        themeMode === 'day'
+          ? { backgroundColor: '#f4f6fb' }
+          : {
+              background: 'radial-gradient(circle at 10% 0%, rgba(132, 204, 22, 0.12) 0%, #111317 40%, #0d0f12 100%)',
+            }
+      }
     >
       {/* Top scroll anchor */}
       <div id="promo-bonus-top" className="w-full h-0 pointer-events-none opacity-0" />
@@ -255,36 +259,42 @@ export const PromoBonusScreen: React.FC<PromoBonusScreenProps> = ({
             id="hosting-back-btn"
             type="button"
             onClick={onBack}
-            className="flex items-center gap-1.5 text-slate-100 hover:text-white transition-colors cursor-pointer active:opacity-80"
+            className={`flex items-center gap-1.5 transition-colors cursor-pointer active:opacity-80 ${
+              themeMode === 'day' ? 'text-slate-800 hover:text-slate-900' : 'text-slate-100 hover:text-white'
+            }`}
           >
-            <ChevronLeft className="w-5 h-5 text-slate-200 stroke-[2.2]" />
-            <h1 className="text-[17px] sm:text-[18px] font-normal tracking-normal text-white">
+            <ChevronLeft className={`w-5 h-5 stroke-[2.2] ${themeMode === 'day' ? 'text-slate-700' : 'text-slate-200'}`} />
+            <h1 className={`text-[17px] sm:text-[18px] font-bold tracking-normal ${themeMode === 'day' ? 'text-slate-900' : 'text-white'}`}>
               {lang === 'en' ? 'Hosting level details' : 'হোস্টিং লেভেল বিবরণী'}
             </h1>
           </button>
 
           {/* Right Controls: Currency & Language Switcher */}
           <div className="flex items-center gap-2">
-            {/* Currency Pill */}
-            <button
-              id="currency-switch-btn"
-              type="button"
-              onClick={() => setCurrency((c) => (c === 'USDT' ? 'BDT' : 'USDT'))}
-              className="px-2.5 py-1 rounded-full bg-[#1e2129] hover:bg-[#262a35] border border-[#2e3442] text-[11px] font-medium text-slate-300 transition-colors cursor-pointer"
-              title="Switch currency display"
+            {/* Currency Badge */}
+            <div
+              className={`px-2.5 py-1 rounded-full text-[11px] font-bold tracking-wide font-mono ${
+                themeMode === 'day'
+                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-300'
+                  : 'bg-emerald-950/60 text-emerald-300 border border-emerald-500/30'
+              }`}
             >
-              {currency === 'USDT' ? 'USDT' : '৳ BDT'}
-            </button>
+              ৳ BDT
+            </div>
 
             {/* Language Selector Pill */}
             <button
               id="language-selector-pill"
               type="button"
               onClick={toggleLanguage}
-              className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#1e2129] hover:bg-[#262a35] border border-[#2e3442] text-[12px] text-slate-200 transition-colors cursor-pointer"
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[12px] transition-colors cursor-pointer ${
+                themeMode === 'day'
+                  ? 'bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 shadow-sm'
+                  : 'bg-[#1e2129] hover:bg-[#262a35] border border-[#2e3442] text-slate-200'
+              }`}
             >
               <span>{lang === 'en' ? '🇺🇸 English' : '🇧🇩 বাংলা'}</span>
-              <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+              <ChevronRight className={`w-3.5 h-3.5 ${themeMode === 'day' ? 'text-slate-500' : 'text-slate-400'}`} />
             </button>
           </div>
         </header>
@@ -292,61 +302,85 @@ export const PromoBonusScreen: React.FC<PromoBonusScreenProps> = ({
         {/* ========================================================================= */}
         {/* Team Statistics Card (প্রথম লেভেল, দ্বিতীয় লেভেল, তৃতীয় লেভেল) */}
         {/* ========================================================================= */}
-        <div className="w-full rounded-2xl bg-[#181b22] border border-[#282b35] p-3.5 sm:p-4 mb-3.5 shadow-sm">
+        <div className={`w-full rounded-2xl p-3.5 sm:p-4 mb-3.5 shadow-sm transition-colors ${
+          themeMode === 'day'
+            ? 'bg-white border border-slate-200/90 text-slate-800 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.06)]'
+            : 'bg-[#181b22] border border-[#282b35] text-white'
+        }`}>
           {/* Header Row */}
-          <div className="flex items-center justify-between pb-2.5 mb-2.5 border-b border-[#282b35]">
+          <div className={`flex items-center justify-between pb-2.5 mb-2.5 border-b ${
+            themeMode === 'day' ? 'border-slate-100' : 'border-[#282b35]'
+          }`}>
             <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded-lg bg-[#a3e635]/15 flex items-center justify-center text-[#a3e635]">
+              <div className="w-7 h-7 rounded-lg bg-[#a3e635]/15 flex items-center justify-center text-[#65a30d]">
                 <Users className="w-4 h-4" />
               </div>
-              <span className="text-[14px] sm:text-[15px] font-medium text-white">
+              <span className={`text-[14px] sm:text-[15px] font-bold ${themeMode === 'day' ? 'text-slate-900' : 'text-white'}`}>
                 {lang === 'en' ? 'Team Member Details' : 'টিম সদস্য বিবরণী'}
               </span>
             </div>
             {/* Total Badge */}
-            <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-[#202530] border border-[#2e3442] text-xs">
-              <span className="text-slate-400 text-[11px]">{lang === 'en' ? 'Total Active:' : 'মোট সদস্য:'}</span>
-              <span className="font-mono font-bold text-[#a3e635] text-[13px]">{totalTeam}</span>
+            <div className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs ${
+              themeMode === 'day'
+                ? 'bg-lime-50 border border-lime-200 text-slate-700'
+                : 'bg-[#202530] border border-[#2e3442]'
+            }`}>
+              <span className={`text-[11px] ${themeMode === 'day' ? 'text-slate-600' : 'text-slate-400'}`}>
+                {lang === 'en' ? 'Total Active:' : 'মোট সদস্য:'}
+              </span>
+              <span className="font-mono font-bold text-[#65a30d] text-[13px]">{totalTeam}</span>
             </div>
           </div>
 
           {/* 3-Column Level Stats (প্রথম লেভেল, দ্বিতীয় লেভেল, তৃতীয় লেভেল) */}
           <div className="grid grid-cols-3 gap-2">
             {/* Level 1 (Direct) */}
-            <div className="rounded-xl bg-[#12141a] border border-[#262a34] p-2.5 flex flex-col items-center text-center">
-              <span className="text-[11px] text-slate-400 font-normal">
+            <div className={`rounded-xl p-2.5 flex flex-col items-center text-center ${
+              themeMode === 'day'
+                ? 'bg-slate-50 border border-slate-200'
+                : 'bg-[#12141a] border border-[#262a34]'
+            }`}>
+              <span className={`text-[11px] font-normal ${themeMode === 'day' ? 'text-slate-600' : 'text-slate-400'}`}>
                 {lang === 'en' ? '1st Level' : '১ম লেভেল'}
               </span>
-              <span className="text-[18px] sm:text-[20px] font-bold text-[#a3e635] font-mono my-0.5">
+              <span className="text-[18px] sm:text-[20px] font-bold text-[#65a30d] font-mono my-0.5">
                 {level1Count}
               </span>
-              <span className="text-[10px] text-slate-500">
+              <span className={`text-[10px] ${themeMode === 'day' ? 'text-slate-500' : 'text-slate-500'}`}>
                 {lang === 'en' ? 'Direct' : 'সরাসরি'}
               </span>
             </div>
 
             {/* Level 2 (Sub-referral) */}
-            <div className="rounded-xl bg-[#12141a] border border-[#262a34] p-2.5 flex flex-col items-center text-center">
-              <span className="text-[11px] text-slate-400 font-normal">
+            <div className={`rounded-xl p-2.5 flex flex-col items-center text-center ${
+              themeMode === 'day'
+                ? 'bg-slate-50 border border-slate-200'
+                : 'bg-[#12141a] border border-[#262a34]'
+            }`}>
+              <span className={`text-[11px] font-normal ${themeMode === 'day' ? 'text-slate-600' : 'text-slate-400'}`}>
                 {lang === 'en' ? '2nd Level' : '২য় লেভেল'}
               </span>
-              <span className="text-[18px] sm:text-[20px] font-bold text-[#38bdf8] font-mono my-0.5">
+              <span className="text-[18px] sm:text-[20px] font-bold text-[#0284c7] font-mono my-0.5">
                 {realTree.level2Count}
               </span>
-              <span className="text-[10px] text-slate-500">
+              <span className={`text-[10px] ${themeMode === 'day' ? 'text-slate-500' : 'text-slate-500'}`}>
                 {lang === 'en' ? 'Sub-team' : 'সাব-টিম'}
               </span>
             </div>
 
             {/* Level 3 (Network) */}
-            <div className="rounded-xl bg-[#12141a] border border-[#262a34] p-2.5 flex flex-col items-center text-center">
-              <span className="text-[11px] text-slate-400 font-normal">
+            <div className={`rounded-xl p-2.5 flex flex-col items-center text-center ${
+              themeMode === 'day'
+                ? 'bg-slate-50 border border-slate-200'
+                : 'bg-[#12141a] border border-[#262a34]'
+            }`}>
+              <span className={`text-[11px] font-normal ${themeMode === 'day' ? 'text-slate-600' : 'text-slate-400'}`}>
                 {lang === 'en' ? '3rd Level' : '৩য় লেভেল'}
               </span>
-              <span className="text-[18px] sm:text-[20px] font-bold text-[#fbbf24] font-mono my-0.5">
+              <span className="text-[18px] sm:text-[20px] font-bold text-[#d97706] font-mono my-0.5">
                 {realTree.level3Count}
               </span>
-              <span className="text-[10px] text-slate-500">
+              <span className={`text-[10px] ${themeMode === 'day' ? 'text-slate-500' : 'text-slate-500'}`}>
                 {lang === 'en' ? 'Network' : 'নেটওয়ার্ক'}
               </span>
             </div>
@@ -368,7 +402,13 @@ export const PromoBonusScreen: React.FC<PromoBonusScreenProps> = ({
                 key={tier.id}
                 id={`tier-card-${tier.id}`}
                 className={`w-full rounded-2xl p-4 sm:p-4.5 flex items-center justify-between gap-3 border transition-all duration-200 ${
-                  isReadyToClaim
+                  themeMode === 'day'
+                    ? isReadyToClaim
+                      ? 'bg-white border-lime-400 shadow-[0_4px_16px_rgba(101,163,13,0.12)]'
+                      : isCompleted
+                      ? 'bg-slate-50/80 border-slate-200 opacity-85'
+                      : 'bg-white border-slate-200/90 hover:border-slate-300 shadow-sm'
+                    : isReadyToClaim
                     ? 'bg-[#181b22] border-[#a3e635]/50 shadow-[0_0_15px_rgba(163,230,53,0.08)]'
                     : isCompleted
                     ? 'bg-[#15171d] border-[#252934] opacity-80'
@@ -383,19 +423,21 @@ export const PromoBonusScreen: React.FC<PromoBonusScreenProps> = ({
                   {/* Text Container: Clean typography with generous spacing */}
                   <div className="flex flex-col min-w-0 flex-1">
                     {/* Task Title Line */}
-                    <p className="text-[13px] sm:text-[14px] font-normal text-white leading-normal tracking-normal break-words">
+                    <p className={`text-[13px] sm:text-[14px] font-medium leading-normal tracking-normal break-words ${
+                      themeMode === 'day' ? 'text-slate-800' : 'text-white'
+                    }`}>
                       {lang === 'en' ? tier.taskEn : tier.taskBn}
                     </p>
 
                     {/* Reward Line: 'Available to receive: 300 ৳' */}
                     <div className="flex items-center gap-1.5 mt-1.5">
-                      <span className="text-[12px] sm:text-[13px] font-normal text-[#9ca3af]">
+                      <span className={`text-[12px] sm:text-[13px] font-normal ${
+                        themeMode === 'day' ? 'text-slate-500' : 'text-[#9ca3af]'
+                      }`}>
                         {lang === 'en' ? 'Available to receive:' : 'পাওয়া যাবে:'}
                       </span>
-                      <span className="text-[12px] sm:text-[13px] font-medium text-[#ff3b69] font-mono">
-                        {currency === 'USDT'
-                          ? `${tier.rewardUsdt.toFixed(2)} USDT`
-                          : `${tier.rewardBdt.toLocaleString()} ৳`}
+                      <span className="text-[12px] sm:text-[13px] font-bold text-[#e11d48] font-mono">
+                        ৳{tier.rewardBdt.toLocaleString()}
                       </span>
                     </div>
                   </div>
@@ -403,7 +445,9 @@ export const PromoBonusScreen: React.FC<PromoBonusScreenProps> = ({
 
                 {/* Right-Middle: Level Badge (V1, V2, etc.) */}
                 <div className="shrink-0 px-1">
-                  <span className="text-sm sm:text-[15px] font-medium text-[#a3e635] tracking-wide select-none">
+                  <span className={`text-sm sm:text-[15px] font-bold tracking-wide select-none ${
+                    themeMode === 'day' ? 'text-[#4d7c0f]' : 'text-[#a3e635]'
+                  }`}>
                     {tier.level}
                   </span>
                 </div>
@@ -414,7 +458,11 @@ export const PromoBonusScreen: React.FC<PromoBonusScreenProps> = ({
                   {isCompleted && (
                     <div
                       id={`tier-${tier.id}-claimed-pill`}
-                      className="px-3.5 py-1.5 rounded-full bg-[#202530] border border-emerald-500/30 text-emerald-400 text-xs font-medium flex items-center gap-1 select-none"
+                      className={`px-3.5 py-1.5 rounded-full text-xs font-bold flex items-center gap-1 select-none ${
+                        themeMode === 'day'
+                          ? 'bg-emerald-50 border border-emerald-200 text-emerald-700'
+                          : 'bg-[#202530] border border-emerald-500/30 text-emerald-400'
+                      }`}
                     >
                       <Check className="w-3.5 h-3.5" />
                       <span>{lang === 'en' ? 'Done' : 'সম্পন্ন'}</span>
@@ -427,7 +475,7 @@ export const PromoBonusScreen: React.FC<PromoBonusScreenProps> = ({
                       id={`tier-${tier.id}-claim-btn`}
                       type="button"
                       onClick={() => handleClaim(tier)}
-                      className="px-4 py-1.5 rounded-full bg-[#a3e635] hover:bg-[#bef264] text-slate-950 font-semibold text-xs transition-all shadow-[0_0_12px_rgba(163,230,53,0.35)] cursor-pointer active:scale-95"
+                      className="px-4 py-1.5 rounded-full bg-[#84cc16] hover:bg-[#65a30d] text-slate-950 font-bold text-xs transition-all shadow-[0_0_12px_rgba(132,204,22,0.35)] cursor-pointer active:scale-95"
                     >
                       {lang === 'en' ? 'Claim' : 'দাবি করুন'}
                     </button>
@@ -437,7 +485,11 @@ export const PromoBonusScreen: React.FC<PromoBonusScreenProps> = ({
                   {!isCompleted && !isReadyToClaim && (
                     <div
                       id={`tier-${tier.id}-status-pill`}
-                      className="px-3.5 py-1.5 min-w-[62px] text-center rounded-full bg-[#3e4858] text-white text-xs sm:text-[13px] font-normal tracking-wide select-none font-mono shadow-sm"
+                      className={`px-3.5 py-1.5 min-w-[62px] text-center rounded-full text-xs sm:text-[13px] font-medium tracking-wide select-none font-mono shadow-sm ${
+                        themeMode === 'day'
+                          ? 'bg-slate-200 text-slate-700 border border-slate-300'
+                          : 'bg-[#3e4858] text-white'
+                      }`}
                     >
                       {currentProgress}/{tier.targetCount}
                     </div>

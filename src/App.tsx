@@ -255,7 +255,7 @@ export default function App() {
 
   if (isAuthenticated) {
     return (
-      <div className="min-h-screen w-full bg-[#050811] flex flex-col items-center justify-start overflow-x-hidden relative">
+      <div id="app-root-shell" className="min-h-screen w-full bg-[#06483A] flex flex-col items-center justify-start overflow-x-hidden relative transition-colors duration-300">
         <div id="page-top-anchor" className="w-full h-0 pointer-events-none opacity-0" />
         <ProfilePage
           initialTab={currentTab}

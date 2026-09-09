@@ -46,10 +46,17 @@ import {
   AlertCircle,
   Settings,
   RefreshCw,
+  Sun,
+  Moon,
+  Mic,
+  Gift,
+  Crown,
+  Coins,
+  ChevronDown,
 } from 'lucide-react';
 import { AppDownloadModal } from './AppDownloadModal';
 import { EnergyHomeTab } from './EnergyHomeTab';
-import { InvestTabContent } from './InvestTabContent';
+import { InvestTabContent, INVESTMENT_PLANS } from './InvestTabContent';
 import { TransactionsTabContent } from './TransactionsTabContent';
 import { WalletTabContent } from './WalletTabContent';
 import { ReferralPage } from './ReferralPage';
@@ -94,9 +101,49 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 }) => {
   const t = translations[currentLang];
 
+  // Day / Night Theme Mode ('night' | 'day')
+  const [themeMode, setThemeMode] = useState<'night' | 'day'>(() => {
+    try {
+      const saved = localStorage.getItem('app_theme_mode');
+      return saved === 'day' ? 'day' : 'night';
+    } catch {
+      return 'night';
+    }
+  });
+
+  const handleToggleTheme = (mode: 'night' | 'day') => {
+    setThemeMode(mode);
+    try {
+      localStorage.setItem('app_theme_mode', mode);
+    } catch {
+      // ignore
+    }
+  };
+
+  useEffect(() => {
+    try {
+      const rootShell = document.getElementById('app-root-shell');
+      if (themeMode === 'day') {
+        document.documentElement.classList.add('day-mode');
+        document.body.style.backgroundColor = '#f4f6fb';
+        if (rootShell) {
+          rootShell.style.backgroundColor = '#f4f6fb';
+        }
+      } else {
+        document.documentElement.classList.remove('day-mode');
+        document.body.style.backgroundColor = '#050811';
+        if (rootShell) {
+          rootShell.style.backgroundColor = '#050811';
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }, [themeMode]);
+
   // User profile state
   const [user, setUser] = useState<UserProfile>(() => {
-    const fallbackMemberId = `NVT${Math.floor(100000 + Math.random() * 900000)}`;
+    const fallbackMemberId = 'NVT440912';
     const activeId = initialUser?.uid || initialUser?.memberId || fallbackMemberId;
     let savedInvestments: any[] = [];
     try {
@@ -107,28 +154,35 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     }
 
     // Determine initial real VIP level and active units
-    const activeUnits = initialUser?.activeUnits ?? savedInvestments.length;
+    const activeUnits = initialUser?.activeUnits ?? (savedInvestments.length > 0 ? savedInvestments.length : 1);
     let maxVip = 0;
     if (savedInvestments.length > 0) {
-      maxVip = Math.max(...savedInvestments.map((inv) => inv.vipLevel || 1), 0);
+      maxVip = Math.max(...savedInvestments.map((inv) => inv.vipLevel || 0), 0);
     }
-    const realVip = initialUser?.vipLevel !== undefined ? initialUser.vipLevel : maxVip;
+    // VIP is strictly VIP 0 until VIP 1 is unlocked
+    const hasVip1OrHigher = (initialUser?.vipLevel !== undefined && initialUser.vipLevel >= 1) || maxVip >= 1;
+    const realVip = hasVip1OrHigher ? (initialUser?.vipLevel !== undefined && initialUser.vipLevel >= 1 ? initialUser.vipLevel : maxVip) : 0;
 
     const realTotalEarnings = initialUser?.totalEarnings ?? (
       savedInvestments.reduce((acc, curr) => acc + (curr.totalEarned || 0), 0)
     );
 
     const realDailyRewards = initialUser?.dailyRewards ?? (
-      savedInvestments.reduce((acc, curr) => acc + (curr.dailyYield || 0), 0)
+      savedInvestments.length > 0
+        ? savedInvestments.reduce((acc, curr) => acc + (curr.dailyYield || 0), 0)
+        : 38.0
     );
+
+    const rawName = initialUser?.name || '';
+    const cleanName = rawName && rawName !== 'NVT Member' ? rawName : 'Rased';
 
     return {
       uid: initialUser?.uid,
-      name: initialUser?.name || 'NVT Member',
+      name: cleanName,
       memberId: initialUser?.memberId || fallbackMemberId,
       referralCode: initialUser?.referralCode || (initialUser?.memberId ? initialUser.memberId.slice(-6).toUpperCase() : fallbackMemberId.slice(-6).toUpperCase()),
       referredBy: initialUser?.referredBy,
-      memberSince: initialUser?.memberSince || new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+      memberSince: initialUser?.memberSince || 'Sep 2026',
       isVerified: initialUser?.isVerified ?? true,
       walletBalance:
         typeof initialUser?.walletBalance === 'number' && initialUser.walletBalance !== 12450.0
@@ -292,7 +346,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
   // Recharge State
   const [rechargeAmount, setRechargeAmount] = useState('1000');
-  const [rechargeMethod, setRechargeMethod] = useState<'bKash' | 'Nagad' | 'Rocket' | 'USDT'>('bKash');
+  const [rechargeMethod, setRechargeMethod] = useState<'bKash' | 'Nagad' | 'Rocket'>('bKash');
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -853,12 +907,46 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       return;
     }
 
-    // Match package to calculate real VIP level and daily rewards
-    const matchedPkg = ENERGY_PACKAGES_7.find(
-      (p) => p.nameBn === projectName || p.nameEn === projectName || projectName.includes(p.nameEn) || projectName.includes(p.nameBn)
+    // Match package from new INVESTMENT_PLANS
+    const matchedPlan = INVESTMENT_PLANS.find(
+      (p) =>
+        p.nameBn === projectName ||
+        p.nameEn === projectName ||
+        projectName.includes(p.nameEn) ||
+        projectName.includes(p.nameBn)
     );
-    const pkgVip = matchedPkg ? matchedPkg.vipLevel : 1;
-    const pkgDailyRate = matchedPkg ? matchedPkg.dailyRate : 3.8;
+
+    // Limit check for plans with maxPurchaseLimit (e.g. 0/2 for first 2 packages)
+    if (matchedPlan && matchedPlan.maxPurchaseLimit !== undefined) {
+      const alreadyPurchasedCount = (user.activeInvestments || []).filter(
+        (inv: any) =>
+          inv.name === matchedPlan.nameEn ||
+          inv.name === matchedPlan.nameBn ||
+          inv.name.includes(matchedPlan.nameEn) ||
+          inv.name.includes(matchedPlan.nameBn)
+      ).length;
+      if (alreadyPurchasedCount >= matchedPlan.maxPurchaseLimit) {
+        showToast(
+          currentLang === 'bn'
+            ? `দুঃখিত! এই প্যাকেজের সর্বোচ্চ ক্রয়ের সীমা (${matchedPlan.maxPurchaseLimit}/${matchedPlan.maxPurchaseLimit}) পূর্ণ হয়েছে।`
+            : `Maximum purchase limit reached (${matchedPlan.maxPurchaseLimit}/${matchedPlan.maxPurchaseLimit}) for this plan.`
+        );
+        return;
+      }
+    }
+
+    // VIP requirement check (VIP 1 required for packages other than first 2)
+    if (matchedPlan && matchedPlan.requiredVipLevel > 0 && (user.vipLevel || 0) < matchedPlan.requiredVipLevel) {
+      showToast(
+        currentLang === 'bn'
+          ? 'এই প্যাকেজে বিনিয়োগ করতে অন্তত VIP 1 মেম্বারশিপ প্রয়োজন! অনুগ্রহ করে প্রথম দুটি প্যাকেজ কিনুন অথবা রিচার্জ করুন।'
+          : 'VIP 1 level required for this package! Please invest in the first two packages or recharge.'
+      );
+      return;
+    }
+
+    const pkgVip = matchedPlan ? Math.max(matchedPlan.requiredVipLevel, 1) : 1;
+    const pkgDailyRate = matchedPlan ? matchedPlan.dailyReturnPercent : 2.5;
     const dailyEarned = Math.round((amount * pkgDailyRate) / 100);
 
     const newInvestment = {
@@ -879,7 +967,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       // ignore
     }
 
-    const maxVip = Math.max(...updatedInvestments.map((inv: any) => inv.vipLevel || 1), 1);
+    // Purchasing any plan upgrades the user to at least VIP 1
+    const maxVip = Math.max(user.vipLevel || 0, 1, ...updatedInvestments.map((inv: any) => inv.vipLevel || 1));
     const totalDaily = updatedInvestments.reduce((acc: number, curr: any) => acc + (curr.dailyYield || 0), 0);
 
     updateUser((prev) => ({
@@ -922,7 +1011,9 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
   return (
     <div
       id="profile-phone-frame"
-      className="w-full max-w-md md:max-w-5xl lg:max-w-6xl xl:max-w-7xl mx-auto min-h-screen bg-[#050811] text-slate-100 flex flex-col relative select-none md:px-6 pb-24 md:pb-12 transition-all duration-300"
+      className={`w-full max-w-md md:max-w-5xl lg:max-w-6xl xl:max-w-7xl mx-auto min-h-screen flex flex-col relative select-none md:px-6 pb-24 md:pb-12 transition-colors duration-300 ${
+        themeMode === 'day' ? 'bg-[#f4f6fb] text-slate-900' : 'bg-[#06483A] text-slate-100'
+      }`}
     >
       {/* Top scroll anchor to guarantee instant scroll to top on tab changes */}
       <div id="profile-top-anchor" className="w-full h-0 pointer-events-none opacity-0" />
@@ -938,7 +1029,11 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       {/* ───────────────────────────────────────────────────────────
           DESKTOP DASHBOARD TOP NAVIGATION (Computer / Laptop Full Screen)
       ─────────────────────────────────────────────────────────── */}
-      <header className="hidden md:flex items-center justify-between py-3 px-6 my-4 rounded-2xl bg-[#091122]/90 border border-slate-800/80 backdrop-blur-xl shadow-xl sticky top-3 z-30">
+      <header className={`hidden md:flex items-center justify-between py-3 px-6 my-4 rounded-2xl backdrop-blur-xl shadow-xl sticky top-3 z-30 transition-colors duration-200 ${
+        themeMode === 'day'
+          ? 'bg-white/95 border border-slate-200 text-slate-800 shadow-md'
+          : 'bg-[#091122]/90 border border-slate-800/80 text-slate-100'
+      }`}>
         {/* Left: Brand Logo & Title with Smooth Spinning Core */}
         <div
           className="flex items-center gap-3 cursor-pointer"
@@ -950,18 +1045,20 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               <span className="text-base font-black tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-amber-200 via-orange-400 to-cyan-300">
                 NVT
               </span>
-              <span className="text-xs font-bold text-slate-300 tracking-wider">
+              <span className={`text-xs font-bold tracking-wider ${themeMode === 'day' ? 'text-slate-800' : 'text-slate-300'}`}>
                 NOVA TERRA ENERGY
               </span>
             </div>
-            <p className="text-[10px] text-amber-400/90 font-mono font-medium">
+            <p className="text-[10px] text-amber-500 font-mono font-medium">
               {currentLang === 'bn' ? 'জাতীয় ফুয়েল, গ্যাস ও পাওয়ার গ্রিড' : 'National Fuel, Gas & Power Grid'}
             </p>
           </div>
         </div>
 
         {/* Center: Desktop Navigation Tabs */}
-        <nav className="flex items-center gap-1 bg-[#060b18] p-1.5 rounded-xl border border-slate-800/90">
+        <nav className={`flex items-center gap-1 p-1.5 rounded-xl border ${
+          themeMode === 'day' ? 'bg-slate-100 border-slate-200' : 'bg-[#060b18] border-slate-800/90'
+        }`}>
           {[
             { id: 'home', labelBn: 'হোম', labelEn: 'Home', icon: Home },
             { id: 'invest', labelBn: 'ইনভেস্ট', labelEn: 'Invest', icon: TrendingUp },
@@ -979,25 +1076,63 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 onClick={() => switchTab(item.id as any)}
                 className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                   isActive
-                    ? 'bg-gradient-to-r from-cyan-500/20 to-blue-600/20 text-cyan-300 border border-cyan-500/30 shadow-sm'
+                    ? themeMode === 'day'
+                      ? 'bg-white text-blue-600 border border-slate-200 shadow-xs'
+                      : 'bg-gradient-to-r from-cyan-500/20 to-blue-600/20 text-cyan-300 border border-cyan-500/30 shadow-sm'
+                    : themeMode === 'day'
+                    ? 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
                     : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
                 }`}
               >
-                <Icon className={`w-4 h-4 ${isActive ? 'text-cyan-400' : 'text-slate-400'}`} />
+                <Icon className={`w-4 h-4 ${isActive ? (themeMode === 'day' ? 'text-blue-600' : 'text-cyan-400') : 'text-slate-400'}`} />
                 <span>{currentLang === 'bn' ? item.labelBn : item.labelEn}</span>
               </button>
             );
           })}
         </nav>
 
-        {/* Right: Balance, Language & Logout */}
+        {/* Right: Balance, Day/Night Mode, Language & Logout */}
         <div className="flex items-center gap-2.5">
+          {/* Day / Night Switcher */}
+          <div className={`flex items-center p-0.5 rounded-xl border ${
+            themeMode === 'day' ? 'bg-slate-100 border-slate-200' : 'bg-slate-900/90 border-slate-800'
+          }`}>
+            <button
+              type="button"
+              onClick={() => handleToggleTheme('day')}
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                themeMode === 'day'
+                  ? 'bg-white text-slate-900 shadow-xs'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+              title="Day Mode (Light White)"
+            >
+              <Sun className="w-3.5 h-3.5 text-amber-500" />
+              <span>{currentLang === 'bn' ? 'ডে' : 'Day'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleToggleTheme('night')}
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                themeMode === 'night'
+                  ? 'bg-cyan-500 text-slate-950 shadow-xs'
+                  : 'text-slate-400 hover:text-slate-800'
+              }`}
+              title="Night Mode (Dark)"
+            >
+              <Moon className="w-3.5 h-3.5 text-cyan-400" />
+              <span>{currentLang === 'bn' ? 'নাইট' : 'Night'}</span>
+            </button>
+          </div>
+
           {/* Balance pill */}
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-900/90 border border-slate-800">
-            <span className="text-[10px] text-slate-400 font-medium">
+          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border ${
+            themeMode === 'day' ? 'bg-slate-100 border-slate-200' : 'bg-slate-900/90 border-slate-800'
+          }`}>
+            <span className={`text-[10px] font-medium ${themeMode === 'day' ? 'text-slate-500' : 'text-slate-400'}`}>
               {currentLang === 'bn' ? 'ব্যালেন্স:' : 'Balance:'}
             </span>
-            <span className="text-xs font-mono font-bold text-emerald-400">
+            <span className="text-xs font-mono font-bold text-emerald-500">
               ৳{user.walletBalance.toLocaleString()}
             </span>
           </div>
@@ -1007,9 +1142,13 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             <button
               type="button"
               onClick={() => onToggleLang(currentLang === 'bn' ? 'en' : 'bn')}
-              className="px-2.5 py-1.5 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700 text-xs text-slate-300 font-medium flex items-center gap-1.5 cursor-pointer"
+              className={`px-2.5 py-1.5 rounded-xl border text-xs font-medium flex items-center gap-1.5 cursor-pointer ${
+                themeMode === 'day'
+                  ? 'bg-slate-100 hover:bg-slate-200 border-slate-200 text-slate-700'
+                  : 'bg-slate-800/80 hover:bg-slate-700/80 border-slate-700 text-slate-300'
+              }`}
             >
-              <Globe className="w-3.5 h-3.5 text-cyan-400" />
+              <Globe className="w-3.5 h-3.5 text-cyan-500" />
               <span>{currentLang === 'bn' ? 'English' : 'বাংলা'}</span>
             </button>
           )}
@@ -1035,6 +1174,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             userName={user.name}
             currentLang={currentLang}
             onToggleLang={onToggleLang}
+            themeMode={themeMode}
+            onToggleTheme={handleToggleTheme}
             onOpenRecharge={() => setActiveSubModal('recharge')}
             onOpenWithdraw={() => setActiveSubModal('withdraw')}
             onOpenRobotLogin={() => setActiveSubModal('authenticator')}
@@ -1050,66 +1191,149 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
         )}
 
         {/* 2. Top Header Row for Non-Home Screens */}
-        {currentTab !== 'home' && currentTab !== 'wallet' && currentTab !== 'referral' && (
-          <div className="flex items-center justify-between pt-4 pb-3 shrink-0">
-            <button
-              type="button"
-              onClick={() => {
-                if (currentTab !== 'profile') {
-                  switchTab('profile');
-                } else {
-                  switchTab('home');
-                }
-              }}
-              className="p-1.5 -ml-1.5 text-slate-300 hover:text-white transition-colors cursor-pointer flex items-center gap-1"
-              aria-label="Back"
-            >
-              <ChevronLeft className="w-7 h-7" />
-              {currentTab === 'profile' && (
-                <span className="text-xs text-slate-400 font-medium">
-                  {currentLang === 'bn' ? 'হোম' : 'Home'}
-                </span>
-              )}
-            </button>
-
-            <span className="text-xs font-semibold text-slate-400 tracking-wide uppercase">
-              {currentTab === 'profile' && (currentLang === 'bn' ? 'প্রোফাইল' : 'Profile')}
-              {currentTab === 'invest' && (currentLang === 'bn' ? 'বিনিয়োগ' : 'Investment')}
-              {currentTab === 'transactions' && (currentLang === 'bn' ? 'লেনদেন' : 'Transactions')}
-              {currentTab === 'wallet' && (currentLang === 'bn' ? 'হোস্টিং লেভেল বিবরণী' : 'Hosting Level Details')}
-            </span>
-
-            <div className="flex items-center gap-2">
-              {onToggleLang && (
-                <button
-                  type="button"
-                  onClick={() => onToggleLang(currentLang === 'en' ? 'bn' : 'en')}
-                  className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-slate-800/80 hover:bg-slate-700 text-cyan-400 border border-slate-700 transition-colors cursor-pointer"
-                  title="Toggle Language"
-                >
-                  {currentLang === 'en' ? 'BN' : 'EN'}
-                </button>
-              )}
+        {currentTab !== 'home' && currentTab !== 'invest' && currentTab !== 'wallet' && currentTab !== 'referral' && (
+          currentTab === 'profile' ? (
+            /* Profile Tab Header matching Reference Screenshot */
+            <div className="flex items-center justify-between pt-4 pb-3 shrink-0">
               <button
                 type="button"
-                onClick={() => setActiveSubModal('notifications')}
-                className="relative p-1.5 -mr-1.5 text-slate-300 hover:text-white transition-colors cursor-pointer"
-                aria-label="Notifications"
+                onClick={() => switchTab('home')}
+                className={`p-1.5 -ml-1.5 rounded-xl transition-colors cursor-pointer ${
+                  themeMode === 'day' ? 'text-slate-700 hover:text-slate-900' : 'text-slate-300 hover:text-white'
+                }`}
+                aria-label="Back"
               >
-                <Bell className="w-6 h-6" />
-                <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-blue-500 ring-2 ring-[#050811]" />
+                <ChevronLeft className="w-6 h-6" />
               </button>
+
+              {/* Center: AI ENERGY Branding */}
+              <div className="flex items-center gap-2">
+                <div className="relative flex items-center justify-center shrink-0">
+                  <svg className="w-7 h-7 sm:w-8 sm:h-8" viewBox="0 0 36 36" fill="none">
+                    <circle cx="18" cy="18" r="6.5" fill="#f59e0b" />
+                    <path d="M18 4V7M18 29V32M4 18H7M29 18H32M8.1 8.1L10.5 10.5M25.5 25.5L27.9 27.9M8.1 27.9L10.5 25.5M25.5 10.5L27.9 8.1" stroke="#fbbf24" strokeWidth="2" strokeLinecap="round" />
+                    <path d="M12 28C12 28 14 17 25 14C25 14 26 23 15 27C13.8 27.4 12.8 27.8 12 28Z" fill="#00e676" />
+                    <path d="M15 25C18 22 21 19 23 16" stroke="#a7f3d0" strokeWidth="1.5" strokeLinecap="round" />
+                  </svg>
+                </div>
+                <div className="flex flex-col">
+                  <div className="flex items-center gap-1 font-black text-lg sm:text-xl tracking-wider leading-none">
+                    <span className={themeMode === 'day' ? 'text-slate-900' : 'text-white'}>AI</span>
+                    <span className="text-[#00e676]">ENERGY</span>
+                  </div>
+                  <span className="text-[10px] text-slate-400 font-medium tracking-tight mt-0.5">
+                    Clean Energy | Better Tomorrow
+                  </span>
+                </div>
+              </div>
+
+              {/* Right: Notifications & Language Toggle */}
+              <div className="flex items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setActiveSubModal('notifications')}
+                  className="relative p-1.5 text-white hover:text-emerald-200 transition-colors cursor-pointer"
+                  aria-label="Notifications"
+                >
+                  <Bell className="w-6 h-6" />
+                  <span className="absolute top-1.5 right-1.5 w-2.5 h-2.5 rounded-full bg-[#f43f5e] ring-2 ring-[#022119]" />
+                </button>
+                {onToggleLang && (
+                  <button
+                    type="button"
+                    onClick={() => onToggleLang(currentLang === 'en' ? 'bn' : 'en')}
+                    className="px-3 py-1.5 rounded-full bg-black/45 border border-white/20 text-white text-xs font-semibold flex items-center gap-1.5 cursor-pointer shadow-xs hover:bg-black/60 transition-all active:scale-98"
+                  >
+                    <Globe className="w-3.5 h-3.5 text-white" />
+                    <span>{currentLang === 'en' ? 'English' : 'বাংলা'}</span>
+                    <ChevronDown className="w-3.5 h-3.5 text-white/80" />
+                  </button>
+                )}
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="flex items-center justify-between pt-4 pb-3 shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  if (currentTab !== 'profile') {
+                    switchTab('profile');
+                  } else {
+                    switchTab('home');
+                  }
+                }}
+                className={`p-1.5 -ml-1.5 transition-colors cursor-pointer flex items-center gap-1 ${
+                  themeMode === 'day' ? 'text-slate-700 hover:text-slate-900' : 'text-slate-300 hover:text-white'
+                }`}
+                aria-label="Back"
+              >
+                <ChevronLeft className="w-7 h-7" />
+              </button>
+
+              <span className={`text-xs font-bold tracking-wide uppercase ${themeMode === 'day' ? 'text-slate-800' : 'text-slate-400'}`}>
+                {currentTab === 'transactions' && (currentLang === 'bn' ? 'লেনদেন' : 'Transactions')}
+                {currentTab === 'wallet' && (currentLang === 'bn' ? 'হোস্টিং লেভেল বিবরণী' : 'Hosting Level Details')}
+              </span>
+
+              <div className="flex items-center gap-2">
+                {/* Day / Night Switcher */}
+                <button
+                  type="button"
+                  onClick={() => handleToggleTheme(themeMode === 'day' ? 'night' : 'day')}
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                    themeMode === 'day'
+                      ? 'bg-white border-slate-300 text-slate-800 hover:bg-slate-50 shadow-xs'
+                      : 'bg-slate-800/80 border-slate-700 text-slate-300 hover:text-white'
+                  }`}
+                  title="Toggle Theme"
+                >
+                  {themeMode === 'day' ? <Sun className="w-3.5 h-3.5 text-amber-500" /> : <Moon className="w-3.5 h-3.5 text-cyan-400" />}
+                  <span>{themeMode === 'day' ? (currentLang === 'bn' ? 'ডে' : 'Day') : (currentLang === 'bn' ? 'নাইট' : 'Night')}</span>
+                </button>
+
+                {onToggleLang && (
+                  <button
+                    type="button"
+                    onClick={() => onToggleLang(currentLang === 'en' ? 'bn' : 'en')}
+                    className={`px-2 py-0.5 rounded-full text-[11px] font-bold border transition-colors cursor-pointer ${
+                      themeMode === 'day'
+                        ? 'bg-white border-slate-300 text-blue-600 hover:bg-slate-50'
+                        : 'bg-slate-800/80 hover:bg-slate-700 text-cyan-400 border-slate-700'
+                    }`}
+                    title="Toggle Language"
+                  >
+                    {currentLang === 'en' ? 'BN' : 'EN'}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setActiveSubModal('notifications')}
+                  className={`relative p-1.5 -mr-1.5 transition-colors cursor-pointer ${
+                    themeMode === 'day' ? 'text-slate-700 hover:text-slate-900' : 'text-slate-300 hover:text-white'
+                  }`}
+                  aria-label="Notifications"
+                >
+                  <Bell className="w-6 h-6" />
+                  <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-blue-500 ring-2 ring-white" />
+                </button>
+              </div>
+            </div>
+          )
         )}
 
         {/* 3. Invest Tab */}
         {currentTab === 'invest' && (
           <InvestTabContent
             userBalance={user.walletBalance}
+            userVipLevel={user.vipLevel || 0}
+            userInvestments={user.activeInvestments || []}
             currentLang={currentLang}
+            themeMode={themeMode}
             onInvestProject={handleInvestProject}
             onOpenRecharge={() => setActiveSubModal('recharge')}
+            onToggleLang={onToggleLang}
+            onOpenNotifications={() => setActiveSubModal('notifications')}
+            onOpenMyInvestments={() => switchTab('transactions')}
           />
         )}
 
@@ -1118,6 +1342,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           <TransactionsTabContent
             userBalance={user.walletBalance}
             currentLang={currentLang}
+            themeMode={themeMode}
           />
         )}
 
@@ -1126,6 +1351,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           <WalletTabContent
             userBalance={user.walletBalance}
             currentLang={currentLang}
+            themeMode={themeMode}
             onOpenRecharge={() => setActiveSubModal('recharge')}
             onOpenWithdraw={() => setActiveSubModal('withdraw')}
             onOpenBankBinding={() => setActiveSubModal('payment')}
@@ -1182,6 +1408,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
         {currentTab === 'referral' && (
           <ReferralPage
             currentLang={currentLang}
+            themeMode={themeMode}
             userCode={user.memberId || 'NV8829'}
             userBalance={user.walletBalance}
             onBack={() => switchTab('home')}
@@ -1219,514 +1446,661 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
         {/* 6. Profile Tab */}
         {currentTab === 'profile' && (
           <>
-            {/* 1. Official User Profile Header Card */}
+            {/* 1. Official User Profile Header Card (Deep Emerald with Energy Landscape) */}
             <div
               id="profile-user-card"
-              className="relative overflow-hidden rounded-[24px] bg-gradient-to-r from-blue-700 via-blue-600 to-indigo-600 p-5 sm:p-6 shadow-[0_12px_32px_-6px_rgba(37,99,235,0.45)] border border-blue-400/25 shrink-0 text-white"
+              className="relative overflow-hidden rounded-[26px] bg-gradient-to-r from-[#032e22] via-[#043d2e] to-[#064a39] p-4.5 sm:p-5 shadow-2xl border border-emerald-500/30 shrink-0 text-white min-h-[220px] sm:min-h-[235px] flex flex-col justify-between"
             >
-              {/* Subtle Decorative Wave Curve Overlay */}
-              <div className="absolute inset-0 pointer-events-none opacity-20">
+              {/* Energy Wind & Solar Farm Landscape Illustration with Sunrise & Hills */}
+              <div className="absolute right-0 top-0 bottom-0 w-[68%] pointer-events-none overflow-hidden select-none">
+                {/* Clean Energy Farm Photo */}
+                <img
+                  src="https://images.unsplash.com/photo-1466611653911-95081537e5b7?auto=format&fit=crop&w=800&q=80"
+                  alt="Clean Energy Farm"
+                  className="w-full h-full object-cover object-right opacity-30 mix-blend-screen"
+                  referrerPolicy="no-referrer"
+                />
+
+                {/* SVG Landscape Vector Art with Bright Rising Sun, Rolling Hills, Wind Turbines & Solar Panels */}
                 <svg
-                  className="w-full h-full"
-                  viewBox="0 0 400 180"
+                  viewBox="0 0 400 200"
                   preserveAspectRatio="none"
-                  fill="none"
-                  xmlns="http://www.w3.org/2000/svg"
+                  className="absolute inset-0 w-full h-full opacity-85"
                 >
-                  <path
-                    d="M-20 50 C 130 170, 240 -20, 420 100"
-                    stroke="white"
-                    strokeWidth="2"
-                    strokeDasharray="4 6"
-                  />
-                  <path
-                    d="M-20 100 C 140 20, 260 200, 420 60"
-                    stroke="white"
-                    strokeWidth="1.2"
-                  />
+                  <defs>
+                    <radialGradient id="sunriseGlow" cx="72%" cy="28%" r="48%">
+                      <stop offset="0%" stopColor="#ffffff" stopOpacity="1" />
+                      <stop offset="20%" stopColor="#fef08a" stopOpacity="0.95" />
+                      <stop offset="45%" stopColor="#fbbf24" stopOpacity="0.65" />
+                      <stop offset="75%" stopColor="#f59e0b" stopOpacity="0.3" />
+                      <stop offset="100%" stopColor="#043d2e" stopOpacity="0" />
+                    </radialGradient>
+                    <linearGradient id="hillBack" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#0d684a" stopOpacity="0.9" />
+                      <stop offset="100%" stopColor="#043d2e" stopOpacity="0.95" />
+                    </linearGradient>
+                    <linearGradient id="hillFront" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#10b981" stopOpacity="0.95" />
+                      <stop offset="100%" stopColor="#032a1f" stopOpacity="0.98" />
+                    </linearGradient>
+                    <linearGradient id="solarBlue" x1="0" y1="0" x2="1" y2="1">
+                      <stop offset="0%" stopColor="#38bdf8" />
+                      <stop offset="50%" stopColor="#0284c7" />
+                      <stop offset="100%" stopColor="#0369a1" />
+                    </linearGradient>
+                  </defs>
+
+                  {/* Golden Sunrise Glow Raised in Upper Area so it's fully visible */}
+                  <circle cx="290" cy="55" r="95" fill="url(#sunriseGlow)" />
+                  <circle cx="290" cy="55" r="26" fill="#fef08a" opacity="0.85" />
+                  <circle cx="290" cy="55" r="14" fill="#ffffff" opacity="0.98" />
+
+                  {/* Radiating Sunbeams / Rays across Sky & Hills */}
+                  <line x1="290" y1="55" x2="210" y2="25" stroke="#fef08a" strokeWidth="1.8" opacity="0.55" />
+                  <line x1="290" y1="55" x2="235" y2="12" stroke="#fef08a" strokeWidth="1.8" opacity="0.6" strokeDasharray="5 3" />
+                  <line x1="290" y1="55" x2="265" y2="5" stroke="#fef08a" strokeWidth="2.2" opacity="0.65" />
+                  <line x1="290" y1="55" x2="290" y2="2" stroke="#fef08a" strokeWidth="2.5" opacity="0.75" />
+                  <line x1="290" y1="55" x2="315" y2="5" stroke="#fef08a" strokeWidth="2.2" opacity="0.65" />
+                  <line x1="290" y1="55" x2="345" y2="15" stroke="#fef08a" strokeWidth="1.8" opacity="0.6" strokeDasharray="5 3" />
+                  <line x1="290" y1="55" x2="375" y2="35" stroke="#fef08a" strokeWidth="1.8" opacity="0.55" />
+                  <line x1="290" y1="55" x2="220" y2="65" stroke="#fef08a" strokeWidth="1.5" opacity="0.4" strokeDasharray="4 2" />
+
+                  {/* Back Rolling Mountains */}
+                  <path d="M130,200 Q195,85 275,95 T400,105 L400,200 Z" fill="url(#hillBack)" />
+
+                  {/* Wind Turbines on Mountain Ridge */}
+                  {/* Turbine 1 (Left Ridge) */}
+                  <line x1="215" y1="102" x2="215" y2="52" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" />
+                  <circle cx="215" cy="52" r="2.5" fill="#ffffff" />
+                  <line x1="215" y1="52" x2="215" y2="28" stroke="#ffffff" strokeWidth="1.5" strokeLinecap="round" />
+                  <line x1="215" y1="52" x2="234" y2="64" stroke="#ffffff" strokeWidth="1.5" strokeLinecap="round" />
+                  <line x1="215" y1="52" x2="196" y2="64" stroke="#ffffff" strokeWidth="1.5" strokeLinecap="round" />
+
+                  {/* Turbine 2 (Right Ridge near Sunrise) */}
+                  <line x1="335" y1="104" x2="335" y2="56" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" />
+                  <circle cx="335" cy="56" r="2.5" fill="#ffffff" />
+                  <line x1="335" y1="56" x2="349" y2="38" stroke="#ffffff" strokeWidth="1.5" strokeLinecap="round" />
+                  <line x1="335" y1="56" x2="349" y2="73" stroke="#ffffff" strokeWidth="1.5" strokeLinecap="round" />
+                  <line x1="335" y1="56" x2="317" y2="58" stroke="#ffffff" strokeWidth="1.5" strokeLinecap="round" />
+
+                  {/* Turbine 3 (Far Right Ridge) */}
+                  <line x1="380" y1="112" x2="380" y2="72" stroke="#ffffff" strokeWidth="1.5" strokeLinecap="round" opacity="0.85" />
+                  <circle cx="380" cy="72" r="2" fill="#ffffff" />
+                  <line x1="380" y1="72" x2="380" y2="58" stroke="#ffffff" strokeWidth="1.2" strokeLinecap="round" />
+                  <line x1="380" y1="72" x2="393" y2="82" stroke="#ffffff" strokeWidth="1.2" strokeLinecap="round" />
+                  <line x1="380" y1="72" x2="367" y2="82" stroke="#ffffff" strokeWidth="1.2" strokeLinecap="round" />
+
+                  {/* Foreground Rolling Emerald Hills */}
+                  <path d="M110,200 Q195,120 285,125 Q345,130 400,118 L400,200 Z" fill="url(#hillFront)" />
+
+                  {/* Photovoltaic Solar Panel Arrays in Foreground */}
+                  <polygon points="215,148 255,141 265,158 220,166" fill="url(#solarBlue)" stroke="#e0f2fe" strokeWidth="0.8" />
+                  <line x1="235" y1="145" x2="242" y2="162" stroke="#bae6fd" strokeWidth="0.5" />
+                  <line x1="217" y1="157" x2="260" y2="149" stroke="#bae6fd" strokeWidth="0.5" />
+
+                  <polygon points="268,138 310,132 322,150 278,158" fill="url(#solarBlue)" stroke="#e0f2fe" strokeWidth="0.8" />
+                  <line x1="289" y1="135" x2="300" y2="154" stroke="#bae6fd" strokeWidth="0.5" />
+                  <line x1="273" y1="148" x2="316" y2="141" stroke="#bae6fd" strokeWidth="0.5" />
+
+                  <polygon points="325,130 368,124 380,142 335,149" fill="url(#solarBlue)" stroke="#e0f2fe" strokeWidth="0.8" />
+                  <line x1="346" y1="127" x2="357" y2="146" stroke="#bae6fd" strokeWidth="0.5" />
+                  <line x1="330" y1="140" x2="374" y2="133" stroke="#bae6fd" strokeWidth="0.5" />
                 </svg>
+
+                {/* Soft gradient fade into left card dark emerald background */}
+                <div className="absolute inset-0 bg-gradient-to-l from-transparent via-[#043d2e]/55 to-[#032e22]" />
+
+                {/* Ambient Warm Sunbeam Flare */}
+                <div className="absolute right-14 top-1 w-44 h-44 rounded-full bg-amber-300/25 blur-2xl pointer-events-none" />
               </div>
 
+              {/* Top Row: User Avatar & Details + VIP Badge */}
               <div className="relative z-10 flex items-start justify-between">
                 {/* Left: User Avatar & Details */}
-                <div className="flex items-center gap-3.5">
-                  {/* Circular User Avatar */}
-                  <div className="w-16 h-16 sm:w-18 sm:h-18 rounded-full bg-white/15 border-2 border-white/30 flex items-center justify-center text-white shrink-0 shadow-lg shadow-blue-900/40 backdrop-blur-xs">
-                    <User className="w-8 h-8 sm:w-9 sm:h-9 text-white" />
+                <div className="flex items-center gap-3">
+                  {/* Circular User Avatar with Crown only when VIP 1+ */}
+                  <div className="relative shrink-0">
+                    <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-[#022119] border-2 border-[#00e676] flex items-center justify-center text-white shadow-lg shadow-emerald-950/60">
+                      <User className="w-7 h-7 sm:w-8 sm:h-8 text-white" />
+                    </div>
+                    {/* Gold Crown only appears once user achieves VIP 1 or higher */}
+                    {(user.vipLevel ?? 0) >= 1 && (
+                      <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 z-10 drop-shadow-md">
+                        <Crown className="w-4 h-4 text-amber-400 fill-amber-400" />
+                      </div>
+                    )}
                   </div>
 
                   {/* User Details */}
-                  <div className="space-y-1">
+                  <div className="space-y-0.5 min-w-0">
                     <div className="flex items-center gap-2">
-                      <h2 className="text-xl sm:text-[22px] font-extrabold text-white tracking-tight leading-tight">
+                      <h2 className="text-lg sm:text-xl font-black text-white tracking-tight leading-tight">
                         {user.name}
                       </h2>
                       {user.isVerified && (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/25 border border-emerald-400/40 text-[10px] font-semibold text-emerald-300">
-                          <ShieldCheck className="w-3 h-3 text-emerald-400" />
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-[#00c853]/25 border border-[#00e676]/40 text-[10.5px] font-bold text-[#00e676] leading-none">
+                          <CheckCircle2 className="w-3 h-3 text-[#00e676]" />
                           <span>{currentLang === 'bn' ? 'যাচাইকৃত' : 'Verified'}</span>
                         </span>
                       )}
                     </div>
 
-                    <p className="text-[11px] text-blue-100/90 font-medium">
+                    <p className="text-[11px] text-emerald-100/80 font-medium">
                       {currentLang === 'bn' ? 'সদস্য হয়েছেন: ' : 'Member since: '}
                       {user.memberSince}
                     </p>
 
                     {/* ID with Copy Icon */}
-                    <div className="flex items-center gap-1.5 text-xs text-blue-100 font-medium pt-0.5">
+                    <div className="flex items-center gap-1.5 text-xs text-emerald-100 font-medium">
                       <span className="font-mono">ID: {user.memberId}</span>
                       <button
                         type="button"
                         onClick={handleCopyId}
-                        className="p-1 hover:bg-white/20 rounded transition-colors text-white cursor-pointer"
+                        className="p-0.5 hover:bg-white/20 rounded transition-colors text-white cursor-pointer"
                         title="Copy ID"
                       >
                         {isCopied ? (
                           <Check className="w-3.5 h-3.5 text-emerald-300" />
                         ) : (
-                          <Copy className="w-3.5 h-3.5 text-blue-100" />
+                          <Copy className="w-3.5 h-3.5 text-emerald-200" />
                         )}
                       </button>
                     </div>
                   </div>
                 </div>
 
-                {/* Right: VIP Badge & Edit Profile Button */}
-                <div className="flex items-center gap-2 shrink-0">
-                  <span
-                    className={`px-2.5 py-1 rounded-full text-xs font-bold font-mono shadow-xs border ${
-                      (user.vipLevel || 0) > 0
-                        ? 'bg-amber-400/25 border-amber-300/40 text-amber-200'
-                        : 'bg-slate-700/50 border-slate-600/50 text-slate-300'
-                    }`}
-                  >
-                    VIP {user.vipLevel || 0}
-                  </span>
+                {/* Right: VIP Badge - shows VIP 0 until VIP 1 is reached */}
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <div className={`flex items-center gap-1.5 px-3 py-1 rounded-full border text-xs sm:text-sm font-bold shadow-md backdrop-blur-xs ${
+                    (user.vipLevel ?? 0) >= 1
+                      ? 'bg-black/55 border-amber-400/50 text-white'
+                      : 'bg-black/45 border-emerald-500/30 text-emerald-100'
+                  }`}>
+                    <Crown className={`w-4 h-4 ${(user.vipLevel ?? 0) >= 1 ? 'text-amber-400 fill-amber-400' : 'text-slate-300 fill-slate-300'}`} />
+                    <span>VIP {user.vipLevel ?? 0}</span>
+                  </div>
                   <button
                     type="button"
                     onClick={() => setActiveSubModal('edit')}
-                    className="w-8 h-8 rounded-full bg-white/15 hover:bg-white/25 flex items-center justify-center text-white transition-colors cursor-pointer active:scale-95"
+                    className="w-6 h-6 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white/80 hover:text-white transition-colors cursor-pointer ml-1"
                     title="Edit Profile"
                   >
-                    <Pencil className="w-4 h-4" />
+                    <Pencil className="w-3 h-3" />
                   </button>
                 </div>
               </div>
 
-              {/* User Financial & Network Highlights */}
-              <div className="mt-4 pt-3 border-t border-white/15 grid grid-cols-3 gap-2 text-center text-white">
-                <div className="bg-black/20 rounded-xl py-1.5 px-1">
-                  <span className="text-[10px] text-blue-200 block">{currentLang === 'bn' ? 'মোট আয়' : 'Total Earnings'}</span>
-                  <span className="text-xs font-bold text-cyan-300 font-mono">
-                    ৳{(user.totalEarnings || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </span>
+              {/* Bottom 3-Column Stats Container - Shifted down so the sunrise & landscape shine clearly */}
+              <div className="relative z-10 mt-7 sm:mt-9 rounded-2xl bg-black/45 border border-emerald-500/25 backdrop-blur-md p-2.5 sm:p-3 grid grid-cols-3 divide-x divide-white/10 text-white shadow-lg">
+                {/* 1. Total Earnings */}
+                <div className="flex items-center gap-2 sm:gap-2.5 px-1 sm:px-2">
+                  <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center text-[#00e676] shrink-0">
+                    <Coins className="w-4.5 h-4.5 sm:w-5 sm:h-5 text-[#00e676]" />
+                  </div>
+                  <div className="min-w-0">
+                    <span className="text-[10px] sm:text-[11px] text-slate-300 block font-medium leading-none mb-1 truncate">
+                      {currentLang === 'bn' ? 'মোট আয়' : 'Total Earnings'}
+                    </span>
+                    <span className="text-xs sm:text-sm md:text-base font-black text-[#00e676] font-mono tracking-tight leading-none block">
+                      ৳{(user.totalEarnings || 0).toFixed(2)}
+                    </span>
+                  </div>
                 </div>
-                <div className="bg-black/20 rounded-xl py-1.5 px-1">
-                  <span className="text-[10px] text-blue-200 block">{currentLang === 'bn' ? 'সক্রিয় ইউনিট' : 'Active Units'}</span>
-                  <span className="text-xs font-bold text-white font-mono">
-                    {user.activeUnits || 0} {currentLang === 'bn' ? 'টি' : 'Units'}
-                  </span>
+
+                {/* 2. Active Units */}
+                <div className="flex items-center gap-2 sm:gap-2.5 px-1 sm:px-2">
+                  <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-teal-500/20 border border-teal-400/30 flex items-center justify-center text-teal-300 shrink-0">
+                    <Users className="w-4.5 h-4.5 sm:w-5 sm:h-5 text-teal-300" />
+                  </div>
+                  <div className="min-w-0">
+                    <span className="text-[10px] sm:text-[11px] text-slate-300 block font-medium leading-none mb-1 truncate">
+                      {currentLang === 'bn' ? 'সক্রিয় ইউনিট' : 'Active Units'}
+                    </span>
+                    <span className="text-xs sm:text-sm md:text-base font-black text-white font-mono tracking-tight leading-none block">
+                      {user.activeUnits || 1} {currentLang === 'bn' ? 'ইউনিট' : 'Units'}
+                    </span>
+                  </div>
                 </div>
-                <div className="bg-black/20 rounded-xl py-1.5 px-1">
-                  <span className="text-[10px] text-blue-200 block">{currentLang === 'bn' ? 'দৈনিক রিওয়ার্ড' : 'Daily Rewards'}</span>
-                  <span className="text-xs font-bold text-emerald-300 font-mono">
-                    ৳{(user.dailyRewards || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </span>
+
+                {/* 3. Daily Rewards */}
+                <div className="flex items-center gap-2 sm:gap-2.5 px-1 sm:px-2">
+                  <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center text-[#00e676] shrink-0">
+                    <Wallet className="w-4.5 h-4.5 sm:w-5 sm:h-5 text-[#00e676]" />
+                  </div>
+                  <div className="min-w-0">
+                    <span className="text-[10px] sm:text-[11px] text-slate-300 block font-medium leading-none mb-1 truncate">
+                      {currentLang === 'bn' ? 'দৈনিক রিওয়ার্ড' : 'Daily Rewards'}
+                    </span>
+                    <span className="text-xs sm:text-sm md:text-base font-black text-[#00e676] font-mono tracking-tight leading-none block">
+                      ৳{(user.dailyRewards || 38).toFixed(2)}
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>
+            </div>
 
-            {/* 2. Wallet Balance Card with Recharge & Withdraw */}
+            {/* 2. Account Balance Card with Recharge & Withdraw */}
             <div
               id="wallet-balance-card"
-              className="mt-4 px-5 py-4 rounded-[22px] bg-[#0b1222] border border-slate-800/80 shadow-sm shrink-0 space-y-3.5"
+              className={`mt-4 px-5 py-4 rounded-[22px] transition-colors duration-200 shrink-0 space-y-3.5 ${
+                themeMode === 'day'
+                  ? 'bg-white border border-slate-200/90 shadow-sm'
+                  : 'bg-[#062c22]/90 border border-emerald-500/25 shadow-sm'
+              }`}
             >
               <div className="flex items-center justify-between">
-                <div>
-                  <span className="block text-xs text-slate-400 font-medium mb-0.5">
-                    {currentLang === 'bn' ? 'অ্যাকাউন্ট ব্যালেন্স' : 'Account Balance'}
-                  </span>
-                  <span className="text-2xl sm:text-[28px] font-bold text-white tracking-tight font-mono">
-                    ৳{user.walletBalance.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                  </span>
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center text-emerald-400 shrink-0">
+                    <Wallet className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <span className={`block text-xs font-medium mb-0.5 ${
+                      themeMode === 'day' ? 'text-slate-500' : 'text-slate-300'
+                    }`}>
+                      {currentLang === 'bn' ? 'অ্যাকাউন্ট ব্যালেন্স' : 'Account Balance'}
+                    </span>
+                    <span className={`text-2xl sm:text-[26px] font-bold tracking-tight font-mono ${
+                      themeMode === 'day' ? 'text-slate-900' : 'text-white'
+                    }`}>
+                      ৳{(user.walletBalance || 0).toFixed(2)}
+                    </span>
+                  </div>
                 </div>
 
                 <button
                   type="button"
                   onClick={() => setActiveSubModal('wallet')}
-                  className="flex items-center gap-1.5 text-sm font-semibold text-blue-400 hover:text-blue-300 transition-colors cursor-pointer group"
+                  className={`flex items-center gap-1 text-xs font-semibold transition-colors cursor-pointer group ${
+                    themeMode === 'day' ? 'text-slate-600 hover:text-emerald-600' : 'text-slate-300 hover:text-emerald-300'
+                  }`}
                 >
-                  <Wallet className="w-4 h-4 text-blue-400 group-hover:scale-105 transition-transform" />
                   <span>{currentLang === 'bn' ? 'ওয়ালেট দেখুন' : 'View Wallet'}</span>
-                  <ChevronRight className="w-4 h-4" />
+                  <ChevronRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
                 </button>
               </div>
 
-              {/* Recharge & Withdraw Options */}
-              <div className="grid grid-cols-2 gap-2.5 pt-1 border-t border-slate-800/60">
+              {/* Recharge & Withdraw Buttons */}
+              <div className="grid grid-cols-2 gap-3 pt-1 border-t border-emerald-500/15">
                 <button
                   id="profile-recharge-btn"
                   type="button"
                   onClick={() => setActiveSubModal('recharge')}
-                  className="py-2.5 px-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-md shadow-blue-600/20 transition-all active:scale-95 cursor-pointer"
+                  className="py-2.5 px-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-md shadow-emerald-500/20 transition-all active:scale-95 cursor-pointer"
                 >
-                  <ArrowDownToLine className="w-4 h-4 text-white" />
-                  <span>{currentLang === 'bn' ? 'রিচার্জ করুন' : 'Recharge'}</span>
+                  <ArrowDownToLine className="w-4 h-4 text-slate-950" />
+                  <span>{currentLang === 'bn' ? 'রিচার্জ' : 'Recharge'}</span>
                 </button>
 
                 <button
                   id="profile-withdraw-btn"
                   type="button"
                   onClick={() => setActiveSubModal('withdraw')}
-                  className="py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-white border border-slate-700 font-bold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-sm transition-all active:scale-95 cursor-pointer"
+                  className={`py-2.5 px-3 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-sm transition-all active:scale-95 cursor-pointer ${
+                    themeMode === 'day'
+                      ? 'bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200'
+                      : 'bg-[#042018] hover:bg-[#072c21] text-white border border-emerald-500/30'
+                  }`}
                 >
-                  <ArrowUpFromLine className="w-4 h-4 text-cyan-400" />
-                  <span>{currentLang === 'bn' ? 'উইথড্র করুন' : 'Withdraw'}</span>
+                  <ArrowUpFromLine className="w-4 h-4 text-emerald-400" />
+                  <span>{currentLang === 'bn' ? 'উইথড্র' : 'Withdraw'}</span>
                 </button>
               </div>
             </div>
 
-            {/* 3. Team Commission & Referral Banner (রিচার্জ ও উইথড্র অপশনের নিচে ব্যানার) */}
-            <div
-              id="profile-team-commission-banner"
-              onClick={() => switchTab('referral')}
-              className="mt-4 relative overflow-hidden rounded-[22px] bg-gradient-to-br from-[#08152c] via-[#0d203e] to-[#08111e] border border-amber-500/40 hover:border-amber-400/60 p-4 shadow-xl shadow-amber-950/20 cursor-pointer transition-all group active:scale-[0.99]"
-            >
-              {/* Glowing Ambient Lights */}
-              <div className="absolute -top-12 -right-12 w-36 h-36 bg-amber-500/15 rounded-full blur-2xl pointer-events-none" />
-              <div className="absolute -bottom-10 -left-10 w-32 h-32 bg-cyan-500/15 rounded-full blur-2xl pointer-events-none" />
-              <div className="absolute inset-0 bg-[linear-gradient(to_right,#1e293b15_1px,transparent_1px),linear-gradient(to_bottom,#1e293b15_1px,transparent_1px)] bg-[size:16px_16px] pointer-events-none opacity-40" />
-
-              {/* Top Status Strip */}
-              <div className="relative z-10 flex items-center justify-between gap-2 mb-2">
-                <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-500/20 border border-amber-400/35 text-[10px] font-extrabold text-amber-300 uppercase tracking-wider">
-                  <Sparkles className="w-3 h-3 text-amber-400 fill-amber-400" />
-                  <span>{currentLang === 'bn' ? 'টিম কমিশন ও ইনভাইটেশন' : 'Team Commission Program'}</span>
-                </div>
-
-                <div className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-300 group-hover:translate-x-0.5 transition-transform">
-                  <span>{currentLang === 'bn' ? 'ইনভাইট করুন' : 'Invite'}</span>
-                  <ChevronRight className="w-3.5 h-3.5" />
-                </div>
-              </div>
-
-              {/* Main Typography and Icon Row */}
-              <div className="relative z-10 flex items-center justify-between gap-3">
-                <div className="space-y-1">
-                  <h3 className="text-base sm:text-lg font-black text-white leading-tight">
-                    <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-200 via-yellow-300 to-white">
-                      {currentLang === 'bn' ? 'বন্ধুদের ইনভাইট করুন ও কমিশন পান' : 'Invite Friends & Earn Commission'}
-                    </span>
-                  </h3>
-                  <p className="text-[11px] text-slate-300 font-medium">
-                    {currentLang === 'bn'
-                      ? 'টিম কমিশন: ১ম লেভেল ৭% • ২য় লেভেল ৩% • ৩য় লেভেল ১%'
-                      : 'Team commission: Level 1: 7% • Level 2: 3% • Level 3: 1%'}
-                  </p>
-                </div>
-
-                <div className="shrink-0">
-                  <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-amber-400 via-amber-500 to-yellow-600 flex items-center justify-center text-slate-950 font-black shadow-lg shadow-amber-500/30 group-hover:scale-105 transition-transform">
-                    <Users className="w-6 h-6 text-slate-950" />
-                  </div>
-                </div>
-              </div>
-
-              {/* 3-Tier Commission Badges Pill Strip */}
-              <div className="relative z-10 mt-3 pt-2.5 border-t border-slate-800/80 grid grid-cols-3 gap-2">
-                <div className="bg-[#050c18]/80 border border-amber-500/30 rounded-xl py-1.5 px-1.5 text-center">
-                  <span className="text-[9px] text-amber-300 font-bold block">{currentLang === 'bn' ? 'প্রথম লেভেল' : 'Level 1'}</span>
-                  <span className="text-xs sm:text-sm font-black text-white font-mono">7%</span>
-                </div>
-                <div className="bg-[#050c18]/80 border border-blue-500/30 rounded-xl py-1.5 px-1.5 text-center">
-                  <span className="text-[9px] text-blue-300 font-bold block">{currentLang === 'bn' ? 'দ্বিতীয় লেভেল' : 'Level 2'}</span>
-                  <span className="text-xs sm:text-sm font-black text-white font-mono">3%</span>
-                </div>
-                <div className="bg-[#050c18]/80 border border-indigo-500/30 rounded-xl py-1.5 px-1.5 text-center">
-                  <span className="text-[9px] text-indigo-300 font-bold block">{currentLang === 'bn' ? 'তৃতীয় লেভেল' : 'Level 3'}</span>
-                  <span className="text-xs sm:text-sm font-black text-white font-mono">1%</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Profile & Account Settings Menu List */}
+            {/* 3. Single Unified Profile Menu Container (All Subtitles Removed as Requested) */}
             <div
               id="profile-menu-container"
-              className="mt-4 rounded-[24px] bg-[#0b1222] border border-slate-800/80 divide-y divide-slate-800/60 shadow-sm overflow-hidden shrink-0"
+              className={`mt-4 rounded-[22px] overflow-hidden divide-y transition-colors border shadow-sm ${
+                themeMode === 'day'
+                  ? 'bg-white border-slate-200/90 divide-slate-100'
+                  : 'bg-[#062c22]/90 border-emerald-500/25 divide-emerald-500/15'
+              }`}
             >
-              {/* Row 1: Personal Information */}
+              {/* 1. Personal Information */}
               <button
                 id="profile-personal-info-btn"
                 type="button"
                 onClick={() => setActiveSubModal('personal')}
-                className="w-full px-5 py-4 flex items-center justify-between hover:bg-slate-800/30 transition-colors cursor-pointer text-left group"
+                className={`w-full px-4 sm:px-5 py-3.5 flex items-center justify-between transition-colors cursor-pointer text-left group ${
+                  themeMode === 'day' ? 'hover:bg-slate-50' : 'hover:bg-emerald-500/10'
+                }`}
               >
                 <div className="flex items-center gap-3.5">
-                  <div className="w-9 h-9 rounded-full bg-blue-600/15 border border-blue-500/20 flex items-center justify-center text-blue-400 group-hover:bg-blue-600/25 transition-colors">
+                  <div className="w-9 h-9 rounded-full bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center text-emerald-400 group-hover:scale-105 transition-transform shrink-0">
                     <User className="w-4.5 h-4.5" />
                   </div>
-                  <span className="text-sm sm:text-[15px] font-medium text-white group-hover:text-blue-300 transition-colors">
+                  <span className={`text-[15px] font-semibold tracking-tight transition-colors ${
+                    themeMode === 'day' ? 'text-slate-800 group-hover:text-emerald-600' : 'text-slate-100 group-hover:text-emerald-300'
+                  }`}>
                     {currentLang === 'bn' ? 'ব্যক্তিগত তথ্য' : 'Personal Information'}
                   </span>
                 </div>
-                <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-white transition-colors" />
+                <ChevronRight className={`w-4.5 h-4.5 transition-colors ${
+                  themeMode === 'day' ? 'text-slate-400 group-hover:text-slate-700' : 'text-slate-500 group-hover:text-emerald-300'
+                }`} />
               </button>
 
-              {/* Row 2: Security & Password */}
+              {/* 2. Security Settings */}
               <button
                 id="profile-security-settings-btn"
                 type="button"
                 onClick={() => setActiveSubModal('security')}
-                className="w-full px-5 py-4 flex items-center justify-between hover:bg-slate-800/30 transition-colors cursor-pointer text-left group"
+                className={`w-full px-4 sm:px-5 py-3.5 flex items-center justify-between transition-colors cursor-pointer text-left group ${
+                  themeMode === 'day' ? 'hover:bg-slate-50' : 'hover:bg-emerald-500/10'
+                }`}
               >
                 <div className="flex items-center gap-3.5">
-                  <div className="w-9 h-9 rounded-full bg-blue-600/15 border border-blue-500/20 flex items-center justify-center text-blue-400 group-hover:bg-blue-600/25 transition-colors">
+                  <div className="w-9 h-9 rounded-full bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center text-emerald-400 group-hover:scale-105 transition-transform shrink-0">
                     <Shield className="w-4.5 h-4.5" />
                   </div>
-                  <span className="text-sm sm:text-[15px] font-medium text-white group-hover:text-blue-300 transition-colors">
-                    {currentLang === 'bn' ? 'নিরাপত্তা ও পাসওয়ার্ড' : 'Security Settings'}
+                  <span className={`text-[15px] font-semibold tracking-tight transition-colors ${
+                    themeMode === 'day' ? 'text-slate-800 group-hover:text-emerald-600' : 'text-slate-100 group-hover:text-emerald-300'
+                  }`}>
+                    {currentLang === 'bn' ? 'নিরাপত্তা সেটিংস' : 'Security Settings'}
                   </span>
                 </div>
-                <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-white transition-colors" />
+                <ChevronRight className={`w-4.5 h-4.5 transition-colors ${
+                  themeMode === 'day' ? 'text-slate-400 group-hover:text-slate-700' : 'text-slate-500 group-hover:text-emerald-300'
+                }`} />
               </button>
 
-              {/* Row 3: Google Authenticator */}
+              {/* 3. Google Authenticator */}
               <button
                 id="profile-google-authenticator-btn"
                 type="button"
                 onClick={() => setActiveSubModal('authenticator')}
-                className="w-full px-5 py-3.5 sm:py-4 flex items-center justify-between hover:bg-slate-800/30 transition-colors cursor-pointer text-left group"
+                className={`w-full px-4 sm:px-5 py-3.5 flex items-center justify-between transition-colors cursor-pointer text-left group ${
+                  themeMode === 'day' ? 'hover:bg-slate-50' : 'hover:bg-emerald-500/10'
+                }`}
               >
                 <div className="flex items-center gap-3.5">
-                  <div className="w-9 h-9 rounded-full bg-cyan-600/15 border border-cyan-500/20 flex items-center justify-center text-cyan-400 group-hover:bg-cyan-600/25 transition-colors">
+                  <div className="w-9 h-9 rounded-full bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center text-emerald-400 group-hover:scale-105 transition-transform shrink-0">
                     <ShieldCheck className="w-4.5 h-4.5" />
                   </div>
-                  <div>
-                    <span className="text-sm sm:text-[15px] font-medium text-white group-hover:text-cyan-300 transition-colors block">
-                      {currentLang === 'bn' ? 'গুগল অথেন্টিকেটর' : 'Google Authenticator'}
-                    </span>
-                    <span className="text-[11px] text-slate-400">
-                      {currentLang === 'bn' ? 'দ্বি-স্তর বিশিষ্ট নিরাপত্তা (২এফএ)' : 'Two-Factor Authentication (2FA)'}
-                    </span>
-                  </div>
+                  <span className={`text-[15px] font-semibold tracking-tight transition-colors ${
+                    themeMode === 'day' ? 'text-slate-800 group-hover:text-emerald-600' : 'text-slate-100 group-hover:text-emerald-300'
+                  }`}>
+                    {currentLang === 'bn' ? 'গুগল অথেন্টিকেটর' : 'Google Authenticator'}
+                  </span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-                    {currentLang === 'bn' ? 'চালু আছে' : 'Active'}
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/35">
+                    <Check className="w-3 h-3 text-emerald-400" />
+                    <span>{currentLang === 'bn' ? 'চালু আছে' : 'Active'}</span>
                   </span>
-                  <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-white transition-colors" />
+                  <ChevronRight className={`w-4.5 h-4.5 transition-colors ${
+                    themeMode === 'day' ? 'text-slate-400 group-hover:text-slate-700' : 'text-slate-500 group-hover:text-emerald-300'
+                  }`} />
                 </div>
               </button>
 
-              {/* Row 4: Daily Town Hall */}
+              {/* 4. Daily Town Hall */}
               <button
                 id="profile-daily-town-hall-btn"
                 type="button"
                 onClick={() => setActiveSubModal('townHall')}
-                className="w-full px-5 py-3.5 sm:py-4 flex items-center justify-between hover:bg-slate-800/30 transition-colors cursor-pointer text-left group"
+                className={`w-full px-4 sm:px-5 py-3.5 flex items-center justify-between transition-colors cursor-pointer text-left group ${
+                  themeMode === 'day' ? 'hover:bg-slate-50' : 'hover:bg-emerald-500/10'
+                }`}
               >
                 <div className="flex items-center gap-3.5">
-                  <div className="relative w-9 h-9 rounded-full bg-indigo-600/15 border border-indigo-500/25 flex items-center justify-center text-indigo-400 group-hover:bg-indigo-600/25 transition-colors">
-                    <Users className="w-4.5 h-4.5" />
-                    <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-400 ring-2 ring-[#0b1222] animate-pulse" />
+                  <div className="w-9 h-9 rounded-full bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center text-emerald-400 group-hover:scale-105 transition-transform shrink-0">
+                    <Mic className="w-4.5 h-4.5" />
                   </div>
-                  <div>
-                    <span className="text-sm sm:text-[15px] font-medium text-white group-hover:text-indigo-300 transition-colors block">
-                      {currentLang === 'bn' ? 'দৈনিক জনসভা ও প্রশ্নোত্তর' : 'Daily Town Hall'}
-                    </span>
-                    <span className="text-[11px] text-slate-400">
-                      {currentLang === 'bn' ? 'লাইভ মিটিং ও দিকনির্দেশনা' : 'Daily Community Assembly & Q&A'}
-                    </span>
-                  </div>
+                  <span className={`text-[15px] font-semibold tracking-tight transition-colors ${
+                    themeMode === 'day' ? 'text-slate-800 group-hover:text-emerald-600' : 'text-slate-100 group-hover:text-emerald-300'
+                  }`}>
+                    {currentLang === 'bn' ? 'দৈনিক টাউন হল' : 'Daily Town Hall'}
+                  </span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">
-                    <Radio className="w-2.5 h-2.5 text-indigo-400 animate-pulse" />
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                    <Clock className="w-3 h-3 text-emerald-400" />
                     <span>8:30 PM</span>
                   </span>
-                  <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-white transition-colors" />
+                  <ChevronRight className={`w-4.5 h-4.5 transition-colors ${
+                    themeMode === 'day' ? 'text-slate-400 group-hover:text-slate-700' : 'text-slate-500 group-hover:text-emerald-300'
+                  }`} />
                 </div>
               </button>
 
-              {/* Row 5: Payment Methods (Add Wallet) */}
+              {/* 5. Payment Methods (Add Wallet) */}
               <button
                 id="profile-payment-methods-btn"
                 type="button"
                 onClick={() => setActiveSubModal('payment')}
-                className="w-full px-5 py-3.5 sm:py-4 flex items-center justify-between hover:bg-slate-800/30 transition-colors cursor-pointer text-left group"
+                className={`w-full px-4 sm:px-5 py-3.5 flex items-center justify-between transition-colors cursor-pointer text-left group ${
+                  themeMode === 'day' ? 'hover:bg-slate-50' : 'hover:bg-emerald-500/10'
+                }`}
               >
                 <div className="flex items-center gap-3.5">
-                  <div className="w-9 h-9 rounded-full bg-cyan-600/15 border border-cyan-500/20 flex items-center justify-center text-cyan-400 group-hover:bg-cyan-600/25 transition-colors">
+                  <div className="w-9 h-9 rounded-full bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center text-emerald-400 group-hover:scale-105 transition-transform shrink-0">
                     <CreditCard className="w-4.5 h-4.5" />
                   </div>
-                  <div>
-                    <span className="text-sm sm:text-[15px] font-medium text-white group-hover:text-cyan-300 transition-colors block">
-                      {currentLang === 'bn' ? 'পেমেন্ট মেথড (Add Wallet)' : 'Payment Methods (Add Wallet)'}
-                    </span>
-                    <span className="text-[11px] text-slate-400">
-                      {currentLang === 'bn' ? 'বিকাশ, নগদ ও ব্যাংক কার্ড' : 'bKash, Nagad & Bank Wallets'}
-                    </span>
-                  </div>
+                  <span className={`text-[15px] font-semibold tracking-tight transition-colors ${
+                    themeMode === 'day' ? 'text-slate-800 group-hover:text-emerald-600' : 'text-slate-100 group-hover:text-emerald-300'
+                  }`}>
+                    {currentLang === 'bn' ? 'পেমেন্ট মেথড (Add Wallet)' : 'Payment Methods (Add Wallet)'}
+                  </span>
                 </div>
-                <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-white transition-colors" />
+                <ChevronRight className={`w-4.5 h-4.5 transition-colors ${
+                  themeMode === 'day' ? 'text-slate-400 group-hover:text-slate-700' : 'text-slate-500 group-hover:text-emerald-300'
+                }`} />
               </button>
 
-              {/* Row 6: Notification Settings */}
+              {/* 6. Notification Settings */}
               <button
                 type="button"
                 onClick={() => setActiveSubModal('notifications')}
-                className="w-full px-5 py-3.5 sm:py-4 flex items-center justify-between hover:bg-slate-800/30 transition-colors cursor-pointer text-left group"
+                className={`w-full px-4 sm:px-5 py-3.5 flex items-center justify-between transition-colors cursor-pointer text-left group ${
+                  themeMode === 'day' ? 'hover:bg-slate-50' : 'hover:bg-emerald-500/10'
+                }`}
               >
                 <div className="flex items-center gap-3.5">
-                  <div className="w-9 h-9 rounded-full bg-blue-600/15 border border-blue-500/20 flex items-center justify-center text-blue-400 group-hover:bg-blue-600/25 transition-colors">
+                  <div className="w-9 h-9 rounded-full bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center text-emerald-400 group-hover:scale-105 transition-transform shrink-0">
                     <Bell className="w-4.5 h-4.5" />
                   </div>
-                  <span className="text-sm sm:text-[15px] font-medium text-white group-hover:text-blue-300 transition-colors">
+                  <span className={`text-[15px] font-semibold tracking-tight transition-colors ${
+                    themeMode === 'day' ? 'text-slate-800 group-hover:text-emerald-600' : 'text-slate-100 group-hover:text-emerald-300'
+                  }`}>
                     {currentLang === 'bn' ? 'নোটিফিকেশন সেটিংস' : 'Notification Settings'}
                   </span>
                 </div>
-                <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-white transition-colors" />
+                <ChevronRight className={`w-4.5 h-4.5 transition-colors ${
+                  themeMode === 'day' ? 'text-slate-400 group-hover:text-slate-700' : 'text-slate-500 group-hover:text-emerald-300'
+                }`} />
               </button>
 
-              {/* Row 7: Mobile App APK */}
+              {/* 7. Official Mobile App (APK) */}
               <button
                 id="profile-app-download-button"
                 type="button"
                 onClick={handleAppDownloadClick}
-                className="w-full px-5 py-3.5 sm:py-4 flex items-center justify-between hover:bg-slate-800/30 transition-colors cursor-pointer text-left group"
+                className={`w-full px-4 sm:px-5 py-3.5 flex items-center justify-between transition-colors cursor-pointer text-left group ${
+                  themeMode === 'day' ? 'hover:bg-slate-50' : 'hover:bg-emerald-500/10'
+                }`}
               >
                 <div className="flex items-center gap-3.5">
-                  <div className="w-9 h-9 rounded-full bg-blue-600/15 border border-blue-500/20 flex items-center justify-center text-blue-400 group-hover:bg-blue-600/25 transition-colors">
-                    <Package className="w-4.5 h-4.5" />
+                  <div className="w-9 h-9 rounded-full bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center text-emerald-400 group-hover:scale-105 transition-transform shrink-0">
+                    <Smartphone className="w-4.5 h-4.5" />
                   </div>
-                  <span className="text-sm sm:text-[15px] font-medium text-white group-hover:text-blue-300 transition-colors">
-                    {currentLang === 'bn' ? 'মোবাইল অ্যাপ ডাউনলোড (এপিকে)' : 'Official Mobile App (APK)'}
+                  <span className={`text-[15px] font-semibold tracking-tight transition-colors ${
+                    themeMode === 'day' ? 'text-slate-800 group-hover:text-emerald-600' : 'text-slate-100 group-hover:text-emerald-300'
+                  }`}>
+                    {currentLang === 'bn' ? 'অফিসিয়াল মোবাইল অ্যাপ (APK)' : 'Official Mobile App (APK)'}
                   </span>
                 </div>
-                <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-white transition-colors" />
+                <ChevronRight className={`w-4.5 h-4.5 transition-colors ${
+                  themeMode === 'day' ? 'text-slate-400 group-hover:text-slate-700' : 'text-slate-500 group-hover:text-emerald-300'
+                }`} />
               </button>
 
-              {/* Row 8: Company Profile & Grid Operations */}
+              {/* 8. Company Profile & Architecture */}
               <button
                 id="profile-company-profile-btn"
                 type="button"
                 onClick={() => setActiveSubModal('companyInfo')}
-                className="w-full px-5 py-3.5 sm:py-4 flex items-center justify-between hover:bg-slate-800/30 transition-colors cursor-pointer text-left group"
+                className={`w-full px-4 sm:px-5 py-3.5 flex items-center justify-between transition-colors cursor-pointer text-left group ${
+                  themeMode === 'day' ? 'hover:bg-slate-50' : 'hover:bg-emerald-500/10'
+                }`}
               >
                 <div className="flex items-center gap-3.5">
-                  <div className="w-9 h-9 rounded-full bg-cyan-600/15 border border-cyan-500/20 flex items-center justify-center text-cyan-400 group-hover:bg-cyan-600/25 transition-colors">
+                  <div className="w-9 h-9 rounded-full bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center text-emerald-400 group-hover:scale-105 transition-transform shrink-0">
                     <Building2 className="w-4.5 h-4.5" />
                   </div>
-                  <div>
-                    <span className="text-sm sm:text-[15px] font-medium text-white group-hover:text-cyan-300 transition-colors block">
-                      {currentLang === 'bn' ? 'কোম্পানি প্রোফাইল (Company Profile)' : 'Company Profile & Architecture'}
-                    </span>
-                    <span className="text-[11px] text-slate-400">
-                      {currentLang === 'bn' ? 'কোম্পানি পরিচিতি, ৭-ধাপের গ্রিড প্রসেস ও ভিডিও' : 'Company Overview, 7-Step Operations & Video'}
-                    </span>
-                  </div>
+                  <span className={`text-[15px] font-semibold tracking-tight transition-colors ${
+                    themeMode === 'day' ? 'text-slate-800 group-hover:text-emerald-600' : 'text-slate-100 group-hover:text-emerald-300'
+                  }`}>
+                    {currentLang === 'bn' ? 'কোম্পানি প্রোফাইল ও আর্কিটেকচার' : 'Company Profile & Architecture'}
+                  </span>
                 </div>
-                <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-cyan-300 transition-colors" />
+                <ChevronRight className={`w-4.5 h-4.5 transition-colors ${
+                  themeMode === 'day' ? 'text-slate-400 group-hover:text-slate-700' : 'text-slate-500 group-hover:text-emerald-300'
+                }`} />
               </button>
 
-              {/* Row 9: Company Licences & Approvals */}
+              {/* 9. Official Licences & Certifications */}
               <button
                 id="profile-licenses-btn"
                 type="button"
                 onClick={() => setActiveSubModal('licenses')}
-                className="w-full px-5 py-3.5 sm:py-4 flex items-center justify-between hover:bg-slate-800/30 transition-colors cursor-pointer text-left group"
+                className={`w-full px-4 sm:px-5 py-3.5 flex items-center justify-between transition-colors cursor-pointer text-left group ${
+                  themeMode === 'day' ? 'hover:bg-slate-50' : 'hover:bg-emerald-500/10'
+                }`}
               >
                 <div className="flex items-center gap-3.5">
-                  <div className="w-9 h-9 rounded-full bg-amber-500/15 border border-amber-500/20 flex items-center justify-center text-amber-400 group-hover:bg-amber-500/25 transition-colors">
+                  <div className="w-9 h-9 rounded-full bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center text-emerald-400 group-hover:scale-105 transition-transform shrink-0">
                     <Award className="w-4.5 h-4.5" />
                   </div>
-                  <div>
-                    <span className="text-sm sm:text-[15px] font-medium text-white group-hover:text-amber-300 transition-colors block">
-                      {currentLang === 'bn' ? 'কোম্পানি লাইসেন্স ও সনদপত্র' : 'Official Licences & Certifications'}
-                    </span>
-                    <span className="text-[11px] text-slate-400">
-                      {currentLang === 'bn' ? 'বিইআরসি ও আইএসও যাচাইকৃত অনুমোদন' : 'BERC, ISO 50001 & Regulatory Approvals'}
-                    </span>
-                  </div>
+                  <span className={`text-[15px] font-semibold tracking-tight transition-colors ${
+                    themeMode === 'day' ? 'text-slate-800 group-hover:text-emerald-600' : 'text-slate-100 group-hover:text-emerald-300'
+                  }`}>
+                    {currentLang === 'bn' ? 'অফিসিয়াল লাইসেন্স ও সনদপত্র' : 'Official Licences & Certifications'}
+                  </span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
-                    <CheckCircle2 className="w-2.5 h-2.5" />
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/35">
+                    <CheckCircle2 className="w-3 h-3 text-emerald-400" />
                     <span>{currentLang === 'bn' ? 'অনুমোদিত' : 'Verified'}</span>
                   </span>
-                  <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-white transition-colors" />
+                  <ChevronRight className={`w-4.5 h-4.5 transition-colors ${
+                    themeMode === 'day' ? 'text-slate-400 group-hover:text-slate-700' : 'text-slate-500 group-hover:text-emerald-300'
+                  }`} />
                 </div>
               </button>
 
-              {/* Row 10: 24/7 Corporate Helpline & Customer Support */}
+              {/* 10. 24/7 Priority Support & Helpline */}
               <button
                 id="profile-helpline-btn"
                 type="button"
                 onClick={() => setActiveSubModal('helpline')}
-                className="w-full px-5 py-3.5 sm:py-4 flex items-center justify-between hover:bg-slate-800/30 transition-colors cursor-pointer text-left group"
+                className={`w-full px-4 sm:px-5 py-3.5 flex items-center justify-between transition-colors cursor-pointer text-left group ${
+                  themeMode === 'day' ? 'hover:bg-slate-50' : 'hover:bg-emerald-500/10'
+                }`}
               >
                 <div className="flex items-center gap-3.5">
-                  <div className="w-9 h-9 rounded-full bg-cyan-500/15 border border-cyan-500/20 flex items-center justify-center text-cyan-400 group-hover:bg-cyan-500/25 transition-colors">
+                  <div className="w-9 h-9 rounded-full bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center text-emerald-400 group-hover:scale-105 transition-transform shrink-0">
                     <Headphones className="w-4.5 h-4.5" />
                   </div>
-                  <div>
-                    <span className="text-sm sm:text-[15px] font-medium text-white group-hover:text-cyan-300 transition-colors block">
-                      {currentLang === 'bn' ? '২৪/৭ হেল্পলাইন ও সাপোর্ট' : '24/7 Priority Support & Helpline'}
-                    </span>
-                    <span className="text-[11px] text-slate-400">
-                      {currentLang === 'bn' ? 'হটলাইন: ০৯৬১২-০০১১২২ ও ইমেইল' : 'Hotline: 09612-001122 & Email Desk'}
-                    </span>
-                  </div>
+                  <span className={`text-[15px] font-semibold tracking-tight transition-colors ${
+                    themeMode === 'day' ? 'text-slate-800 group-hover:text-emerald-600' : 'text-slate-100 group-hover:text-emerald-300'
+                  }`}>
+                    {currentLang === 'bn' ? '২৪/৭ সাপোর্ট ও হেল্পলাইন' : '24/7 Priority Support & Helpline'}
+                  </span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-cyan-500/15 text-cyan-400 border border-cyan-500/30">
-                    Live
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/35">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block animate-pulse" />
+                    <span>Live</span>
                   </span>
-                  <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-white transition-colors" />
+                  <ChevronRight className={`w-4.5 h-4.5 transition-colors ${
+                    themeMode === 'day' ? 'text-slate-400 group-hover:text-slate-700' : 'text-slate-500 group-hover:text-emerald-300'
+                  }`} />
                 </div>
               </button>
 
-              {/* Row 11: Logout */}
+              {/* 11. Logout */}
               <button
                 type="button"
                 onClick={() => setShowLogoutConfirm(true)}
-                className="w-full px-5 py-4 flex items-center justify-between hover:bg-rose-500/10 transition-colors cursor-pointer text-left group"
+                className={`w-full px-4 sm:px-5 py-3.5 flex items-center justify-between transition-colors cursor-pointer text-left group ${
+                  themeMode === 'day' ? 'hover:bg-rose-50' : 'hover:bg-rose-500/10'
+                }`}
               >
                 <div className="flex items-center gap-3.5">
-                  <div className="w-9 h-9 rounded-full bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400 group-hover:bg-rose-500/20 transition-colors">
+                  <div className="w-9 h-9 rounded-full bg-rose-500/15 border border-rose-500/25 flex items-center justify-center text-rose-400 group-hover:scale-105 transition-transform shrink-0">
                     <LogOut className="w-4.5 h-4.5" />
                   </div>
-                  <span className="text-sm sm:text-[15px] font-medium text-rose-400 group-hover:text-rose-300 transition-colors">
-                    {currentLang === 'bn' ? 'লগআউট করুন' : 'Logout'}
+                  <span className="text-[15px] font-semibold text-rose-400 group-hover:text-rose-300 transition-colors">
+                    {currentLang === 'bn' ? 'লগআউট' : 'Logout'}
                   </span>
                 </div>
-                <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-rose-400 transition-colors" />
+                <ChevronRight className={`w-4.5 h-4.5 transition-colors ${
+                  themeMode === 'day' ? 'text-slate-400 group-hover:text-rose-500' : 'text-slate-500 group-hover:text-rose-400'
+                }`} />
               </button>
             </div>
 
+            {/* Theme Toggle Strip (Day / Night Switch) */}
+            <div className="mt-3 flex items-center justify-center">
+              <div className={`inline-flex items-center p-1 rounded-full border shadow-xs ${
+                themeMode === 'day' ? 'bg-white border-slate-200' : 'bg-[#062c22]/90 border-emerald-500/25'
+              }`}>
+                <button
+                  type="button"
+                  onClick={() => handleToggleTheme('day')}
+                  className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold transition-all cursor-pointer ${
+                    themeMode === 'day'
+                      ? 'bg-slate-900 text-white font-bold shadow-xs'
+                      : 'text-slate-300 hover:text-white'
+                  }`}
+                >
+                  <Sun className="w-3.5 h-3.5 text-amber-400" />
+                  <span>{currentLang === 'bn' ? 'ডে মোড' : 'Day Mode'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleToggleTheme('night')}
+                  className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold transition-all cursor-pointer ${
+                    themeMode === 'night'
+                      ? 'bg-emerald-500 text-slate-950 font-bold shadow-xs'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <Moon className="w-3.5 h-3.5 text-slate-950" />
+                  <span>{currentLang === 'bn' ? 'নাইট মোড' : 'Night Mode'}</span>
+                </button>
+              </div>
+            </div>
+
             {/* Official App Footer & Compliance Badges (Eliminates Empty Space) */}
-            <div className="mt-4 mb-2 p-4 rounded-2xl bg-[#0b1222]/80 border border-slate-800/80 text-center space-y-2.5">
-              <div className="flex items-center justify-center gap-2 flex-wrap text-[11px] text-slate-400">
-                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                  <ShieldCheck className="w-3 h-3 text-emerald-400" />
+            <div className={`mt-4 mb-2 p-4 rounded-2xl border text-center space-y-2.5 transition-colors duration-200 ${
+              themeMode === 'day'
+                ? 'bg-white border-slate-200/90 shadow-sm text-slate-600'
+                : 'bg-[#0b1222]/80 border-slate-800/80 text-slate-400'
+            }`}>
+              <div className="flex items-center justify-center gap-2 flex-wrap text-[11px]">
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">
+                  <ShieldCheck className="w-3 h-3 text-emerald-500" />
                   {currentLang === 'bn' ? 'বিইআরসি লাইসেন্সপ্রাপ্ত' : 'BERC Regulated'}
                 </span>
-                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                  <CheckCircle2 className="w-3 h-3 text-blue-400" />
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-blue-500/10 text-blue-500 border border-blue-500/20">
+                  <CheckCircle2 className="w-3 h-3 text-blue-500" />
                   ISO 50001
                 </span>
-                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/20">
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-purple-500/10 text-purple-500 border border-purple-500/20">
                   256-Bit SSL
                 </span>
               </div>
-              <div className="text-[11px] text-slate-400/90 leading-tight">
-                <p className="font-semibold text-slate-300">NVT • Nova Terra Energy Grid Platform BD</p>
-                <p className="text-[10px] text-slate-400 font-mono mt-0.5">
+              <div className="text-[11px] leading-tight">
+                <p className={`font-semibold ${themeMode === 'day' ? 'text-slate-800' : 'text-slate-300'}`}>
+                  NVT • Nova Terra Energy Grid Platform BD
+                </p>
+                <p className={`text-[10px] font-mono mt-0.5 ${themeMode === 'day' ? 'text-slate-500' : 'text-slate-400'}`}>
                   App Version 2.4.2 (Official Release)
                 </p>
-                <p className="text-[10px] text-slate-400 mt-1">
+                <p className={`text-[10px] mt-1 ${themeMode === 'day' ? 'text-slate-500' : 'text-slate-400'}`}>
                   © 2026 Nova Terra Energy (NVT) BD Ltd. {currentLang === 'bn' ? 'সর্বস্বত্ব সংরক্ষিত।' : 'All rights reserved.'}
                 </p>
               </div>
@@ -1736,7 +2110,11 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       </div>
 
       {/* 4. Bottom Navigation Bar (Mobile View only, hidden on desktop) */}
-      <div className="md:hidden fixed bottom-0 left-0 right-0 z-40 max-w-md mx-auto bg-[#050811]/95 backdrop-blur-lg border-t border-slate-800/80">
+      <div className={`md:hidden fixed bottom-0 left-0 right-0 z-40 max-w-md mx-auto backdrop-blur-lg border-t transition-colors duration-200 ${
+        themeMode === 'day'
+          ? 'bg-white/95 border-slate-200/90 shadow-[0_-4px_20px_-4px_rgba(0,0,0,0.06)]'
+          : 'bg-[#001228]/95 border-slate-800/80'
+      }`}>
         <nav
           id="bottom-navbar"
           className="w-full px-2 py-2 flex items-center justify-around"
@@ -1747,14 +2125,26 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             onClick={() => switchTab('home')}
             className={`relative flex flex-col items-center py-1 px-3 rounded-2xl transition-all cursor-pointer active:scale-95 ${
               currentTab === 'home'
-                ? 'text-cyan-400 font-extrabold bg-cyan-500/10'
+                ? themeMode === 'day'
+                  ? 'text-emerald-600 font-extrabold bg-emerald-50'
+                  : 'text-[#00e676] font-extrabold bg-[#00e676]/10'
+                : themeMode === 'day'
+                ? 'text-slate-500 hover:text-slate-900 font-medium'
                 : 'text-slate-400 hover:text-slate-200 font-medium'
             }`}
           >
-            <Home className={`w-5 h-5 ${currentTab === 'home' ? 'text-cyan-400 drop-shadow-[0_0_8px_rgba(6,182,212,0.5)]' : 'text-slate-400'}`} />
+            <Home className={`w-5 h-5 ${
+              currentTab === 'home'
+                ? themeMode === 'day'
+                  ? 'text-emerald-600'
+                  : 'text-[#00e676] drop-shadow-[0_0_8px_rgba(0,230,118,0.5)]'
+                : themeMode === 'day' ? 'text-slate-500' : 'text-slate-400'
+            }`} />
             <span className="text-[11px] mt-0.5">{currentLang === 'bn' ? 'হোম' : 'Home'}</span>
             {currentTab === 'home' && (
-              <span className="absolute -bottom-1 w-5 h-1 bg-cyan-400 rounded-full shadow-[0_0_8px_#06b6d4]" />
+              <span className={`absolute -bottom-1 w-5 h-1 rounded-full ${
+                themeMode === 'day' ? 'bg-emerald-600' : 'bg-[#00e676] shadow-[0_0_8px_#00e676]'
+              }`} />
             )}
           </button>
 
@@ -1764,49 +2154,85 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             onClick={() => switchTab('invest')}
             className={`relative flex flex-col items-center py-1 px-3 rounded-2xl transition-all cursor-pointer active:scale-95 ${
               currentTab === 'invest'
-                ? 'text-cyan-400 font-extrabold bg-cyan-500/10'
+                ? themeMode === 'day'
+                  ? 'text-emerald-600 font-extrabold bg-emerald-50'
+                  : 'text-[#00e676] font-extrabold bg-[#00e676]/10'
+                : themeMode === 'day'
+                ? 'text-slate-500 hover:text-slate-900 font-medium'
                 : 'text-slate-400 hover:text-slate-200 font-medium'
             }`}
           >
-            <TrendingUp className={`w-5 h-5 ${currentTab === 'invest' ? 'text-cyan-400 drop-shadow-[0_0_8px_rgba(6,182,212,0.5)]' : 'text-slate-400'}`} />
+            <TrendingUp className={`w-5 h-5 ${
+              currentTab === 'invest'
+                ? themeMode === 'day'
+                  ? 'text-emerald-600'
+                  : 'text-[#00e676] drop-shadow-[0_0_8px_rgba(0,230,118,0.5)]'
+                : themeMode === 'day' ? 'text-slate-500' : 'text-slate-400'
+            }`} />
             <span className="text-[11px] mt-0.5">{currentLang === 'bn' ? 'ইনভেস্ট' : 'Invest'}</span>
             {currentTab === 'invest' && (
-              <span className="absolute -bottom-1 w-5 h-1 bg-cyan-400 rounded-full shadow-[0_0_8px_#06b6d4]" />
+              <span className={`absolute -bottom-1 w-5 h-1 rounded-full ${
+                themeMode === 'day' ? 'bg-emerald-600' : 'bg-[#00e676] shadow-[0_0_8px_#00e676]'
+              }`} />
             )}
           </button>
 
-          {/* Transactions */}
+          {/* History (Clock icon matching screenshot) */}
           <button
             type="button"
             onClick={() => switchTab('transactions')}
             className={`relative flex flex-col items-center py-1 px-3 rounded-2xl transition-all cursor-pointer active:scale-95 ${
               currentTab === 'transactions'
-                ? 'text-cyan-400 font-extrabold bg-cyan-500/10'
+                ? themeMode === 'day'
+                  ? 'text-emerald-600 font-extrabold bg-emerald-50'
+                  : 'text-[#00e676] font-extrabold bg-[#00e676]/10'
+                : themeMode === 'day'
+                ? 'text-slate-500 hover:text-slate-900 font-medium'
                 : 'text-slate-400 hover:text-slate-200 font-medium'
             }`}
           >
-            <ArrowLeftRight className={`w-5 h-5 ${currentTab === 'transactions' ? 'text-cyan-400 drop-shadow-[0_0_8px_rgba(6,182,212,0.5)]' : 'text-slate-400'}`} />
-            <span className="text-[11px] mt-0.5">{currentLang === 'bn' ? 'লেনদেন' : 'History'}</span>
+            <Clock className={`w-5 h-5 ${
+              currentTab === 'transactions'
+                ? themeMode === 'day'
+                  ? 'text-emerald-600'
+                  : 'text-[#00e676] drop-shadow-[0_0_8px_rgba(0,230,118,0.5)]'
+                : themeMode === 'day' ? 'text-slate-500' : 'text-slate-400'
+            }`} />
+            <span className="text-[11px] mt-0.5">{currentLang === 'bn' ? 'হিস্ট্রি' : 'History'}</span>
             {currentTab === 'transactions' && (
-              <span className="absolute -bottom-1 w-5 h-1 bg-cyan-400 rounded-full shadow-[0_0_8px_#06b6d4]" />
+              <span className={`absolute -bottom-1 w-5 h-1 rounded-full ${
+                themeMode === 'day' ? 'bg-emerald-600' : 'bg-[#00e676] shadow-[0_0_8px_#00e676]'
+              }`} />
             )}
           </button>
 
-          {/* Promo Bonus (Hosting Level & Wallet) */}
+          {/* Promo Bonus (Gift icon matching screenshot) */}
           <button
             id="bottom-nav-promo-bonus-btn"
             type="button"
             onClick={() => switchTab('wallet')}
             className={`relative flex flex-col items-center py-1 px-3 rounded-2xl transition-all cursor-pointer active:scale-95 ${
               currentTab === 'wallet'
-                ? 'text-[#FFB300] font-extrabold bg-[#FFB300]/10'
+                ? themeMode === 'day'
+                  ? 'text-emerald-600 font-extrabold bg-emerald-50'
+                  : 'text-[#00e676] font-extrabold bg-[#00e676]/10'
+                : themeMode === 'day'
+                ? 'text-slate-500 hover:text-slate-900 font-medium'
                 : 'text-slate-400 hover:text-slate-200 font-medium'
             }`}
           >
-            <Award className={`w-5 h-5 ${currentTab === 'wallet' ? 'text-[#FFB300] drop-shadow-[0_0_8px_rgba(255,179,0,0.5)]' : 'text-slate-400'}`} />
+            <Gift className={`w-5 h-5 ${
+              currentTab === 'wallet'
+                ? themeMode === 'day'
+                  ? 'text-emerald-600'
+                  : 'text-[#00e676] drop-shadow-[0_0_8px_rgba(0,230,118,0.5)]'
+                : themeMode === 'day' ? 'text-slate-500' : 'text-slate-400'
+            }`} />
             <span className="text-[11px] mt-0.5">{currentLang === 'bn' ? 'প্রমো বোনাস' : 'Promo Bonus'}</span>
             {currentTab === 'wallet' && (
-              <span className="absolute -bottom-1 w-5 h-1 bg-[#FFB300] rounded-full shadow-[0_0_8px_#FFB300]" />
+              <span className={`absolute -bottom-1 w-5 h-1 rounded-full ${
+                themeMode === 'day' ? 'bg-emerald-600' : 'bg-[#00e676] shadow-[0_0_8px_#00e676]'
+              }`} />
             )}
           </button>
 
@@ -1816,14 +2242,26 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             onClick={() => switchTab('profile')}
             className={`relative flex flex-col items-center py-1 px-3 rounded-2xl transition-all cursor-pointer active:scale-95 ${
               currentTab === 'profile'
-                ? 'text-cyan-400 font-extrabold bg-cyan-500/10'
+                ? themeMode === 'day'
+                  ? 'text-emerald-600 font-extrabold bg-emerald-50'
+                  : 'text-[#00e676] font-extrabold bg-[#00e676]/10'
+                : themeMode === 'day'
+                ? 'text-slate-500 hover:text-slate-900 font-medium'
                 : 'text-slate-400 hover:text-slate-200 font-medium'
             }`}
           >
-            <User className={`w-5 h-5 ${currentTab === 'profile' ? 'text-cyan-400 drop-shadow-[0_0_8px_rgba(6,182,212,0.5)]' : 'text-slate-400'}`} />
+            <User className={`w-5 h-5 ${
+              currentTab === 'profile'
+                ? themeMode === 'day'
+                  ? 'text-emerald-600'
+                  : 'text-[#00e676] drop-shadow-[0_0_8px_rgba(0,230,118,0.5)]'
+                : themeMode === 'day' ? 'text-slate-500' : 'text-slate-400'
+            }`} />
             <span className="text-[11px] mt-0.5">{currentLang === 'bn' ? 'প্রোফাইল' : 'Profile'}</span>
             {currentTab === 'profile' && (
-              <span className="absolute -bottom-1 w-5 h-1 bg-cyan-400 rounded-full shadow-[0_0_8px_#06b6d4]" />
+              <span className={`absolute -bottom-1 w-5 h-1 rounded-full ${
+                themeMode === 'day' ? 'bg-emerald-600' : 'bg-[#00e676] shadow-[0_0_8px_#00e676]'
+              }`} />
             )}
           </button>
         </nav>

@@ -7,6 +7,7 @@ import { Award, Wallet as WalletIcon } from 'lucide-react';
 interface WalletTabContentProps {
   userBalance: number;
   currentLang?: Language;
+  themeMode?: 'night' | 'day';
   onOpenRecharge?: () => void;
   onOpenWithdraw?: () => void;
   onOpenBankBinding?: () => void;
@@ -21,6 +22,7 @@ interface WalletTabContentProps {
 export const WalletTabContent: React.FC<WalletTabContentProps> = ({
   userBalance,
   currentLang = 'bn',
+  themeMode = 'night',
   onOpenRecharge,
   onOpenWithdraw,
   onOpenGateway,
@@ -39,6 +41,7 @@ export const WalletTabContent: React.FC<WalletTabContentProps> = ({
       {subView === 'promo' && (
         <PromoBonusScreen
           currentLang={currentLang}
+          themeMode={themeMode}
           onBack={onBack}
           onClaimReward={(amount, level) => {
             if (onClaimPromoReward) {
@@ -55,6 +58,7 @@ export const WalletTabContent: React.FC<WalletTabContentProps> = ({
         <CleanWalletScreen
           currentBalance={userBalance}
           currentLang={currentLang}
+          themeMode={themeMode}
           initialTab="recharge"
           onBack={() => setSubView('promo')}
           onOpenHistory={onOpenHistory}

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getFirestore, collection, getDocs, doc, updateDoc, setDoc, getDoc, query, orderBy, increment } from "firebase/firestore";
+import { PackageManager } from "./components/PackageManager";
 
 const firebaseConfig = {
   authDomain: "novavest-a711c.firebaseapp.com",
@@ -20,7 +21,7 @@ export default function AdminPanel() {
   const [passwordInput, setPasswordInput] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
 
-  // অ্যাক্টিভ ট্যাব স্টেট ('deposits' | 'withdrawals' | 'balance' | 'support' | 'users')
+  // অ্যাক্টিভ ট্যাব স্টেট ('deposits' | 'withdrawals' | 'balance' | 'support' | 'users' | 'packages')
   const [activeTab, setActiveTab] = useState("deposits");
 
   const [users, setUsers] = useState([]);
@@ -231,6 +232,7 @@ export default function AdminPanel() {
         <button onClick={() => setActiveTab("balance")} style={{ padding: "10px 18px", borderRadius: "6px", border: "none", cursor: "pointer", fontWeight: "bold", background: activeTab === "balance" ? "#00d2ff" : "#161d2f", color: activeTab === "balance" ? "#000" : "#fff" }}>💰 ব্যালেন্স কন্ট্রোল</button>
         <button onClick={() => setActiveTab("support")} style={{ padding: "10px 18px", borderRadius: "6px", border: "none", cursor: "pointer", fontWeight: "bold", background: activeTab === "support" ? "#00d2ff" : "#161d2f", color: activeTab === "support" ? "#000" : "#fff" }}>📢 সাপোর্ট লিংক</button>
         <button onClick={() => setActiveTab("users")} style={{ padding: "10px 18px", borderRadius: "6px", border: "none", cursor: "pointer", fontWeight: "bold", background: activeTab === "users" ? "#00d2ff" : "#161d2f", color: activeTab === "users" ? "#000" : "#fff" }}>👥 ইউজার ও নেটওয়ার্ক</button>
+        <button onClick={() => setActiveTab("packages")} style={{ padding: "10px 18px", borderRadius: "6px", border: "none", cursor: "pointer", fontWeight: "bold", background: activeTab === "packages" ? "#00d2ff" : "#161d2f", color: activeTab === "packages" ? "#000" : "#fff" }}>📦 প্যাকেজ কন্ট্রোল</button>
       </div>
 
       {/* Tab Content Area */}
@@ -396,6 +398,13 @@ export default function AdminPanel() {
                 ))}
               </ul>
             )}
+          </div>
+        )}
+
+        {/* ৬. প্যাকেজ কন্ট্রোল ট্যাব */}
+        {activeTab === "packages" && (
+          <div>
+            <PackageManager />
           </div>
         )}
 

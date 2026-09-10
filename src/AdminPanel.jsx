@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getFirestore, collection, getDocs, doc, updateDoc, setDoc, getDoc, query, orderBy, increment } from "firebase/firestore";
-import { PackageManager } from "./components/PackageManager";
+import { updateFirestoreDepositStatus } from "./lib/firebase";
 
 const firebaseConfig = {
   authDomain: "novavest-a711c.firebaseapp.com",
@@ -21,7 +21,7 @@ export default function AdminPanel() {
   const [passwordInput, setPasswordInput] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
 
-  // অ্যাক্টিভ ট্যাব স্টেট ('deposits' | 'withdrawals' | 'balance' | 'support' | 'users' | 'packages')
+  // অ্যাক্টিভ ট্যাব স্টেট ('deposits' | 'withdrawals' | 'balance' | 'support' | 'users')
   const [activeTab, setActiveTab] = useState("deposits");
 
   const [users, setUsers] = useState([]);
@@ -145,22 +145,58 @@ export default function AdminPanel() {
     }
   };
 
-  const handleDepositAction = async (depositId, userId, amount, action) => {
+  const handleDepositAction = async (depositId, userId, amount, action, trxId) => {
     try {
       const depositRef = doc(db, "deposits", depositId);
-      if (action === "approve") {
-        await updateDoc(depositRef, { status: "Approved" });
-        if (userId) {
-          const userRef = doc(db, "users", userId);
-          await updateDoc(userRef, {
-            walletBalance: increment(Number(amount)),
-            balance: increment(Number(amount))
+      const isApprove = action === "approve";
+      const newStatus = isApprove ? "Approved" : "Rejected";
+
+      await updateDoc(depositRef, {
+        status: newStatus,
+        updatedAt: new Date().toISOString(),
+      });
+
+      // Synchronize with user's transactions and balance in Firestore
+      if (userId) {
+        await updateFirestoreDepositStatus(
+          userId,
+          trxId || depositId,
+          isApprove ? "completed" : "cancelled",
+          Number(amount)
+        );
+      }
+
+      // Also notify backend server so any live polling updates instantly
+      try {
+        if (isApprove) {
+          await fetch('/api/payments/gateway-callback', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              orderNo: depositId,
+              trxId: trxId || depositId,
+              amount: Number(amount),
+              status: 'COMPLETED',
+            }),
+          });
+        } else {
+          await fetch('/api/payments/cancel-order', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              orderNo: depositId,
+              trxId: trxId || depositId,
+            }),
           });
         }
-        setStatusMsg("✅ ডিপোজিট সফলভাবে অ্যাপ্রুভ করা হয়েছে এবং ব্যালেন্স যোগ হয়েছে!");
+      } catch (srvErr) {
+        console.warn('Server sync notice:', srvErr);
+      }
+
+      if (isApprove) {
+        setStatusMsg("✅ ডিপোজিট সফলভাবে অনুমোদন (Approve) করা হয়েছে এবং ইউজারের একাউন্টে ব্যালেন্স যোগ হয়েছে!");
       } else {
-        await updateDoc(depositRef, { status: "Rejected" });
-        setStatusMsg("❌ ডিপোজিট রিজেক্ট করা হয়েছে।");
+        setStatusMsg("❌ ভুয়া/ভুল ডিপোজিট বাতিল (Reject) করা হয়েছে এবং ট্রানজেকশনে 'বাতিল' স্ট্যাটাস সেট হয়েছে।");
       }
       fetchAllData();
     } catch (error) {
@@ -232,7 +268,6 @@ export default function AdminPanel() {
         <button onClick={() => setActiveTab("balance")} style={{ padding: "10px 18px", borderRadius: "6px", border: "none", cursor: "pointer", fontWeight: "bold", background: activeTab === "balance" ? "#00d2ff" : "#161d2f", color: activeTab === "balance" ? "#000" : "#fff" }}>💰 ব্যালেন্স কন্ট্রোল</button>
         <button onClick={() => setActiveTab("support")} style={{ padding: "10px 18px", borderRadius: "6px", border: "none", cursor: "pointer", fontWeight: "bold", background: activeTab === "support" ? "#00d2ff" : "#161d2f", color: activeTab === "support" ? "#000" : "#fff" }}>📢 সাপোর্ট লিংক</button>
         <button onClick={() => setActiveTab("users")} style={{ padding: "10px 18px", borderRadius: "6px", border: "none", cursor: "pointer", fontWeight: "bold", background: activeTab === "users" ? "#00d2ff" : "#161d2f", color: activeTab === "users" ? "#000" : "#fff" }}>👥 ইউজার ও নেটওয়ার্ক</button>
-        <button onClick={() => setActiveTab("packages")} style={{ padding: "10px 18px", borderRadius: "6px", border: "none", cursor: "pointer", fontWeight: "bold", background: activeTab === "packages" ? "#00d2ff" : "#161d2f", color: activeTab === "packages" ? "#000" : "#fff" }}>📦 প্যাকেজ কন্ট্রোল</button>
       </div>
 
       {/* Tab Content Area */}
@@ -275,8 +310,8 @@ export default function AdminPanel() {
                         <td style={{ padding: "10px", textAlign: "center" }}>
                           {(!d.status || d.status === "Pending") ? (
                             <div style={{ display: "flex", gap: "8px", justifyContent: "center" }}>
-                              <button onClick={() => handleDepositAction(d.id, d.userId, d.amount, "approve")} style={{ background: "#22c55e", color: "#fff", border: "none", padding: "5px 10px", borderRadius: "4px", cursor: "pointer", fontSize: "12px" }}>Approve</button>
-                              <button onClick={() => handleDepositAction(d.id, d.userId, d.amount, "reject")} style={{ background: "#dc3545", color: "#fff", border: "none", padding: "5px 10px", borderRadius: "4px", cursor: "pointer", fontSize: "12px" }}>Reject</button>
+                              <button onClick={() => handleDepositAction(d.id, d.userId, d.amount, "approve", d.trxId || d.transactionId || d.id)} style={{ background: "#22c55e", color: "#fff", border: "none", padding: "5px 10px", borderRadius: "4px", cursor: "pointer", fontSize: "12px" }}>Approve</button>
+                              <button onClick={() => handleDepositAction(d.id, d.userId, d.amount, "reject", d.trxId || d.transactionId || d.id)} style={{ background: "#dc3545", color: "#fff", border: "none", padding: "5px 10px", borderRadius: "4px", cursor: "pointer", fontSize: "12px" }}>Reject</button>
                             </div>
                           ) : (
                             <span style={{ color: "#94a3b8", fontSize: "12px" }}>সম্পন্ন</span>
@@ -398,13 +433,6 @@ export default function AdminPanel() {
                 ))}
               </ul>
             )}
-          </div>
-        )}
-
-        {/* ৬. প্যাকেজ কন্ট্রোল ট্যাব */}
-        {activeTab === "packages" && (
-          <div>
-            <PackageManager />
           </div>
         )}
 

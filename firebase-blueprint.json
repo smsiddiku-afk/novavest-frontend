@@ -78,7 +78,7 @@
       "properties": {
         "id": { "type": "string", "description": "Unique transaction ID" },
         "userId": { "type": "string", "description": "UID of the user" },
-        "type": { "type": "string", "description": "Transaction type: recharge, deposit, withdraw, yield, bonus" },
+        "type": { "type": "string", "description": "Transaction type: recharge, deposit, withdraw, yield, bonus, reward" },
         "amount": { "type": "number", "description": "Amount in BDT (positive for credit, negative for debit)" },
         "title": { "type": "string", "description": "Title of transaction" },
         "description": { "type": "string", "description": "Detailed description or TrxID" },
@@ -88,6 +88,68 @@
         "createdAt": { "type": "string", "description": "ISO timestamp" }
       },
       "required": ["id", "userId", "type", "amount", "status", "createdAt"]
+    },
+    "ReferralNode": {
+      "title": "ReferralNode",
+      "description": "User node in multi-tier referral hierarchy",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "UID of user" },
+        "userCode": { "type": "string", "description": "Unique referral code" },
+        "memberId": { "type": "string", "description": "Member ID" },
+        "referredByCode": { "type": "string", "description": "Sponsor referral code" },
+        "phone": { "type": "string", "description": "Masked or full phone number" },
+        "username": { "type": "string", "description": "Display name" },
+        "joinedAt": { "type": "string", "description": "ISO registration date" },
+        "investAmount": { "type": "number", "description": "Total invested BDT" }
+      },
+      "required": ["userCode"]
+    },
+    "Investment": {
+      "title": "Investment",
+      "description": "Active energy investment package purchased by user",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Investment record ID" },
+        "userId": { "type": "string", "description": "UID of purchaser" },
+        "name": { "type": "string", "description": "Plan or project title" },
+        "amount": { "type": "number", "description": "Investment principal in BDT" },
+        "dailyYield": { "type": "number", "description": "Daily profit in BDT" },
+        "vipLevel": { "type": "number", "description": "VIP level attained" },
+        "date": { "type": "string", "description": "Purchase date string" },
+        "totalEarned": { "type": "number", "description": "Accumulated yield earned" }
+      },
+      "required": ["id", "amount", "dailyYield"]
+    },
+    "PromoClaim": {
+      "title": "PromoClaim",
+      "description": "VIP1-VIP8 promo bonus claim log",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique claim ID" },
+        "userId": { "type": "string", "description": "UID or user code" },
+        "tierId": { "type": "string", "description": "Tier ID (v1 to v8)" },
+        "level": { "type": "string", "description": "VIP level (VIP1 to VIP8)" },
+        "amount": { "type": "number", "description": "Bonus amount in BDT" },
+        "claimedAt": { "type": "string", "description": "ISO timestamp" }
+      },
+      "required": ["tierId", "level", "amount"]
+    },
+    "Commission": {
+      "title": "Commission",
+      "description": "3-tier referral commission credit log",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Commission log ID" },
+        "recipientCode": { "type": "string", "description": "Referral code receiving commission" },
+        "sourceUserCode": { "type": "string", "description": "Downline code triggering deposit/invest" },
+        "level": { "type": "number", "description": "Tier level: 1, 2, or 3" },
+        "rate": { "type": "number", "description": "Commission rate (0.07, 0.03, 0.01)" },
+        "depositAmount": { "type": "number", "description": "Original deposit or package amount" },
+        "commissionAmount": { "type": "number", "description": "Calculated commission earned" },
+        "timestamp": { "type": "string", "description": "ISO timestamp" }
+      },
+      "required": ["id", "recipientCode", "commissionAmount"]
     }
   },
   "firestore": {
@@ -109,6 +171,30 @@
       },
       "description": "Top-level transactions collection"
     },
+    "/referral_nodes/{nodeId}": {
+      "schema": {
+        "$ref": "#/entities/ReferralNode"
+      },
+      "description": "Referral hierarchy nodes"
+    },
+    "/investments/{investmentId}": {
+      "schema": {
+        "$ref": "#/entities/Investment"
+      },
+      "description": "Top-level investments"
+    },
+    "/promo_claims/{claimId}": {
+      "schema": {
+        "$ref": "#/entities/PromoClaim"
+      },
+      "description": "VIP promo bonus claims"
+    },
+    "/commissions/{commissionId}": {
+      "schema": {
+        "$ref": "#/entities/Commission"
+      },
+      "description": "Multi-tier referral commission distribution log"
+    },
     "/users/{userId}/deposits/{depositId}": {
       "schema": {
         "$ref": "#/entities/Deposit"
@@ -120,6 +206,18 @@
         "$ref": "#/entities/Transaction"
       },
       "description": "User transactions subcollection"
+    },
+    "/users/{userId}/investments/{investmentId}": {
+      "schema": {
+        "$ref": "#/entities/Investment"
+      },
+      "description": "User investments subcollection"
+    },
+    "/users/{userId}/promo_claims/{claimId}": {
+      "schema": {
+        "$ref": "#/entities/PromoClaim"
+      },
+      "description": "User promo claims subcollection"
     }
   }
 }

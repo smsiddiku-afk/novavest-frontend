@@ -390,6 +390,7 @@ export const recordFirestoreDeposit = async (
     trxId?: string;
     senderPhone?: string;
     orderNo?: string;
+    status?: 'completed' | 'pending' | 'failed' | 'cancelled';
   }
 ): Promise<{ deposit: DepositRecord; transaction: TransactionRecord }> => {
   const depositId = data.orderNo || `DEP-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
@@ -398,6 +399,11 @@ export const recordFirestoreDeposit = async (
 
   const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
   const dateStr = now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+
+  const isPending = data.status === 'pending';
+  const isFailed = data.status === 'failed' || data.status === 'cancelled';
+  const finalStatus: 'completed' | 'pending' | 'failed' = isPending ? 'pending' : isFailed ? 'failed' : 'completed';
+  const banglaStatus = isPending ? 'অপেক্ষমাণ' : isFailed ? 'বাতিল' : 'সফল';
 
   const depositItem: DepositRecord = {
     id: depositId,
@@ -408,7 +414,7 @@ export const recordFirestoreDeposit = async (
     trxId: trxId,
     senderPhone: data.senderPhone || '',
     orderNo: data.orderNo || depositId,
-    status: 'completed',
+    status: finalStatus,
     createdAt: now.toISOString(),
     dateFormatted: `${dateStr} ${timeStr}`,
   };
@@ -418,14 +424,18 @@ export const recordFirestoreDeposit = async (
     userId: uid,
     type: 'recharge',
     title: `ওয়ালেট রিচার্জ (${data.method || 'bKash'})`,
-    desc: `ডিপোজিট TrxID: ${trxId}`,
+    desc: isPending
+      ? `ডিপোজিট TrxID: ${trxId} (অপেক্ষমাণ)`
+      : isFailed
+      ? `ডিপোজিট TrxID: ${trxId} (বাতিল)`
+      : `ডিপোজিট TrxID: ${trxId}`,
     amount: `+৳${data.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
     rawAmount: data.amount,
     time: `আজ, ${timeStr}`,
     date: dateStr,
-    status: 'সফল',
+    status: banglaStatus,
     channel: `${data.method || 'bKash'} (${data.channel || 'Merchant Gateway'})`,
-    isCredit: true,
+    isCredit: !isFailed && !isPending,
     hash: trxId,
     createdAt: now.toISOString(),
   };
@@ -433,16 +443,19 @@ export const recordFirestoreDeposit = async (
   try {
     const userDocRef = doc(db, 'users', uid);
 
-    // 1. Atomically increment wallet balance and push transaction into user profile
-    await setDoc(
-      userDocRef,
-      {
-        walletBalance: increment(data.amount),
-        transactions: arrayUnion(transactionItem),
-        updatedAt: serverTimestamp(),
-      },
-      { merge: true }
-    );
+    // 1. If completed: atomically increment wallet balance and push transaction
+    // If pending or failed: do NOT increment wallet balance, only push transaction
+    const updatePayload: any = {
+      transactions: arrayUnion(transactionItem),
+      updatedAt: serverTimestamp(),
+    };
+
+    if (finalStatus === 'completed') {
+      updatePayload.walletBalance = increment(data.amount);
+      updatePayload.balance = increment(data.amount);
+    }
+
+    await setDoc(userDocRef, updatePayload, { merge: true });
 
     // 2. Save in deposits collection & subcollection
     try {
@@ -472,12 +485,102 @@ export const recordFirestoreDeposit = async (
       console.warn('[Firebase] Non-blocking notice saving transactions collection:', trxErr);
     }
 
-    console.log('[Firebase] Successfully recorded deposit & credited wallet:', depositItem);
+    console.log(`[Firebase] Successfully recorded deposit [Status: ${finalStatus}]:`, depositItem);
     return { deposit: depositItem, transaction: transactionItem };
   } catch (error) {
     console.error('[Firebase] Error in recordFirestoreDeposit:', error);
     handleFirestoreError(error, OperationType.UPDATE, `users/${uid}`);
     return { deposit: depositItem, transaction: transactionItem };
+  }
+};
+
+/**
+ * Update the status of a pending deposit in Firestore:
+ * When approved/completed: atomically increments wallet balance & updates transaction status to 'সফল'
+ * When cancelled/failed: updates status to 'বাতিল' without crediting balance
+ */
+export const updateFirestoreDepositStatus = async (
+  uid: string,
+  trxIdOrOrderNo: string,
+  newStatus: 'completed' | 'cancelled' | 'failed',
+  amount?: number
+): Promise<boolean> => {
+  try {
+    const isCompleted = newStatus === 'completed';
+    const statusBangla = isCompleted ? 'সফল' : 'বাতিল';
+    const depositStatus = isCompleted ? 'completed' : 'failed';
+
+    const userDocRef = doc(db, 'users', uid);
+    const userSnap = await getDoc(userDocRef);
+
+    if (userSnap.exists()) {
+      const userData = userSnap.data();
+      const txns: TransactionRecord[] = userData.transactions || [];
+      let foundAmount = amount || 0;
+
+      const updatedTxns = txns.map((t: any) => {
+        if (t.id === trxIdOrOrderNo || t.hash === trxIdOrOrderNo || t.orderNo === trxIdOrOrderNo) {
+          if (!foundAmount && t.rawAmount) foundAmount = Number(t.rawAmount);
+          return {
+            ...t,
+            status: statusBangla,
+            isCredit: isCompleted,
+            desc: isCompleted
+              ? `ডিপোজিট TrxID: ${trxIdOrOrderNo} (সফল)`
+              : `ডিপোজিট TrxID: ${trxIdOrOrderNo} (বাতিল)`,
+          };
+        }
+        return t;
+      });
+
+      const updatePayload: any = {
+        transactions: updatedTxns,
+        updatedAt: serverTimestamp(),
+      };
+
+      if (isCompleted && foundAmount > 0) {
+        updatePayload.walletBalance = increment(foundAmount);
+        updatePayload.balance = increment(foundAmount);
+      }
+
+      await updateDoc(userDocRef, updatePayload);
+    }
+
+    // Update in deposits collections
+    try {
+      await updateDoc(doc(db, 'users', uid, 'deposits', trxIdOrOrderNo), {
+        status: depositStatus,
+        updatedAt: serverTimestamp(),
+      });
+    } catch (_) {}
+    try {
+      await updateDoc(doc(db, 'deposits', trxIdOrOrderNo), {
+        status: isCompleted ? 'Approved' : 'Rejected',
+        updatedAt: serverTimestamp(),
+      });
+    } catch (_) {}
+
+    // Update in transactions collections
+    try {
+      await updateDoc(doc(db, 'users', uid, 'transactions', trxIdOrOrderNo), {
+        status: statusBangla,
+        isCredit: isCompleted,
+        updatedAt: serverTimestamp(),
+      });
+    } catch (_) {}
+    try {
+      await updateDoc(doc(db, 'transactions', trxIdOrOrderNo), {
+        status: statusBangla,
+        isCredit: isCompleted,
+        updatedAt: serverTimestamp(),
+      });
+    } catch (_) {}
+
+    console.log(`[Firebase] Successfully updated deposit status [${trxIdOrOrderNo} -> ${newStatus}]`);
+    return true;
+  } catch (err) {
+    console.error('[Firebase] updateFirestoreDepositStatus error:', err);
+    return false;
   }
 };
 
@@ -537,37 +640,265 @@ export const subscribeToUserTransactions = (
   );
 };
 
+/**
+ * -------------------------------------------------------------
+ * 1. CLOUD INVESTMENT SYNC
+ * -------------------------------------------------------------
+ */
+export interface InvestmentRecord {
+  id: string;
+  userId?: string;
+  name: string;
+  amount: number;
+  dailyYield: number;
+  vipLevel: number;
+  date: string;
+  totalEarned?: number;
+  createdAt?: string;
+}
 
-// Real-time listener for referred team members from Firestore
-export const subscribeToTeamMembers = (
-  referralCode: string,
-  onUpdate: (members: any[]) => void
-) => {
-  if (!db || !referralCode) return () => {};
+export const recordInvestmentInFirestore = async (
+  uid: string,
+  investment: InvestmentRecord,
+  updatedBalance: number,
+  newVipLevel: number,
+  totalDaily: number,
+  allInvestments: InvestmentRecord[]
+): Promise<void> => {
   try {
-    const usersRef = collection(db, 'users');
-    const q = query(usersRef, where('referredBy', '==', referralCode.trim().toUpperCase()));
-    return onSnapshot(
-      q,
-      (snap) => {
-        const list = snap.docs.map((d) => {
-          const data = d.data();
-          return {
-            id: d.id,
-            phone: data.phone || '01***',
-            username: data.name || data.username || 'Member',
-            level: 1,
-            investmentAmount: data.walletBalance || 0
-          };
-        });
-        onUpdate(list);
-      },
-      (err) => {
-        console.warn('Firebase Team listener error:', err);
-      }
+    const userDocRef = doc(db, 'users', uid);
+    const invId = investment.id || `INV-${Date.now()}`;
+
+    // 1. Save in user's subcollection
+    await setDoc(
+      doc(db, 'users', uid, 'investments', invId),
+      sanitizeFirestoreData({
+        ...investment,
+        id: invId,
+        userId: uid,
+        serverCreatedAt: serverTimestamp(),
+      }),
+      { merge: true }
     );
+
+    // 2. Save in top-level investments collection for admin auditing
+    await setDoc(
+      doc(db, 'investments', invId),
+      sanitizeFirestoreData({
+        ...investment,
+        id: invId,
+        userId: uid,
+        serverCreatedAt: serverTimestamp(),
+      }),
+      { merge: true }
+    );
+
+    // 3. Atomically update user document profile & balance
+    await setDoc(
+      userDocRef,
+      sanitizeFirestoreData({
+        walletBalance: updatedBalance,
+        vipLevel: newVipLevel,
+        dailyRewards: totalDaily,
+        activeUnits: allInvestments.length,
+        activeInvestments: allInvestments,
+        updatedAt: serverTimestamp(),
+      }),
+      { merge: true }
+    );
+
+    console.log('[Firebase] Investment persisted to Firestore successfully:', invId);
   } catch (err) {
-    console.warn('subscribeToTeamMembers error:', err);
-    return () => {};
+    console.warn('[Firebase] Non-blocking notice saving investment to Firestore:', err);
   }
 };
+
+export const getFirestoreUserInvestments = async (uid: string): Promise<InvestmentRecord[]> => {
+  try {
+    const subCol = collection(db, 'users', uid, 'investments');
+    const snap = await getDocs(subCol);
+    if (!snap.empty) {
+      return snap.docs.map((d) => d.data() as InvestmentRecord);
+    }
+    const userDoc = await getDoc(doc(db, 'users', uid));
+    if (userDoc.exists() && Array.isArray(userDoc.data().activeInvestments)) {
+      return userDoc.data().activeInvestments;
+    }
+    return [];
+  } catch (err) {
+    console.warn('[Firebase] Notice fetching investments from Firestore:', err);
+    return [];
+  }
+};
+
+/**
+ * -------------------------------------------------------------
+ * 2. CLOUD REFERRAL NODES & MULTI-TIER TREE SYNC
+ * -------------------------------------------------------------
+ */
+export interface ReferralNodeRecord {
+  userId: string;
+  userCode: string;
+  memberId?: string;
+  referredByCode: string;
+  phone: string;
+  username: string;
+  joinedAt: string;
+  investAmount: number;
+}
+
+export const saveReferralNodeToFirestore = async (node: ReferralNodeRecord): Promise<void> => {
+  try {
+    const cleanCode = (node.userCode || '').trim().toUpperCase();
+    if (!cleanCode) return;
+
+    const payload = sanitizeFirestoreData({
+      ...node,
+      userCode: cleanCode,
+      referredByCode: (node.referredByCode || '').trim().toUpperCase(),
+      memberId: (node.memberId || '').trim().toUpperCase(),
+      updatedAt: serverTimestamp(),
+    });
+
+    // Write to primary code doc
+    await setDoc(doc(db, 'referral_nodes', cleanCode), payload, { merge: true });
+
+    // Also alias by memberId if different from referral code
+    if (node.memberId && node.memberId.trim().toUpperCase() !== cleanCode) {
+      await setDoc(doc(db, 'referral_nodes', node.memberId.trim().toUpperCase()), payload, { merge: true });
+    }
+
+    console.log('[Firebase] Referral node synced to Firestore:', cleanCode);
+  } catch (err) {
+    console.warn('[Firebase] Notice saving referral node to Firestore:', err);
+  }
+};
+
+export const syncReferralAccountsFromFirestore = async (): Promise<Record<string, ReferralNodeRecord>> => {
+  try {
+    const nodesCol = collection(db, 'referral_nodes');
+    const snap = await getDocs(nodesCol);
+    const result: Record<string, ReferralNodeRecord> = {};
+
+    snap.forEach((d) => {
+      const data = d.data() as ReferralNodeRecord;
+      if (data.userCode) {
+        result[data.userCode.toUpperCase()] = data;
+      }
+    });
+
+    if (Object.keys(result).length > 0) {
+      // Merge with localStorage
+      const existingRaw = localStorage.getItem('novavest_registered_accounts');
+      const existing = existingRaw ? JSON.parse(existingRaw) : {};
+      const merged = { ...existing, ...result };
+      localStorage.setItem('novavest_registered_accounts', JSON.stringify(merged));
+    }
+
+    return result;
+  } catch (err) {
+    console.warn('[Firebase] Notice syncing referral nodes from Firestore:', err);
+    return {};
+  }
+};
+
+/**
+ * -------------------------------------------------------------
+ * 3. CLOUD VIP1-VIP8 PROMO BONUS CLAIMS SYNC
+ * -------------------------------------------------------------
+ */
+export const recordPromoClaimInFirestore = async (
+  uidOrCode: string,
+  tierId: string,
+  level: string,
+  amount: number
+): Promise<void> => {
+  try {
+    const claimId = `${uidOrCode.replace(/[^a-zA-Z0-9]/g, '_')}_${tierId.toLowerCase()}`;
+    const nowIso = new Date().toISOString();
+
+    const payload = sanitizeFirestoreData({
+      id: claimId,
+      userId: uidOrCode,
+      tierId: tierId.toLowerCase(),
+      level,
+      amount,
+      claimedAt: nowIso,
+      serverCreatedAt: serverTimestamp(),
+    });
+
+    // 1. Top-level promo claims
+    await setDoc(doc(db, 'promo_claims', claimId), payload, { merge: true });
+
+    // 2. User subcollection
+    await setDoc(doc(db, 'users', uidOrCode, 'promo_claims', tierId.toLowerCase()), payload, { merge: true });
+
+    console.log('[Firebase] Promo bonus claim persisted to Firestore:', claimId);
+  } catch (err) {
+    console.warn('[Firebase] Notice recording promo claim to Firestore:', err);
+  }
+};
+
+export const getFirestorePromoClaims = async (uidOrCode: string): Promise<Record<string, boolean>> => {
+  try {
+    const result: Record<string, boolean> = {};
+
+    // Check user subcollection
+    const subCol = collection(db, 'users', uidOrCode, 'promo_claims');
+    const snap = await getDocs(subCol);
+    snap.forEach((d) => {
+      const data = d.data();
+      if (data.tierId) result[data.tierId] = true;
+      if (data.level) result[data.level.toLowerCase()] = true;
+    });
+
+    if (Object.keys(result).length > 0) return result;
+
+    // Fallback: check top-level promo_claims query
+    const topCol = collection(db, 'promo_claims');
+    const q = query(topCol, where('userId', '==', uidOrCode));
+    const topSnap = await getDocs(q);
+    topSnap.forEach((d) => {
+      const data = d.data();
+      if (data.tierId) result[data.tierId] = true;
+      if (data.level) result[data.level.toLowerCase()] = true;
+    });
+
+    return result;
+  } catch (err) {
+    console.warn('[Firebase] Notice fetching promo claims from Firestore:', err);
+    return {};
+  }
+};
+
+/**
+ * -------------------------------------------------------------
+ * 4. CLOUD COMMISSION LOG SYNC
+ * -------------------------------------------------------------
+ */
+export const recordCommissionInFirestore = async (comm: {
+  id: string;
+  recipientCode: string;
+  sourceUserCode: string;
+  level: number;
+  rate: number;
+  depositAmount: number;
+  commissionAmount: number;
+  timestamp: string;
+}): Promise<void> => {
+  try {
+    const docRef = doc(db, 'commissions', comm.id);
+    await setDoc(
+      docRef,
+      sanitizeFirestoreData({
+        ...comm,
+        serverCreatedAt: serverTimestamp(),
+      }),
+      { merge: true }
+    );
+  } catch (err) {
+    console.warn('[Firebase] Notice recording commission in Firestore:', err);
+  }
+};
+
+

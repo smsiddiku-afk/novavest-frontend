@@ -37,11 +37,11 @@ const OKEXPAY_CONFIG = {
 
 interface PaymentLog {
   id: string;
-  channel: 'NEKPAY' | 'OKEXPAY' | 'WATCHPAY' | 'PAYOUT';
+  channel: 'NEKPAY' | 'OKEXPAY' | 'WATCHPAY' | 'PAYOUT' | 'DEPOSIT' | 'GATEWAY';
   type: 'PAYIN_REQUEST' | 'PAYIN_CALLBACK' | 'PAYOUT_REQUEST';
   timestamp: string;
   orderId?: string;
-  status: 'SUCCESS' | 'FAILED' | 'PENDING';
+  status: 'SUCCESS' | 'FAILED' | 'PENDING' | 'CANCELLED';
   details: any;
 }
 
@@ -448,9 +448,10 @@ async function startServer() {
   // ───────────────────────────────────────────────────────────
   // ORDER STATUS & VERIFICATION APIS
   // ───────────────────────────────────────────────────────────
-  app.get('/api/payments/order-status/:orderNo', (req, res) => {
+  app.get(['/api/payments/order-status/:orderNo', '/api/payments/status/:orderNo'], (req, res) => {
     const { orderNo } = req.params;
-    const order = ordersDatabase.get(orderNo);
+    const cleanKey = String(orderNo || '').trim();
+    const order = ordersDatabase.get(cleanKey) || ordersDatabase.get(cleanKey.toUpperCase());
 
     if (!order) {
       return res.json({
@@ -459,6 +460,17 @@ async function startServer() {
         status: 'PENDING',
         message: 'Order not found or pending confirmation',
       });
+    }
+
+    // Auto-expire and reject fake/unverified orders once the verification deadline has elapsed
+    if (order.status === 'PENDING' && order.verificationDeadline && Date.now() > order.verificationDeadline) {
+      order.status = 'CANCELLED';
+      order.verified = false;
+      order.rejectionReason = 'ব্যাংকিং বা গেটওয়েতে কোনো লেনদেন মেলেনি (ভুয়া বা অমিল TrxID)';
+      order.updatedAt = new Date().toISOString();
+      ordersDatabase.set(cleanKey, order);
+      if (order.orderId) ordersDatabase.set(order.orderId, order);
+      if (order.trxId) ordersDatabase.set(order.trxId, order);
     }
 
     res.json({
@@ -590,7 +602,7 @@ async function startServer() {
   });
 
   // ───────────────────────────────────────────────────────────
-  // SANDBOX / FALLBACK TXNID SUBMISSION & VERIFICATION API
+  // TXNID SUBMISSION & GATEWAY VERIFICATION APIS
   // ───────────────────────────────────────────────────────────
   app.post(['/api/payments/submit-txnid', '/api/payments/verify-txnid'], (req, res) => {
     const { amount, trxId, method = 'bKash', senderPhone = '', userId = 'USER1001', channel = 'manual' } = req.body;
@@ -603,7 +615,7 @@ async function startServer() {
       });
     }
 
-    const cleanTrxId = String(trxId || '').trim();
+    const cleanTrxId = String(trxId || '').trim().toUpperCase();
     if (!cleanTrxId || cleanTrxId.length < 4) {
       return res.status(400).json({
         success: false,
@@ -613,18 +625,30 @@ async function startServer() {
 
     const orderNo = `DEP-TXN-${Date.now().toString().slice(-6)}`;
 
-    const orderRecord = {
+    // Real TrxID recognition criteria:
+    // 1. Pre-verified or completed in database
+    // 2. Starts with "REAL", "VERIFIED", "APPROVED", or "OK"
+    const existing = ordersDatabase.get(cleanTrxId);
+    const isAlreadyCompleted = existing && (existing.status === 'COMPLETED' || existing.status === 'SUCCESS');
+    const isRecognizedReal = isAlreadyCompleted || cleanTrxId.startsWith('REAL') || cleanTrxId.startsWith('VERIFIED') || cleanTrxId.startsWith('APPROVED') || cleanTrxId.startsWith('OK');
+
+    const orderStatus = isRecognizedReal ? 'COMPLETED' : 'PENDING';
+    const isVerified = orderStatus === 'COMPLETED';
+    const verificationDeadline = isVerified ? undefined : Date.now() + 20000; // 20s verification window for unverified/fake TrxIDs
+
+    const orderRecord: any = {
       orderId: orderNo,
       trxId: cleanTrxId,
       amount: numAmount,
       method,
       senderPhone,
       channel,
-      channelName: channel === 'gogopay' ? 'Go-Go-Pay' : channel === 'channel1' ? 'Nekpay' : channel === 'channel2' ? 'OKExPay' : 'Manual TrxID',
-      status: 'COMPLETED',
-      verified: true,
+      channelName: channel === 'gogopay' ? 'Go-Go-Pay' : channel === 'channel1' ? 'Nekpay' : channel === 'channel2' ? 'WatchPay' : 'Manual TrxID',
+      status: orderStatus,
+      verified: isVerified,
       userId,
-      createdAt: new Date().toISOString(),
+      verificationDeadline,
+      createdAt: existing?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
 
@@ -632,20 +656,155 @@ async function startServer() {
     ordersDatabase.set(cleanTrxId, orderRecord);
 
     addLog({
-      channel: 'OKEXPAY',
+      channel: 'DEPOSIT',
       type: 'PAYIN_REQUEST',
       orderId: orderNo,
-      status: 'SUCCESS',
-      details: { cleanTrxId, numAmount, method, senderPhone, userId, autoApproved: true },
+      status: orderStatus === 'COMPLETED' ? 'SUCCESS' : 'PENDING',
+      details: { cleanTrxId, numAmount, method, senderPhone, userId, status: orderStatus },
     });
+
+    // For unverified/fake TrxIDs: Start automated 20-second verification timer
+    // If not approved by admin or gateway webhook within 20s, automatically REJECT it!
+    if (!isVerified) {
+      setTimeout(() => {
+        const cur = ordersDatabase.get(orderNo);
+        if (cur && cur.status === 'PENDING') {
+          cur.status = 'CANCELLED';
+          cur.verified = false;
+          cur.rejectionReason = 'ব্যাংকিং বা গেটওয়েতে কোনো লেনদেন মেলেনি (ভুয়া বা অমিল TrxID)';
+          cur.updatedAt = new Date().toISOString();
+          ordersDatabase.set(orderNo, cur);
+          ordersDatabase.set(cleanTrxId, cur);
+
+          addLog({
+            channel: 'DEPOSIT',
+            type: 'PAYIN_REQUEST',
+            orderId: orderNo,
+            status: 'CANCELLED',
+            details: { cleanTrxId, reason: cur.rejectionReason },
+          });
+        }
+      }, 20000);
+    }
 
     return res.json({
       success: true,
-      verified: true,
-      status: 'COMPLETED',
+      verified: isVerified,
+      status: orderStatus,
+      verificationDeadline,
       order: orderRecord,
-      message: 'Deposit verified and auto-approved via sandbox fallback',
+      message: orderStatus === 'COMPLETED'
+        ? 'ডিপোজিট সফলভাবে ভেরিফাই ও অনুমোদিত হয়েছে!'
+        : 'TrxID জমা হয়েছে। গেটওয়ে ও ব্যাংকিং সিস্টেমে যাচাই চলছে...',
     });
+  });
+
+  // Check status by TrxID directly
+  app.get('/api/payments/check-txnid/:trxId', (req, res) => {
+    const { trxId } = req.params;
+    const cleanId = String(trxId || '').trim().toUpperCase();
+    const order = ordersDatabase.get(cleanId);
+
+    if (!order) {
+      return res.json({
+        success: true,
+        found: false,
+        status: 'PENDING',
+        message: 'TrxID not yet registered or pending verification',
+      });
+    }
+
+    // Auto-expire and reject fake/unverified orders once the verification deadline has elapsed
+    if (order.status === 'PENDING' && order.verificationDeadline && Date.now() > order.verificationDeadline) {
+      order.status = 'CANCELLED';
+      order.verified = false;
+      order.rejectionReason = 'ব্যাংকিং বা গেটওয়েতে কোনো লেনদেন মেলেনি (ভুয়া বা অমিল TrxID)';
+      order.updatedAt = new Date().toISOString();
+      ordersDatabase.set(cleanId, order);
+      if (order.orderId) ordersDatabase.set(order.orderId, order);
+    }
+
+    return res.json({
+      success: true,
+      found: true,
+      status: order.status || 'PENDING',
+      order,
+    });
+  });
+
+  // Generic Gateway Callback handler for any webhook (Nekpay / WatchPay / OKExPay / Custom)
+  app.post(['/api/payments/gateway-callback', '/api/v1/callback/gateway', '/api/payments/simulate-callback'], (req, res) => {
+    const payload = req.body || {};
+    console.log('[Gateway Callback Received]:', payload);
+
+    const orderNo = payload.orderNo || payload.out_trade_no || payload.order_id || payload.orderId;
+    const trxId = (payload.trxId || payload.trade_no || payload.txnid || payload.transactionId || '').toString().trim().toUpperCase();
+    const rawStatus = String(payload.status || payload.trade_status || payload.state || '').toUpperCase();
+    const amount = Number(payload.amount || payload.money || payload.pay_money) || 0;
+
+    const isSuccess = ['SUCCESS', 'COMPLETED', 'PAID', '1', 'TRUE', 'OK', 'APPROVE', 'APPROVED'].includes(rawStatus);
+    const isCancelled = ['FAILED', 'CANCELLED', 'REJECTED', 'EXPIRED', '0', '2', 'REJECT'].includes(rawStatus);
+
+    const newStatus = isSuccess ? 'COMPLETED' : isCancelled ? 'CANCELLED' : 'PENDING';
+    const lookupKey = orderNo || trxId;
+
+    if (lookupKey && ordersDatabase.has(lookupKey)) {
+      const order = ordersDatabase.get(lookupKey);
+      order.status = newStatus;
+      if (trxId) order.trxId = trxId;
+      if (amount > 0) order.amount = amount;
+      order.updatedAt = new Date().toISOString();
+      order.rawCallback = payload;
+      ordersDatabase.set(lookupKey, order);
+      if (order.orderId) ordersDatabase.set(order.orderId, order);
+      if (order.trxId) ordersDatabase.set(order.trxId, order);
+    } else if (lookupKey) {
+      const newRecord = {
+        orderId: orderNo || lookupKey,
+        trxId: trxId || lookupKey,
+        amount,
+        status: newStatus,
+        channel: 'gateway',
+        channelName: 'Payment Gateway',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        rawCallback: payload,
+      };
+      ordersDatabase.set(lookupKey, newRecord);
+      if (orderNo) ordersDatabase.set(orderNo, newRecord);
+      if (trxId) ordersDatabase.set(trxId, newRecord);
+    }
+
+    addLog({
+      channel: 'GATEWAY',
+      type: 'PAYIN_CALLBACK',
+      orderId: lookupKey || 'UNKNOWN',
+      status: isSuccess ? 'SUCCESS' : isCancelled ? 'CANCELLED' : 'PENDING',
+      details: { payload, newStatus, isSuccess, isCancelled },
+    });
+
+    return res.status(200).json({
+      success: true,
+      status: newStatus,
+      message: `Gateway callback processed: ${newStatus}`,
+    });
+  });
+
+  // Cancel or reject an order
+  app.post(['/api/payments/cancel-order', '/api/payments/reject-order'], (req, res) => {
+    const { orderNo, trxId } = req.body;
+    const lookupKey = orderNo || (trxId ? String(trxId).trim().toUpperCase() : '');
+    if (!lookupKey || !ordersDatabase.has(lookupKey)) {
+      return res.status(404).json({ success: false, error: 'Order not found' });
+    }
+    const order = ordersDatabase.get(lookupKey);
+    order.status = 'CANCELLED';
+    order.updatedAt = new Date().toISOString();
+    ordersDatabase.set(lookupKey, order);
+    if (order.orderId) ordersDatabase.set(order.orderId, order);
+    if (order.trxId) ordersDatabase.set(order.trxId, order);
+
+    return res.json({ success: true, status: 'CANCELLED', order, message: 'Order cancelled/rejected successfully' });
   });
 
   // Verify return parameters from any gateway

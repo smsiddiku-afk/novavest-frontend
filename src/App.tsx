@@ -17,6 +17,7 @@ import {
   isSameUser,
   signOutFromFirebase,
 } from './utils/authService';
+import { registerUserInReferralNetwork } from './utils/referralService';
 
 type ProtectedTab = 'home' | 'invest' | 'transactions' | 'wallet' | 'referral' | 'profile';
 
@@ -187,6 +188,14 @@ export default function App() {
       };
       persistAuthUser(newUser);
       setAuthUser(newUser);
+      registerUserInReferralNetwork(
+        generatedMemberId,
+        newUser.referralCode,
+        data.referralCode?.trim(),
+        data.phone,
+        data.username,
+        generatedMemberId
+      );
     }
     navigate('/home');
   };

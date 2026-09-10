@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ArrowDownToLine, ArrowUpFromLine, Zap, Gift, CheckCircle2, Clock, X, Copy, Check, FileText } from 'lucide-react';
+import { ArrowDownToLine, ArrowUpFromLine, Zap, Gift, CheckCircle2, Clock, XCircle, X, Copy, Check, FileText } from 'lucide-react';
 import { Language } from '../types';
 import { translations } from '../utils/translations';
 
@@ -23,20 +23,60 @@ export const TransactionsTabContent: React.FC<TransactionsTabContentProps> = ({
   const [copiedTrx, setCopiedTrx] = useState(false);
 
   // Real transactions from user session and Firestore
-  const transactions = userTransactions.map((tx: any) => ({
-    id: tx.id || tx.hash || `TRX-${Date.now()}`,
-    type: tx.type || (tx.amount > 0 || (typeof tx.amount === 'string' && tx.amount.startsWith('+')) ? 'recharge' : 'withdraw'),
-    title: tx.title || (tx.type === 'withdrawal' || tx.type === 'withdraw' ? (isBn ? 'ব্যালেন্স উত্তোলন' : 'Balance Withdrawal') : (isBn ? 'ওয়ালেট ডিপোজিট' : 'Wallet Deposit')),
-    desc: tx.desc || tx.description || `TrxID: ${tx.id || tx.hash || 'Verified'}`,
-    amount: typeof tx.amount === 'number'
-      ? (tx.amount > 0 ? `+৳${tx.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}` : `-৳${Math.abs(tx.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}`)
-      : String(tx.amount || '+৳0.00'),
-    time: tx.time || tx.timestamp || (isBn ? 'আজ, সম্প্রতি' : 'Just now'),
-    date: tx.date || new Date().toLocaleDateString('en-GB'),
-    status: tx.status === 'pending' ? (isBn ? 'অপেক্ষমাণ' : 'Pending') : tx.status === 'failed' ? (isBn ? 'ব্যর্থ' : 'Failed') : (isBn ? 'সফল' : 'Completed'),
-    channel: tx.channel || 'WatchPay / Gateway',
-    isCredit: tx.isCredit ?? (typeof tx.amount === 'number' ? tx.amount > 0 : !String(tx.amount).startsWith('-')),
-  }));
+  const transactions = userTransactions.map((tx: any) => {
+    const rawStatus = String(tx.status || '').toLowerCase();
+    const isPending = rawStatus === 'pending' || rawStatus === 'অপেক্ষমাণ' || rawStatus === 'processing';
+    const isCancelled = rawStatus === 'cancelled' || rawStatus === 'rejected' || rawStatus === 'failed' || rawStatus === 'বাতিল' || rawStatus === 'ব্যর্থ';
+    const isCompleted = !isPending && !isCancelled;
+
+    const displayStatus = isPending
+      ? (isBn ? 'অপেক্ষমাণ' : 'Pending')
+      : isCancelled
+      ? (isBn ? 'বাতিল' : 'Cancelled')
+      : (isBn ? 'সফল' : 'Completed');
+
+    const statusCode = isPending ? 'pending' : isCancelled ? 'cancelled' : 'completed';
+
+    const rawType = String(tx.type || '').toLowerCase();
+    const isRecharge =
+      rawType === 'recharge' ||
+      rawType === 'deposit' ||
+      rawType === 'payin' ||
+      (typeof tx.amount === 'number' ? tx.amount > 0 : String(tx.amount || '').startsWith('+'));
+    const isWithdraw =
+      rawType === 'withdrawal' ||
+      rawType === 'withdraw' ||
+      rawType === 'payout' ||
+      (typeof tx.amount === 'number' ? tx.amount < 0 : String(tx.amount || '').startsWith('-'));
+    const isYield = rawType === 'yield' || rawType === 'bonus' || rawType === 'reward' || rawType === 'earning';
+
+    const normalizedType = isYield ? 'yield' : isWithdraw ? 'withdraw' : 'recharge';
+
+    return {
+      id: tx.id || tx.hash || `TRX-${Date.now()}`,
+      type: normalizedType,
+      title:
+        tx.title ||
+        (normalizedType === 'withdraw'
+          ? (isBn ? 'ব্যালেন্স উত্তোলন' : 'Balance Withdrawal')
+          : isYield
+          ? (isBn ? 'দৈনিক ইনভেস্টমেন্ট আয়' : 'Daily Yield Reward')
+          : (isBn ? 'ওয়ালেট রিচার্জ' : 'Wallet Recharge')),
+      desc: tx.desc || tx.description || `TrxID: ${tx.id || tx.hash || 'Verified'}`,
+      amount:
+        typeof tx.amount === 'number'
+          ? tx.amount > 0
+            ? `+৳${tx.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}`
+            : `-৳${Math.abs(tx.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}`
+          : String(tx.amount || '+৳0.00'),
+      time: tx.time || tx.timestamp || (isBn ? 'আজ, সম্প্রতি' : 'Just now'),
+      date: tx.date || new Date().toLocaleDateString('en-GB'),
+      status: displayStatus,
+      statusCode,
+      channel: tx.channel || 'Manual TrxID / Gateway',
+      isCredit: tx.isCredit ?? (typeof tx.amount === 'number' ? tx.amount > 0 : !String(tx.amount).startsWith('-')),
+    };
+  });
 
   const filtered = transactions.filter((trx) => {
     if (activeFilter === 'all') return true;
@@ -154,14 +194,33 @@ export const TransactionsTabContent: React.FC<TransactionsTabContentProps> = ({
               <div className="text-right shrink-0">
                 <span
                   className={`text-sm font-extrabold font-mono ${
-                    trx.isCredit ? 'text-emerald-400' : 'text-rose-400'
+                    trx.statusCode === 'pending'
+                      ? 'text-amber-400'
+                      : trx.statusCode === 'cancelled'
+                      ? 'text-rose-400 line-through opacity-80'
+                      : trx.isCredit
+                      ? 'text-emerald-400'
+                      : 'text-rose-400'
                   }`}
                 >
                   {trx.amount}
                 </span>
-                <span className="block text-[10px] text-slate-400 mt-0.5 font-medium">
-                  {trx.status}
-                </span>
+                <div className="mt-1 flex justify-end">
+                  <span
+                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                      trx.statusCode === 'pending'
+                        ? 'bg-amber-500/15 border border-amber-500/30 text-amber-400'
+                        : trx.statusCode === 'cancelled'
+                        ? 'bg-rose-500/15 border border-rose-500/30 text-rose-400'
+                        : 'bg-emerald-500/15 border border-emerald-500/30 text-emerald-400'
+                    }`}
+                  >
+                    {trx.statusCode === 'pending' && <Clock className="w-2.5 h-2.5 animate-pulse" />}
+                    {trx.statusCode === 'cancelled' && <XCircle className="w-2.5 h-2.5" />}
+                    {trx.statusCode === 'completed' && <CheckCircle2 className="w-2.5 h-2.5" />}
+                    <span>{trx.status}</span>
+                  </span>
+                </div>
               </div>
             </div>
           ))}
@@ -190,11 +249,32 @@ export const TransactionsTabContent: React.FC<TransactionsTabContentProps> = ({
 
             <div className="text-center py-2 bg-[#060D1A] rounded-2xl border border-slate-800 space-y-1">
               <span className="text-xs text-slate-400">{isBn ? 'লেনদেনের পরিমাণ' : 'Transferred Amount'}</span>
-              <div className={`text-2xl font-black font-mono ${selectedReceipt.isCredit ? 'text-emerald-400' : 'text-rose-400'}`}>
+              <div
+                className={`text-2xl font-black font-mono ${
+                  selectedReceipt.statusCode === 'pending'
+                    ? 'text-amber-400'
+                    : selectedReceipt.statusCode === 'cancelled'
+                    ? 'text-rose-400 line-through opacity-80'
+                    : selectedReceipt.isCredit
+                    ? 'text-emerald-400'
+                    : 'text-rose-400'
+                }`}
+              >
                 {selectedReceipt.amount}
               </div>
-              <span className="inline-block px-2.5 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[10px] font-bold">
-                ● {selectedReceipt.status}
+              <span
+                className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                  selectedReceipt.statusCode === 'pending'
+                    ? 'bg-amber-500/15 border border-amber-500/30 text-amber-400'
+                    : selectedReceipt.statusCode === 'cancelled'
+                    ? 'bg-rose-500/15 border border-rose-500/30 text-rose-400'
+                    : 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400'
+                }`}
+              >
+                {selectedReceipt.statusCode === 'pending' && <Clock className="w-3 h-3 animate-pulse" />}
+                {selectedReceipt.statusCode === 'cancelled' && <XCircle className="w-3 h-3" />}
+                {selectedReceipt.statusCode === 'completed' && <CheckCircle2 className="w-3 h-3" />}
+                <span>{selectedReceipt.status}</span>
               </span>
             </div>
 

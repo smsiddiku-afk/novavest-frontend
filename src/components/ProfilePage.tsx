@@ -70,10 +70,15 @@ import { UserProfile, Language } from '../types';
 import { ENERGY_PACKAGES_7 } from '../data/energyPackages';
 import { translations } from '../utils/translations';
 import { persistAuthUser, isSameUser } from '../utils/authService';
+import { distributeReferralDepositCommissions } from '../utils/referralService';
 import {
   recordFirestoreDeposit,
+  updateFirestoreDepositStatus,
   getFirestoreUserTransactions,
   subscribeToUserTransactions,
+  recordInvestmentInFirestore,
+  getFirestoreUserInvestments,
+  updateFirestoreWalletBalance,
   auth,
 } from '../lib/firebase';
 import { ManualDepositDetails, PaymentChannelType } from './CleanWalletScreen';
@@ -153,8 +158,16 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       // ignore
     }
 
+    let savedTransactions: any[] = [];
+    try {
+      const storedTx = localStorage.getItem(`user_transactions_${activeId}`);
+      if (storedTx) savedTransactions = JSON.parse(storedTx);
+    } catch {
+      // ignore
+    }
+
     // Determine initial real VIP level and active units
-    const activeUnits = initialUser?.activeUnits ?? (savedInvestments.length > 0 ? savedInvestments.length : 1);
+    const activeUnits = initialUser?.activeUnits ?? savedInvestments.length;
     let maxVip = 0;
     if (savedInvestments.length > 0) {
       maxVip = Math.max(...savedInvestments.map((inv) => inv.vipLevel || 0), 0);
@@ -170,7 +183,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     const realDailyRewards = initialUser?.dailyRewards ?? (
       savedInvestments.length > 0
         ? savedInvestments.reduce((acc, curr) => acc + (curr.dailyYield || 0), 0)
-        : 38.0
+        : 0.0
     );
 
     const rawName = initialUser?.name || '';
@@ -195,6 +208,9 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       activeUnits: activeUnits,
       dailyRewards: realDailyRewards,
       activeInvestments: initialUser?.activeInvestments || savedInvestments,
+      transactions: (initialUser?.transactions && initialUser.transactions.length > 0)
+        ? initialUser.transactions
+        : savedTransactions,
     };
   });
 
@@ -204,6 +220,14 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       const next = updater(prev);
       if (!isSameUser(prev, next)) {
         persistAuthUser(next);
+      }
+      try {
+        const activeId = next.uid || next.memberId;
+        if (activeId && next.transactions) {
+          localStorage.setItem(`user_transactions_${activeId}`, JSON.stringify(next.transactions));
+        }
+      } catch {
+        // ignore
       }
       return next;
     });
@@ -344,6 +368,40 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [showGatewaySettings, setShowGatewaySettings] = useState(false);
 
+  // Cloud Firestore Sync: Load active investments on initial profile load
+  useEffect(() => {
+    const activeUid = user.uid || initialUser?.uid;
+    if (activeUid) {
+      getFirestoreUserInvestments(activeUid)
+        .then((cloudInvestments) => {
+          if (cloudInvestments && cloudInvestments.length > 0) {
+            updateUser((prev) => {
+              if ((prev.activeInvestments || []).length >= cloudInvestments.length) {
+                return prev;
+              }
+              const maxVip = Math.max(
+                prev.vipLevel || 0,
+                1,
+                ...cloudInvestments.map((inv: any) => inv.vipLevel || 1)
+              );
+              const totalDaily = cloudInvestments.reduce(
+                (acc: number, curr: any) => acc + (curr.dailyYield || 0),
+                0
+              );
+              return {
+                ...prev,
+                activeInvestments: cloudInvestments,
+                activeUnits: cloudInvestments.length,
+                vipLevel: maxVip,
+                dailyRewards: totalDaily,
+              };
+            });
+          }
+        })
+        .catch(() => {});
+    }
+  }, [user.uid, initialUser?.uid]);
+
   // Recharge State
   const [rechargeAmount, setRechargeAmount] = useState('1000');
   const [rechargeMethod, setRechargeMethod] = useState<'bKash' | 'Nagad' | 'Rocket'>('bKash');
@@ -364,73 +422,181 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
   ) => {
     const activeUid = auth.currentUser?.uid || user.memberId || 'USER1001';
 
-    // 1. MANUAL TRXID VERIFICATION (Sandbox / Auto-Approval Fallback)
+    // 1. MANUAL TRXID VERIFICATION (Gateway Callback / Pending Flow)
     if (channel === 'manual' || manualDetails?.trxId) {
       const trxId = (manualDetails?.trxId || `TXN${Date.now().toString().slice(-8)}`).trim().toUpperCase();
       const sender = manualDetails?.senderPhone || user.phone || '';
+      const depositAmount = Number(amount);
 
       try {
         showToast(
           currentLang === 'bn'
-            ? 'TrxID ভেরিফিকেশন ও ব্যালেন্স জমা হচ্ছে...'
-            : 'Verifying TrxID and crediting balance...'
+            ? 'TrxID যাচাইকরণ প্রক্রিয়া চলছে...'
+            : 'Submitting TrxID for verification...'
         );
 
-        // Notify server database of manual transaction
+        let serverResult: any = null;
         try {
-          await fetch('/api/payments/submit-txnid', {
+          const sRes = await fetch('/api/payments/submit-txnid', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              amount: Number(amount),
+              amount: depositAmount,
               method: method || 'bKash',
               trxId,
               senderPhone: sender,
               userId: activeUid,
             }),
           });
+          serverResult = await sRes.json();
         } catch (serverErr) {
           console.warn('[Manual Deposit Server Log Warning]', serverErr);
         }
 
-        // Atomically update user wallet balance and record in Firestore
-        const result = await recordFirestoreDeposit(activeUid, {
-          amount: Number(amount),
+        const isAutoApproved = serverResult && serverResult.success && serverResult.status === 'COMPLETED';
+        const initialStatus: 'completed' | 'pending' = isAutoApproved ? 'completed' : 'pending';
+
+        // Record in Firestore with appropriate status:
+        // 'completed' will credit wallet balance in Firestore, while 'pending' will NOT credit balance yet!
+        await recordFirestoreDeposit(activeUid, {
+          amount: depositAmount,
           method: method || 'bKash',
           channel: 'manual',
           trxId,
           senderPhone: sender,
+          status: initialStatus,
         });
 
-        // Update local React user state
-        updateUser((prev) => ({
-          ...prev,
-          walletBalance: prev.walletBalance + Number(amount),
-          transactions: [
-            {
-              id: trxId,
-              type: 'deposit',
-              amount: Number(amount),
-              timestamp:
-                new Date().toLocaleDateString('en-GB') +
-                ' ' +
-                new Date().toLocaleTimeString('en-US', {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                }),
-              status: 'completed',
-              description: `Direct TrxID Deposit via ${method} (${trxId})`,
-              hash: trxId,
-            },
-            ...(prev.transactions || []),
-          ],
-        }));
+        const formattedTime =
+          new Date().toLocaleDateString('en-GB') +
+          ' ' +
+          new Date().toLocaleTimeString('en-US', {
+            hour: '2-digit',
+            minute: '2-digit',
+          });
 
-        showToast(
-          currentLang === 'bn'
-            ? `✅ TrxID যাচাই সফল! ৳${Number(amount).toLocaleString()} ওয়ালেটে যুক্ত হয়েছে (TrxID: ${trxId})`
-            : `✅ TrxID verified! ৳${Number(amount).toLocaleString()} credited to your wallet (TrxID: ${trxId})`
-        );
+        const newTxn = {
+          id: trxId,
+          type: 'recharge',
+          title: currentLang === 'bn' ? `ওয়ালেট রিচার্জ (${method})` : `Wallet Recharge (${method})`,
+          amount: depositAmount,
+          timestamp: formattedTime,
+          date: new Date().toLocaleDateString('en-GB'),
+          time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+          status: initialStatus,
+          description: isAutoApproved
+            ? `Direct TrxID Deposit via ${method} (${trxId})`
+            : `TrxID Deposit via ${method} - অপেক্ষমাণ (${trxId})`,
+          hash: trxId,
+          channel: `${method} (Manual TrxID)`,
+          isCredit: isAutoApproved,
+        };
+
+        if (isAutoApproved) {
+          // Auto-approved immediately (for recognized REAL TrxIDs)
+          updateUser((prev) => ({
+            ...prev,
+            walletBalance: prev.walletBalance + depositAmount,
+            transactions: [newTxn, ...(prev.transactions || [])],
+          }));
+
+          showToast(
+            currentLang === 'bn'
+              ? `✅ TrxID যাচাই সফল! ৳${depositAmount.toLocaleString()} ওয়ালেটে যুক্ত হয়েছে (TrxID: ${trxId})`
+              : `✅ TrxID verified! ৳${depositAmount.toLocaleString()} credited to your wallet (TrxID: ${trxId})`
+          );
+        } else {
+          // Kept PENDING awaiting banking / gateway verification
+          updateUser((prev) => ({
+            ...prev,
+            transactions: [newTxn, ...(prev.transactions || [])],
+          }));
+
+          showToast(
+            currentLang === 'bn'
+              ? `⏳ TrxID জমা হয়েছে! ব্যাংকিং ও গেটওয়ে সিস্টেমে যাচাই চলছে (২০ সেকেন্ড অপেক্ষা করুন)...`
+              : `⏳ TrxID submitted! Verifying with banking & payment gateway records (please wait ~20s)...`
+          );
+
+          // Automated polling to verify fake vs real TrxID (every 2s, up to 13 polls = ~26s)
+          const orderNo = serverResult?.order?.orderId || trxId;
+          let pollCount = 0;
+          const maxPolls = 13;
+          const pollTimer = setInterval(async () => {
+            pollCount++;
+
+            try {
+              const checkRes = await fetch(`/api/payments/order-status/${encodeURIComponent(orderNo)}`);
+              const checkData = await checkRes.json();
+              const latestStatus = checkData?.order?.status?.toUpperCase();
+
+              if (latestStatus === 'COMPLETED' || latestStatus === 'SUCCESS') {
+                clearInterval(pollTimer);
+
+                // Update Firestore to completed and add balance
+                await updateFirestoreDepositStatus(activeUid, trxId, 'completed', depositAmount);
+
+                // Update local user state
+                updateUser((prev) => {
+                  const alreadyApproved = (prev.transactions || []).some(
+                    (t: any) => (t.id === trxId || t.hash === trxId) && t.status === 'completed'
+                  );
+                  if (alreadyApproved) return prev;
+
+                  return {
+                    ...prev,
+                    walletBalance: prev.walletBalance + depositAmount,
+                    transactions: (prev.transactions || []).map((t: any) =>
+                      t.id === trxId || t.hash === trxId
+                        ? {
+                            ...t,
+                            status: 'completed',
+                            description: `Direct TrxID Deposit via ${method} - সফল (${trxId})`,
+                          }
+                        : t
+                    ),
+                  };
+                });
+
+                showToast(
+                  currentLang === 'bn'
+                    ? `🎉 গেটওয়ে যাচাই সফল! ৳${depositAmount.toLocaleString()} ওয়ালেটে সফলভাবে যোগ হয়েছে!`
+                    : `🎉 Gateway confirmed deposit! ৳${depositAmount.toLocaleString()} credited successfully!`
+                );
+                return;
+              }
+
+              if (latestStatus === 'CANCELLED' || latestStatus === 'FAILED' || latestStatus === 'REJECTED' || pollCount >= maxPolls) {
+                clearInterval(pollTimer);
+
+                // Mark as cancelled in Firestore (unverified / fake TrxID)
+                await updateFirestoreDepositStatus(activeUid, trxId, 'cancelled');
+
+                updateUser((prev) => ({
+                  ...prev,
+                  transactions: (prev.transactions || []).map((t: any) =>
+                    t.id === trxId || t.hash === trxId
+                      ? {
+                          ...t,
+                          status: 'cancelled',
+                          description: `TrxID Deposit via ${method} - বাতিল (${trxId})`,
+                        }
+                      : t
+                  ),
+                }));
+
+                showToast(
+                  currentLang === 'bn'
+                    ? `❌ TrxID যাচাই ব্যর্থ: ব্যাংকিং বা গেটওয়েতে কোনো পেমেন্ট রেকর্ড মেলেনি। ভুয়া ডিপোজিটটি বাতিল করা হয়েছে।`
+                    : `❌ TrxID verification failed: No matching banking records found. Fake deposit rejected.`
+                );
+                return;
+              }
+            } catch (pErr) {
+              console.warn('[Deposit Status Polling Warn]', pErr);
+            }
+          }, 2000);
+        }
       } catch (err: any) {
         console.error('[Manual Deposit Error]', err);
         showToast(
@@ -824,6 +990,16 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           ],
         }));
 
+        try {
+          distributeReferralDepositCommissions(
+            user.referralCode || user.memberId,
+            amount,
+            user.referralCode || user.memberId
+          );
+        } catch (e) {
+          // ignore
+        }
+
         showToast(
           currentLang === 'bn'
             ? `মার্চেন্ট পেমেন্ট সফল! ৳${amount.toLocaleString()} আপনার ওয়ালেটে জমা হয়েছে (TrxID: ${trxId || orderId})`
@@ -843,15 +1019,52 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     const activeUid = auth.currentUser?.uid || user.memberId;
     if (!activeUid) return;
 
-    const unsubscribe = subscribeToUserTransactions(activeUid, (firestoreTxns) => {
-      if (firestoreTxns && firestoreTxns.length > 0) {
+    // Immediate one-time load on mount
+    getFirestoreUserTransactions(activeUid).then((fsTxns) => {
+      if (fsTxns && fsTxns.length > 0) {
         updateUser((prev) => {
-          const existingIds = new Set((prev.transactions || []).map((t: any) => t.id || t.hash));
-          const newTxns = firestoreTxns.filter((t: any) => !existingIds.has(t.id || t.hash));
+          const prevTxns = prev.transactions || [];
+          const existingIds = new Set(prevTxns.map((t: any) => t.id || t.hash));
+          const newTxns = fsTxns.filter((t: any) => !existingIds.has(t.id || t.hash));
           if (newTxns.length === 0) return prev;
           return {
             ...prev,
-            transactions: [...newTxns, ...(prev.transactions || [])],
+            transactions: [...newTxns, ...prevTxns],
+          };
+        });
+      }
+    });
+
+    const unsubscribe = subscribeToUserTransactions(activeUid, (firestoreTxns) => {
+      if (firestoreTxns && firestoreTxns.length > 0) {
+        updateUser((prev) => {
+          const prevTxns = prev.transactions || [];
+          const firestoreMap = new Map<string, any>();
+          firestoreTxns.forEach((ft: any) => {
+            if (ft.id) firestoreMap.set(ft.id, ft);
+            if (ft.hash) firestoreMap.set(ft.hash, ft);
+          });
+
+          // Merge updated statuses for existing transactions
+          const updatedExisting = prevTxns.map((t: any) => {
+            const match = firestoreMap.get(t.id) || firestoreMap.get(t.hash);
+            if (match && match.status && match.status !== t.status) {
+              return {
+                ...t,
+                status: match.status,
+                description: match.description || t.description,
+              };
+            }
+            return t;
+          });
+
+          // Append any brand new transactions
+          const existingIds = new Set(prevTxns.map((t: any) => t.id || t.hash));
+          const brandNewTxns = firestoreTxns.filter((t: any) => !existingIds.has(t.id || t.hash));
+
+          return {
+            ...prev,
+            transactions: [...brandNewTxns, ...updatedExisting],
           };
         });
       }
@@ -863,6 +1076,53 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       }
     };
   }, [user.memberId]);
+
+  // Automated background verification / cleanup for pending manual deposit transactions
+  useEffect(() => {
+    const activeUid = auth.currentUser?.uid || user.memberId;
+    if (!activeUid) return;
+
+    const pendingDeposits = (user.transactions || []).filter(
+      (t: any) => (t.status === 'pending' || t.status === 'অপেক্ষমাণ') && (t.type === 'deposit' || t.type === 'recharge')
+    );
+
+    if (pendingDeposits.length === 0) return;
+
+    pendingDeposits.forEach(async (pTx: any) => {
+      const trxKey = pTx.id || pTx.hash;
+      if (!trxKey) return;
+      try {
+        const res = await fetch(`/api/payments/check-txnid/${encodeURIComponent(trxKey)}`);
+        const data = await res.json();
+        if (data?.order?.status === 'CANCELLED') {
+          // Sync cancellation to Firestore & local state
+          await updateFirestoreDepositStatus(activeUid, trxKey, 'cancelled');
+          updateUser((prev) => ({
+            ...prev,
+            transactions: (prev.transactions || []).map((t: any) =>
+              t.id === trxKey || t.hash === trxKey
+                ? { ...t, status: 'cancelled', description: `${t.description || 'Deposit'} - বাতিল` }
+                : t
+            ),
+          }));
+        } else if (data?.order?.status === 'COMPLETED') {
+          // Sync completed to Firestore & local state
+          await updateFirestoreDepositStatus(activeUid, trxKey, 'completed', pTx.amount);
+          updateUser((prev) => ({
+            ...prev,
+            walletBalance: prev.walletBalance + (Number(pTx.amount) || 0),
+            transactions: (prev.transactions || []).map((t: any) =>
+              t.id === trxKey || t.hash === trxKey
+                ? { ...t, status: 'completed', description: `${t.description || 'Deposit'} - সফল` }
+                : t
+            ),
+          }));
+        }
+      } catch (err) {
+        console.warn('[Pending Check Error]', err);
+      }
+    });
+  }, [user.transactions?.length]);
 
   // Withdraw State
   const [withdrawAmount, setWithdrawAmount] = useState('2000');
@@ -979,6 +1239,30 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       dailyRewards: totalDaily,
       activeInvestments: updatedInvestments,
     }));
+
+    // Cloud Firestore Sync: persist active investment to user's profile and investments collection
+    const persistentUid = user.uid || user.memberId;
+    if (persistentUid) {
+      recordInvestmentInFirestore(
+        persistentUid,
+        newInvestment,
+        user.walletBalance - amount,
+        maxVip,
+        totalDaily,
+        updatedInvestments
+      ).catch(() => {});
+    }
+
+    // ৩ লেভেল রেফারেল কমিশন (L1: ৭%, L2: ৩%, L3: ১%) আপলাইনে স্বয়ংক্রিয়ভাবে প্রদান
+    try {
+      distributeReferralDepositCommissions(
+        user.referralCode || user.memberId,
+        amount,
+        user.referralCode || user.memberId
+      );
+    } catch (refErr) {
+      console.warn('[Referral Commission Distribution Error]', refErr);
+    }
 
     showToast(
       currentLang === 'bn'
@@ -1341,6 +1625,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
         {currentTab === 'transactions' && (
           <TransactionsTabContent
             userBalance={user.walletBalance}
+            userTransactions={user.transactions || []}
             currentLang={currentLang}
             themeMode={themeMode}
           />
@@ -1350,6 +1635,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
         {currentTab === 'wallet' && (
           <WalletTabContent
             userBalance={user.walletBalance}
+            userCode={user.referralCode || user.memberId || 'NV8829'}
+            userMemberId={user.memberId}
             currentLang={currentLang}
             themeMode={themeMode}
             onOpenRecharge={() => setActiveSubModal('recharge')}
@@ -1364,11 +1651,37 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               updateUser((prev) => ({
                 ...prev,
                 walletBalance: prev.walletBalance + amt,
+                transactions: [
+                  {
+                    id: `PROMO-${Date.now().toString().slice(-6)}`,
+                    type: 'reward',
+                    amount: amt,
+                    timestamp:
+                      new Date().toLocaleDateString('en-GB') +
+                      ' ' +
+                      new Date().toLocaleTimeString('en-US', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      }),
+                    status: 'completed',
+                    description:
+                      currentLang === 'bn'
+                        ? `${lvl} প্রমো বোনাস ক্যাশ রিওয়ার্ড`
+                        : `${lvl} Promo Bonus Cash Reward`,
+                  },
+                  ...(prev.transactions || []),
+                ],
               }));
+
+              const persistentUid = user.uid || user.memberId;
+              if (persistentUid) {
+                updateFirestoreWalletBalance(persistentUid, user.walletBalance + amt).catch(() => {});
+              }
+
               showToast(
                 currentLang === 'bn'
-                  ? `লেভেল ${lvl} থেকে ৳${amt.toLocaleString()} বোনাস ওয়ালেটে জমা হয়েছে!`
-                  : `Level ${lvl} bonus ৳${amt.toLocaleString()} added to wallet!`
+                  ? `${lvl} থেকে ৳${amt.toLocaleString()} প্রমো বোনাস ওয়ালেটে জমা হয়েছে!`
+                  : `${lvl} promo bonus ৳${amt.toLocaleString()} added to wallet!`
               );
             }}
             onWithdrawSubmit={(amt, method, acct) => {
@@ -1409,7 +1722,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           <ReferralPage
             currentLang={currentLang}
             themeMode={themeMode}
-            userCode={user.memberId || 'NV8829'}
+            userCode={user.referralCode || user.memberId || 'NV8829'}
+            userMemberId={user.memberId}
             userBalance={user.walletBalance}
             onBack={() => switchTab('home')}
             onClaimReward={(amt) => {
@@ -1449,7 +1763,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             {/* 1. Official User Profile Header Card (Deep Emerald with Energy Landscape) */}
             <div
               id="profile-user-card"
-              className="relative overflow-hidden rounded-[26px] bg-gradient-to-r from-[#032e22] via-[#043d2e] to-[#064a39] p-4.5 sm:p-5 shadow-2xl border border-emerald-500/30 shrink-0 text-white min-h-[220px] sm:min-h-[235px] flex flex-col justify-between"
+              className="relative overflow-hidden rounded-[26px] bg-gradient-to-r from-[#032e22] via-[#043d2e] to-[#064a39] p-4.5 sm:p-5 shadow-2xl border border-emerald-500/30 shrink-0 text-white min-h-[250px] sm:min-h-[270px] flex flex-col justify-between"
             >
               {/* Energy Wind & Solar Farm Landscape Illustration with Sunrise & Hills */}
               <div className="absolute right-0 top-0 bottom-0 w-[68%] pointer-events-none overflow-hidden select-none">
@@ -1631,7 +1945,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               </div>
 
               {/* Bottom 3-Column Stats Container - Shifted down so the sunrise & landscape shine clearly */}
-              <div className="relative z-10 mt-7 sm:mt-9 rounded-2xl bg-black/45 border border-emerald-500/25 backdrop-blur-md p-2.5 sm:p-3 grid grid-cols-3 divide-x divide-white/10 text-white shadow-lg">
+              <div className="relative z-10 mt-12 sm:mt-16 rounded-2xl bg-black/50 border border-emerald-500/25 backdrop-blur-md p-2.5 sm:p-3 grid grid-cols-3 divide-x divide-white/10 text-white shadow-lg">
                 {/* 1. Total Earnings */}
                 <div className="flex items-center gap-2 sm:gap-2.5 px-1 sm:px-2">
                   <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center text-[#00e676] shrink-0">
@@ -1642,7 +1956,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                       {currentLang === 'bn' ? 'মোট আয়' : 'Total Earnings'}
                     </span>
                     <span className="text-xs sm:text-sm md:text-base font-black text-[#00e676] font-mono tracking-tight leading-none block">
-                      ৳{(user.totalEarnings || 0).toFixed(2)}
+                      ৳{(user.totalEarnings ?? 0).toFixed(2)}
                     </span>
                   </div>
                 </div>
@@ -1657,7 +1971,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                       {currentLang === 'bn' ? 'সক্রিয় ইউনিট' : 'Active Units'}
                     </span>
                     <span className="text-xs sm:text-sm md:text-base font-black text-white font-mono tracking-tight leading-none block">
-                      {user.activeUnits || 1} {currentLang === 'bn' ? 'ইউনিট' : 'Units'}
+                      {user.activeUnits ?? 0} {currentLang === 'bn' ? 'ইউনিট' : 'Units'}
                     </span>
                   </div>
                 </div>
@@ -1672,7 +1986,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                       {currentLang === 'bn' ? 'দৈনিক রিওয়ার্ড' : 'Daily Rewards'}
                     </span>
                     <span className="text-xs sm:text-sm md:text-base font-black text-[#00e676] font-mono tracking-tight leading-none block">
-                      ৳{(user.dailyRewards || 38).toFixed(2)}
+                      ৳{(user.dailyRewards ?? 0).toFixed(2)}
                     </span>
                   </div>
                 </div>

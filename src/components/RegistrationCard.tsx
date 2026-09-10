@@ -212,14 +212,15 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
 
       setIsSubmitting(false);
       if (result.success && result.user) {
-        // নতুন ইউজারের ইউনিক রেফারেল কোড জেনারেট করে লোকাল রেফারেল নেটওয়ার্কে যুক্ত করা
-        const newUserCode = generateUniqueReferralCode(username.trim());
+        // নতুন ইউজারের নির্দিষ্ট রেফারেল কোড ও মেম্বার আইডি দিয়ে রেফারেল নেটওয়ার্কে যুক্ত করা
+        const userRefCode = result.user.referralCode || result.user.memberId || generateUniqueReferralCode(username.trim());
         registerUserInReferralNetwork(
           result.user.uid || 'user_' + Date.now(),
-          newUserCode,
+          userRefCode,
           referralCode.trim(),
           `${countryCode} ${phone}`,
-          username.trim()
+          username.trim(),
+          result.user.memberId
         );
 
         onRegistrationSuccess({

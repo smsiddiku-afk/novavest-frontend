@@ -28,7 +28,7 @@ import {
   Lock,
 } from 'lucide-react';
 import { Language } from '../types';
-import { subscribeToTeamMembers } from "../lib/firebase";
+import { getReferralTreeForUser } from '../utils/referralService';
 
 export interface ReferralMember {
   id: string;
@@ -45,6 +45,7 @@ interface ReferralPageProps {
   currentLang?: Language;
   themeMode?: 'night' | 'day';
   userCode?: string;
+  userMemberId?: string;
   onBack: () => void;
   onClaimReward?: (amount: number) => void;
   showToast?: (msg: string) => void;
@@ -55,6 +56,7 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
   currentLang = 'bn',
   themeMode = 'night',
   userCode = 'NV8829',
+  userMemberId,
   onBack,
   onClaimReward,
   showToast = (_msg: string) => {},
@@ -73,37 +75,30 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
   const [copiedCode, setCopiedCode] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
 
-    const [realMembers, setRealMembers] = useState<ReferralMember[]>([]);
+  // Real referral network data for this user
+  const teamTree = useMemo(() => getReferralTreeForUser(userCode, userMemberId), [userCode, userMemberId]);
+  const realMembers: ReferralMember[] = useMemo(() => {
+    return (teamTree.members || []).map((m) => ({
+      id: m.id,
+      phone: m.phone,
+      username: m.username,
+      level: m.level,
+      date: m.date,
+      investAmount: m.investAmount,
+      commissionEarned: m.commissionEarned,
+      status: m.status,
+    }));
+  }, [teamTree]);
 
-  useEffect(() => {
-    if (!userCode) return;
-    const unsub = subscribeToTeamMembers(userCode, (members) => {
-      setRealMembers(members);
-    });
-    return () => unsub();
-  }, [userCode]);
-
-  const teamTree = useMemo(() => ({
-    totalTeamMembers: realMembers.length,
-    tier1Count: realMembers.length,
-    tier2Count: 0,
-    tier3Count: 0,
-    teamTotalInvested: realMembers.reduce((sum, m) => sum + (m.investmentAmount || 0), 0),
-    totalCommissionEarned: 0,
-    todayEarnings: 0,
-    availableRewards: 0,
-    members: realMembers
-  }), [realMembers]);
-
-  // Available Cash Rewards state (real commissions waiting to be claimed, default 0.0)
+  // Available Cash Rewards state (real commissions waiting to be claimed)
   const [availableRewards, setAvailableRewards] = useState<number>(() => {
-    try {
-      const saved = localStorage.getItem('referral_cash_rewards');
-      return saved !== null ? Math.max(0, Number(saved)) : 0.0;
-    } catch {
-      return 0.0;
-    }
+    return teamTree.availableRewards;
   });
+
+  // Keep in sync with computed tree available rewards
+  React.useEffect(() => {
+    setAvailableRewards(teamTree.availableRewards);
+  }, [teamTree.availableRewards]);
 
   const referralLink = `${window.location.origin}/register?ref=${userCode}`;
 
@@ -575,7 +570,7 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
                   {currentLang === 'bn' ? 'রেফারেল সংখ্যা' : 'Referral Count'}
                 </span>
                 <span className="text-xl sm:text-2xl font-black text-cyan-300 font-mono tracking-tight">
-                  2
+                  {teamTree.totalTeamCount}
                 </span>
               </div>
 
@@ -586,7 +581,7 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
                 </span>
                 <span className="text-xl sm:text-2xl font-black text-amber-400 font-mono tracking-tight flex items-center justify-center gap-0.5">
                   <span className="text-sm text-amber-500">৳</span>
-                  <span>0.94</span>
+                  <span>{teamTree.todayEarnings.toFixed(2)}</span>
                 </span>
               </div>
 
@@ -597,7 +592,7 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
                 </span>
                 <span className="text-xl sm:text-2xl font-black text-amber-400 font-mono tracking-tight flex items-center justify-center gap-0.5">
                   <span className="text-sm text-amber-500">৳</span>
-                  <span>0</span>
+                  <span>{teamTree.yesterdayEarnings.toFixed(2)}</span>
                 </span>
               </div>
             </section>
@@ -1012,7 +1007,7 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
                     : 'bg-slate-900 text-slate-400 border border-slate-800 hover:text-white'
                 }`}
               >
-                {currentLang === 'bn' ? '১ম লেভেল (৭%)' : 'Level 1 (7%)'}
+                {currentLang === 'bn' ? '১ম লেভেল (৭%)' : 'Level 1 (7%)'} ({teamTree.level1Count})
               </button>
 
               <button
@@ -1024,7 +1019,7 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
                     : 'bg-slate-900 text-slate-400 border border-slate-800 hover:text-white'
                 }`}
               >
-                {currentLang === 'bn' ? '২য় লেভেল (৩%)' : 'Level 2 (3%)'}
+                {currentLang === 'bn' ? '২য় লেভেল (৩%)' : 'Level 2 (3%)'} ({teamTree.level2Count})
               </button>
 
               <button
@@ -1036,7 +1031,7 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
                     : 'bg-slate-900 text-slate-400 border border-slate-800 hover:text-white'
                 }`}
               >
-                {currentLang === 'bn' ? '৩য় লেভেল (১%)' : 'Level 3 (1%)'}
+                {currentLang === 'bn' ? '৩য় লেভেল (১%)' : 'Level 3 (1%)'} ({teamTree.level3Count})
               </button>
             </div>
 

@@ -22,8 +22,17 @@ export const TransactionsTabContent: React.FC<TransactionsTabContentProps> = ({
   const [selectedReceipt, setSelectedReceipt] = useState<any | null>(null);
   const [copiedTrx, setCopiedTrx] = useState(false);
 
-  // Real transactions from user session and Firestore
-  const transactions = userTransactions.map((tx: any) => {
+  // Real transactions from user session and Firestore, deduplicated by ID
+  const seenIds = new Set<string>();
+  const transactions = userTransactions
+    .filter((tx: any) => {
+      const keyId = tx.id || tx.hash;
+      if (!keyId) return true;
+      if (seenIds.has(keyId)) return false;
+      seenIds.add(keyId);
+      return true;
+    })
+    .map((tx: any) => {
     const rawStatus = String(tx.status || '').toLowerCase();
     const isPending = rawStatus === 'pending' || rawStatus === 'অপেক্ষমাণ' || rawStatus === 'processing';
     const isCancelled = rawStatus === 'cancelled' || rawStatus === 'rejected' || rawStatus === 'failed' || rawStatus === 'বাতিল' || rawStatus === 'ব্যর্থ';
@@ -154,9 +163,9 @@ export const TransactionsTabContent: React.FC<TransactionsTabContentProps> = ({
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-          {filtered.map((trx) => (
+          {filtered.map((trx, idx) => (
             <div
-              key={trx.id}
+              key={`${trx.id || 'trx'}-${idx}`}
               onClick={() => setSelectedReceipt(trx)}
               className="p-3.5 rounded-2xl bg-[#081224] border border-slate-800/80 hover:border-cyan-500/40 flex items-center justify-between transition-all cursor-pointer group"
             >

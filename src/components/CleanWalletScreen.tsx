@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ArrowLeft,
   History,
@@ -22,7 +22,7 @@ export type PaymentMethodType = 'bKash' | 'Nagad' | 'Rocket';
 export type PaymentChannelType = 'channel1' | 'channel2' | 'gogopay' | 'manual';
 
 export interface ManualDepositDetails {
-  trxId: string;
+  trxId?: string;
   senderPhone?: string;
 }
 
@@ -46,12 +46,6 @@ interface CleanWalletScreenProps {
 const RECHARGE_PRESETS = [100, 300, 500, 1000, 2000, 5000];
 const WITHDRAW_PRESETS = [500, 1000, 2000, 5000, 10000];
 
-const OFFICIAL_MERCHANT_NUMBERS: Record<PaymentMethodType, { number: string; type: string }> = {
-  bKash: { number: '01712-345678', type: 'বিকাশ এজেন্ট / মার্চেন্ট ক্যাশ আউট' },
-  Nagad: { number: '01844-992211', type: 'নগদ এজেন্ট / মার্চেন্ট ক্যাশ আউট' },
-  Rocket: { number: '01911-223344', type: 'রকেট এজেন্ট ক্যাশ আউট' },
-};
-
 export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
   currentBalance,
   currentLang = 'en',
@@ -71,9 +65,6 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
   const [localToast, setLocalToast] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [redirectUrl, setRedirectUrl] = useState<string | null>(null);
-  const [manualTrxId, setManualTrxId] = useState<string>('');
-  const [manualSenderPhone, setManualSenderPhone] = useState<string>('');
-  const [copiedNumber, setCopiedNumber] = useState<boolean>(false);
 
   const displayToast = (msg: string) => {
     if (showToast) {
@@ -82,13 +73,6 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
       setLocalToast(msg);
       setTimeout(() => setLocalToast(null), 3000);
     }
-  };
-
-  const handleCopyNumber = (num: string) => {
-    navigator.clipboard.writeText(num.replace(/[^0-9]/g, ''));
-    setCopiedNumber(true);
-    displayToast(currentLang === 'bn' ? 'নম্বরটি কপি করা হয়েছে!' : 'Number copied to clipboard!');
-    setTimeout(() => setCopiedNumber(false), 2000);
   };
 
   const handleRechargeSubmit = async () => {
@@ -112,107 +96,6 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
     }
     if (num > 50000) {
       displayToast(currentLang === 'bn' ? 'সর্বোচ্চ রিচার্জের পরিমাণ ৫০,০০০.০০ টাকা' : 'Maximum recharge amount is 50,000.00 BDT');
-      return;
-    }
-
-    // Manual TrxID deposit submission
-    if (selectedChannel === 'manual') {
-      const cleanTrx = manualTrxId.trim().toUpperCase();
-      if (!cleanTrx || cleanTrx.length < 4) {
-        displayToast(
-          currentLang === 'bn'
-            ? 'অনুগ্রহ করে সঠিক ট্রানজেকশন আইডি (TrxID) লিখুন (কমপক্ষে ৪ অক্ষর)'
-            : 'Please enter a valid Transaction ID (at least 4 characters)'
-        );
-        return;
-      }
-
-      try {
-        setIsSubmitting(true);
-        await Promise.resolve(
-          onConfirmRecharge(num, selectedMethod, 'manual', {
-            trxId: cleanTrx,
-            senderPhone: manualSenderPhone.trim(),
-          })
-        );
-        setManualTrxId('');
-      } catch (err) {
-        console.error(err);
-      } finally {
-        setIsSubmitting(false);
-      }
-      return;
-    }
-
-    // Direct WatchPay execution for Channel 2
-    if (selectedChannel === 'channel2' || (selectedChannel as string) === 'watchpay') {
-      try {
-        setIsSubmitting(true);
-        setRedirectUrl(null);
-
-        let data: any = null;
-        try {
-          // Use server proxy which unpacks the inner iframe to prevent browser SAMEORIGIN crashes
-          const proxyRes = await fetch('/api/v1/watchpay/create-order', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              amount: num,
-              payerName: 'Customer',
-            }),
-          });
-          data = await proxyRes.json();
-        } catch (proxyErr) {
-          console.warn('[WatchPay] Proxy failed, falling back to direct endpoint:', proxyErr);
-          const directRes = await fetch('https://nekpay-backend.onrender.com/create-order-watchpay', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              amount: num,
-              payerName: 'Customer',
-            }),
-          });
-          data = await directRes.json();
-        }
-
-        console.log('[WatchPay] Response:', data);
-
-        if (data && data.success && data.paymentLink) {
-          const targetUrl = data.paymentLink;
-          setRedirectUrl(targetUrl);
-
-          try {
-            if (window.top && window.top !== window) {
-              window.top.location.href = targetUrl;
-            } else {
-              window.location.href = targetUrl;
-            }
-          } catch (navErr) {
-            console.warn('[WatchPay] Window top navigation fallback:', navErr);
-            window.location.href = targetUrl;
-          }
-          return;
-        } else {
-          displayToast(
-            data?.message ||
-            data?.error ||
-            (currentLang === 'bn' ? '⚠️ WatchPay পেমেন্ট তৈরি ব্যর্থ হয়েছে' : '⚠️ Failed to create WatchPay payment link')
-          );
-        }
-      } catch (err: any) {
-        console.error('[WatchPay Error]', err);
-        displayToast(
-          currentLang === 'bn'
-            ? '⚠️ WatchPay গেটওয়ে সার্ভিসে সংযোগ করা যাচ্ছে না'
-            : '⚠️ Failed to connect to WatchPay gateway'
-        );
-      } finally {
-        setIsSubmitting(false);
-      }
       return;
     }
 
@@ -580,63 +463,6 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
                     )}
                   </div>
                 </div>
-
-                {/* Channel 3: Manual TrxID (Pending Verification) */}
-                <div
-                  id="payment-channel-3-manual"
-                  onClick={() => setSelectedChannel('manual')}
-                  className={`relative overflow-hidden p-4 sm:p-5 rounded-2xl flex items-center justify-between cursor-pointer transition-all duration-300 border-2 group sm:col-span-2 ${
-                    selectedChannel === 'manual'
-                      ? 'bg-gradient-to-br from-[#092b42] to-[#061826] border-[#18c4e6] shadow-[0_0_24px_rgba(24,196,230,0.35)] text-white scale-[1.01]'
-                      : 'bg-[#07141f] border-slate-800 text-slate-400 hover:border-slate-700 hover:bg-[#091b29]'
-                  }`}
-                >
-                  {selectedChannel === 'manual' && (
-                    <div className="absolute top-0 left-0 right-0 h-[3px] bg-gradient-to-r from-transparent via-[#18c4e6] to-transparent animate-pulse" />
-                  )}
-
-                  <div className="flex items-center gap-3.5">
-                    <div
-                      className={`relative w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 transition-all duration-300 ${
-                        selectedChannel === 'manual'
-                          ? 'bg-gradient-to-tr from-amber-500/20 via-orange-500/20 to-yellow-500/30 border border-amber-400/50 shadow-[0_0_16px_rgba(245,158,11,0.4)]'
-                          : 'bg-[#0b1d2c] border border-slate-700/60 group-hover:border-amber-500/30'
-                      }`}
-                    >
-                      <Clock
-                        className={`w-6 h-6 transition-transform duration-300 ${
-                          selectedChannel === 'manual'
-                            ? 'text-amber-300 scale-110 drop-shadow-[0_0_8px_rgba(245,158,11,0.8)] animate-pulse'
-                            : 'text-amber-400 group-hover:scale-110'
-                        }`}
-                      />
-                    </div>
-
-                    <div className="text-left">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-sm sm:text-base font-black text-white block leading-tight">চ্যানেল ৩</span>
-                      </div>
-                      <span className="text-xs sm:text-sm text-amber-300 font-bold flex items-center gap-1.5 mt-1">
-                        <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
-                        ম্যানুয়াল TrxID (Pending যাচাই)
-                      </span>
-                    </div>
-                  </div>
-
-                  <div
-                    className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-all duration-300 ${
-                      selectedChannel === 'manual'
-                        ? 'border-[#18c4e6] bg-[#18c4e6] scale-110'
-                        : 'border-slate-700 bg-slate-900/50'
-                    }`}
-                  >
-                    {selectedChannel === 'manual' ? (
-                      <Check className="w-3.5 h-3.5 text-[#051119] stroke-[3]" />
-                    ) : (
-                      <span className="w-1.5 h-1.5 rounded-full bg-slate-600" />
-                    )}
-                  </div>
-                </div>
               </div>
             </div>
 
@@ -651,7 +477,6 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
                   <span className="text-xs sm:text-sm text-emerald-400 font-mono font-bold">
                     {selectedChannel === 'channel1' && 'চ্যানেল ১ সক্রিয়'}
                     {selectedChannel === 'channel2' && 'চ্যানেল ২ সক্রিয়'}
-                    {selectedChannel === 'manual' && 'চ্যানেল ৩ (ম্যানুয়াল TrxID)'}
                   </span>
                 </div>
                 <div className="grid grid-cols-3 gap-2.5 sm:gap-3">
@@ -751,86 +576,6 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
                     </div>
                   </div>
                 </div>
-
-                {/* MANUAL TRXID INPUTS (WHEN CHANNEL 3 IS SELECTED) */}
-                {selectedChannel === 'manual' && (
-                  <div className="mt-4 p-4 sm:p-5 rounded-2xl bg-[#071724] border-2 border-amber-500/40 space-y-3.5 animate-in fade-in slide-in-from-top-2 duration-300">
-                    {/* Merchant Cashout Number Card */}
-                    <div className="p-3.5 rounded-xl bg-[#092235] border border-cyan-500/30 space-y-2">
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="text-slate-300 font-bold">{OFFICIAL_MERCHANT_NUMBERS[selectedMethod]?.type}</span>
-                        <span className="text-amber-400 font-extrabold text-[11px] px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30">
-                          ক্যাশ আউট নম্বর
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between bg-[#040e17] px-3.5 py-2.5 rounded-xl border border-slate-700">
-                        <span className="font-mono text-base sm:text-lg font-black text-amber-300 tracking-wider">
-                          {OFFICIAL_MERCHANT_NUMBERS[selectedMethod]?.number}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => handleCopyNumber(OFFICIAL_MERCHANT_NUMBERS[selectedMethod]?.number)}
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cyan-500/20 text-cyan-300 hover:bg-cyan-500/30 text-xs font-bold transition-all cursor-pointer"
-                        >
-                          {copiedNumber ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                          <span>{copiedNumber ? 'কপি হয়েছে' : 'কপি করুন'}</span>
-                        </button>
-                      </div>
-                      <p className="text-[11px] text-slate-400">
-                        * উপরের নম্বরে সঠিক পরিমাণ (৳{amount || '100'}) ক্যাশ আউট বা সেন্ড মানি করুন এবং প্রাপ্ত TrxID নিচে লিখুন।
-                      </p>
-                    </div>
-
-                    {/* Transaction ID (TrxID) Field */}
-                    <div className="space-y-1.5">
-                      <label className="text-xs sm:text-sm font-extrabold text-white flex items-center justify-between">
-                        <span>ট্রানজেকশন আইডি (TrxID) *</span>
-                        <span className="text-[11px] text-amber-400 font-mono">বাধ্যতামূলক (কমপক্ষে ৪ অক্ষর)</span>
-                      </label>
-                      <div className="relative flex items-center bg-[#050e17] border-2 border-slate-700 focus-within:border-amber-400 rounded-xl px-4 py-3 transition-all">
-                        <input
-                          id="manual-deposit-trxid-input"
-                          type="text"
-                          value={manualTrxId}
-                          onChange={(e) => setManualTrxId(e.target.value.toUpperCase())}
-                          placeholder="যেমন: BK7A19BC82 বা TrxID"
-                          className="w-full bg-transparent text-white font-mono text-base font-black placeholder:text-slate-500 focus:outline-none uppercase"
-                        />
-                      </div>
-                    </div>
-
-                    {/* Sender Phone Field */}
-                    <div className="space-y-1.5">
-                      <label className="text-xs sm:text-sm font-bold text-slate-200">
-                        যে নম্বর থেকে টাকা পাঠিয়েছেন (ঐচ্ছিক)
-                      </label>
-                      <div className="relative flex items-center bg-[#050e17] border-2 border-slate-700 focus-within:border-cyan-400 rounded-xl px-4 py-3 transition-all">
-                        <input
-                          id="manual-deposit-sender-phone-input"
-                          type="tel"
-                          value={manualSenderPhone}
-                          onChange={(e) => setManualSenderPhone(e.target.value)}
-                          placeholder="01XXXXXXXXX"
-                          className="w-full bg-transparent text-white font-mono text-sm font-bold placeholder:text-slate-500 focus:outline-none"
-                        />
-                      </div>
-                    </div>
-
-                    {/* Transparent Pending Notice */}
-                    <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs space-y-1.5">
-                      <div className="flex items-center gap-1.5 font-bold text-amber-300">
-                        <Clock className="w-4 h-4 animate-pulse shrink-0" />
-                        <span>পেন্ডিং ও গেটওয়ে কলব্যাক নিয়মাবলী:</span>
-                      </div>
-                      <p className="text-slate-300 text-[11px] leading-relaxed">
-                        • TrxID সাবমিট করার পর এটি তাৎক্ষণিকভাবে আপনার ট্রানজেকশনে <b>'অপেক্ষমাণ' (Pending)</b> হিসেবে দেখাবে।
-                      </p>
-                      <p className="text-slate-300 text-[11px] leading-relaxed">
-                        • গেটওয়ে থেকে কলব্যাক পেলে অথবা সিস্টেম/অ্যাডমিন ভেরিফিকেশন সম্পন্ন হলে স্বয়ংক্রিয়ভাবে <b>'সফল' (Completed)</b> হয়ে ওয়ালেটে ব্যালেন্স জমা হবে। অন্যথায় <b>'বাতিল' (Cancelled)</b> হবে।
-                      </p>
-                    </div>
-                  </div>
-                )}
               </div>
             ) : (
               /* Notice shown until a channel is selected */
@@ -838,8 +583,8 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
                 <Layers className="w-5 h-5 text-[#18c4e6] shrink-0" />
                 <span>
                   {currentLang === 'bn'
-                    ? 'উপরে চ্যানেল ১, চ্যানেল ২ অথবা চ্যানেল ৩ নির্বাচন করুন।'
-                    : 'Select Channel 1, Channel 2, or Channel 3 above.'}
+                    ? 'উপরে চ্যানেল ১ অথবা চ্যানেল ২ নির্বাচন করুন।'
+                    : 'Select Channel 1 or Channel 2 above.'}
                 </span>
               </div>
             )}
@@ -849,7 +594,7 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
               <button
                 id="wallet-confirm-recharge-btn"
                 type="button"
-                disabled={isSubmitting || !selectedChannel || (selectedChannel === 'manual' && manualTrxId.trim().length < 4)}
+                disabled={isSubmitting || !selectedChannel}
                 onClick={handleRechargeSubmit}
                 className="w-full py-4.5 sm:py-5 rounded-2xl bg-gradient-to-r from-[#18c4e6] via-[#22d3ee] to-[#0ea5e9] hover:from-[#15b3d2] hover:to-[#0284c7] active:scale-[0.98] text-[#051119] font-black text-base sm:text-xl tracking-wide shadow-[0_8px_32px_rgba(24,196,230,0.45)] transition-all cursor-pointer flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
               >
@@ -867,9 +612,7 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
                   <>
                     <Zap className="w-6 h-6 fill-current" />
                     <span>
-                      {selectedChannel === 'manual'
-                        ? `TrxID সাবমিট করুন (পেন্ডিং যাচাই) • ৳${amount || '১০০'}`
-                        : selectedChannel === 'channel2'
+                      {selectedChannel === 'channel2'
                         ? `WatchPay (${selectedMethod}) • ৳${amount || '100'}`
                         : currentLang === 'bn'
                         ? `NEKpay (${selectedMethod}) • ৳${amount || '১০০'}`

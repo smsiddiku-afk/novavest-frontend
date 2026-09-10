@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { PromoBonusScreen } from './PromoBonusScreen';
-import { CleanWalletScreen, PaymentMethodType, PaymentChannelType } from './CleanWalletScreen';
+import { CleanWalletScreen, PaymentMethodType, PaymentChannelType, ManualDepositDetails } from './CleanWalletScreen';
 import { Language } from '../types';
 import { Award, Wallet as WalletIcon } from 'lucide-react';
 
@@ -13,7 +13,12 @@ interface WalletTabContentProps {
   onOpenRecharge?: () => void;
   onOpenWithdraw?: () => void;
   onOpenBankBinding?: () => void;
-  onOpenGateway?: (amount: number, method: PaymentMethodType, channel?: PaymentChannelType) => void;
+  onOpenGateway?: (
+    amount: number,
+    method: PaymentMethodType,
+    channel?: PaymentChannelType,
+    manualDetails?: ManualDepositDetails
+  ) => void;
   onOpenHistory?: () => void;
   onBack?: () => void;
   onWithdrawSubmit?: (amount: number, method: PaymentMethodType, account: string) => void;
@@ -68,9 +73,9 @@ export const WalletTabContent: React.FC<WalletTabContentProps> = ({
           initialTab="recharge"
           onBack={() => setSubView('promo')}
           onOpenHistory={onOpenHistory}
-          onConfirmRecharge={(amount, method, channel) => {
+          onConfirmRecharge={(amount, method, channel, manualDetails) => {
             if (onOpenGateway) {
-              onOpenGateway(amount, method, channel);
+              onOpenGateway(amount, method, channel, manualDetails);
             } else if (onOpenRecharge) {
               onOpenRecharge();
             }

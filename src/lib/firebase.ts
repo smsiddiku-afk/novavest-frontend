@@ -585,6 +585,14 @@ export const updateFirestoreDepositStatus = async (
 };
 
 /**
+ * Security: Client-side TrxIDs must NEVER be trusted as auto-approved.
+ * Only verified server webhooks or admin approvals can confirm a transaction.
+ */
+export const isValidRealTrxId = (_trxId: string): boolean => {
+  return false;
+};
+
+/**
  * Fetch all user transactions from Firestore
  */
 export const getFirestoreUserTransactions = async (uid: string): Promise<TransactionRecord[]> => {

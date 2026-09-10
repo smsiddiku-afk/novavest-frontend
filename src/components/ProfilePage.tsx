@@ -74,6 +74,7 @@ import { distributeReferralDepositCommissions } from '../utils/referralService';
 import {
   recordFirestoreDeposit,
   updateFirestoreDepositStatus,
+  isValidRealTrxId,
   getFirestoreUserTransactions,
   subscribeToUserTransactions,
   recordInvestmentInFirestore,
@@ -423,7 +424,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     const activeUid = auth.currentUser?.uid || user.memberId || 'USER1001';
 
     // 1. MANUAL TRXID VERIFICATION (Gateway Callback / Pending Flow)
-    if (channel === 'manual' || manualDetails?.trxId) {
+    if (channel === 'manual') {
       const trxId = (manualDetails?.trxId || `TXN${Date.now().toString().slice(-8)}`).trim().toUpperCase();
       const sender = manualDetails?.senderPhone || user.phone || '';
       const depositAmount = Number(amount);
@@ -453,7 +454,10 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           console.warn('[Manual Deposit Server Log Warning]', serverErr);
         }
 
-        const isAutoApproved = serverResult && serverResult.success && serverResult.status === 'COMPLETED';
+        // Security fix: NEVER auto-approve based on client-side regex.
+        // A deposit is ONLY approved if the server gateway explicitly confirmed 'COMPLETED'.
+        // Any unverified or fake manual TrxID will stay 'pending' and reject if invalid.
+        const isAutoApproved = Boolean(serverResult && serverResult.success && serverResult.status === 'COMPLETED');
         const initialStatus: 'completed' | 'pending' = isAutoApproved ? 'completed' : 'pending';
 
         // Record in Firestore with appropriate status:
@@ -494,11 +498,16 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
         if (isAutoApproved) {
           // Auto-approved immediately (for recognized REAL TrxIDs)
-          updateUser((prev) => ({
-            ...prev,
-            walletBalance: prev.walletBalance + depositAmount,
-            transactions: [newTxn, ...(prev.transactions || [])],
-          }));
+          updateUser((prev) => {
+            const cleanPrev = (prev.transactions || []).filter(
+              (t: any) => t.id !== newTxn.id && t.hash !== newTxn.id
+            );
+            return {
+              ...prev,
+              walletBalance: prev.walletBalance + depositAmount,
+              transactions: [newTxn, ...cleanPrev],
+            };
+          });
 
           showToast(
             currentLang === 'bn'
@@ -507,28 +516,36 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           );
         } else {
           // Kept PENDING awaiting banking / gateway verification
-          updateUser((prev) => ({
-            ...prev,
-            transactions: [newTxn, ...(prev.transactions || [])],
-          }));
+          updateUser((prev) => {
+            const cleanPrev = (prev.transactions || []).filter(
+              (t: any) => t.id !== newTxn.id && t.hash !== newTxn.id
+            );
+            return {
+              ...prev,
+              transactions: [newTxn, ...cleanPrev],
+            };
+          });
 
           showToast(
             currentLang === 'bn'
-              ? `⏳ TrxID জমা হয়েছে! ব্যাংকিং ও গেটওয়ে সিস্টেমে যাচাই চলছে (২০ সেকেন্ড অপেক্ষা করুন)...`
-              : `⏳ TrxID submitted! Verifying with banking & payment gateway records (please wait ~20s)...`
+              ? `⏳ TrxID জমা হয়েছে! ব্যাংকিং ও গেটওয়ে সিস্টেমে যাচাই চলছে (১৫ সেকেন্ড অপেক্ষা করুন)...`
+              : `⏳ TrxID submitted! Verifying with banking & payment gateway records (please wait ~15s)...`
           );
 
-          // Automated polling to verify fake vs real TrxID (every 2s, up to 13 polls = ~26s)
+          // Verification countdown for fake / unverified TrxIDs (7 polls of 2s = ~14s)
           const orderNo = serverResult?.order?.orderId || trxId;
           let pollCount = 0;
-          const maxPolls = 13;
+          const maxPolls = 7;
           const pollTimer = setInterval(async () => {
             pollCount++;
 
             try {
-              const checkRes = await fetch(`/api/payments/order-status/${encodeURIComponent(orderNo)}`);
-              const checkData = await checkRes.json();
-              const latestStatus = checkData?.order?.status?.toUpperCase();
+              let latestStatus: string | undefined;
+              try {
+                const checkRes = await fetch(`/api/payments/order-status/${encodeURIComponent(orderNo)}`);
+                const checkData = await checkRes.json();
+                latestStatus = checkData?.order?.status?.toUpperCase();
+              } catch (_) {}
 
               if (latestStatus === 'COMPLETED' || latestStatus === 'SUCCESS') {
                 clearInterval(pollTimer);
@@ -566,10 +583,16 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 return;
               }
 
-              if (latestStatus === 'CANCELLED' || latestStatus === 'FAILED' || latestStatus === 'REJECTED' || pollCount >= maxPolls) {
+              if (pollCount >= maxPolls) {
+                clearInterval(pollTimer);
+                // Keep the deposit safely as PENDING in Firestore and state awaiting gateway/admin review
+                return;
+              }
+
+              if (latestStatus === 'CANCELLED' || latestStatus === 'FAILED' || latestStatus === 'REJECTED') {
                 clearInterval(pollTimer);
 
-                // Mark as cancelled in Firestore (unverified / fake TrxID)
+                // Mark as cancelled in Firestore only if gateway explicitly confirmed rejection
                 await updateFirestoreDepositStatus(activeUid, trxId, 'cancelled');
 
                 updateUser((prev) => ({
@@ -587,8 +610,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
                 showToast(
                   currentLang === 'bn'
-                    ? `❌ TrxID যাচাই ব্যর্থ: ব্যাংকিং বা গেটওয়েতে কোনো পেমেন্ট রেকর্ড মেলেনি। ভুয়া ডিপোজিটটি বাতিল করা হয়েছে।`
-                    : `❌ TrxID verification failed: No matching banking records found. Fake deposit rejected.`
+                    ? `❌ TrxID যাচাই ব্যর্থ: গেটওয়েতে কোনো পেমেন্ট রেকর্ড মেলেনি। ডিপোজিটটি বাতিল করা হয়েছে।`
+                    : `❌ TrxID verification failed: No matching banking records found. Deposit rejected.`
                 );
                 return;
               }
@@ -761,6 +784,49 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
         console.log('Nekpay create-order response:', data);
 
         if (data.success && data.paymentLink) {
+          const orderNo = data.orderNo || `NEK${Date.now().toString().slice(-8)}`;
+
+          // Immediately record pending deposit in Firestore so it shows in transaction history
+          await recordFirestoreDeposit(activeUid, {
+            amount: Number(amount),
+            method: method || 'bKash',
+            channel: 'channel1',
+            trxId: orderNo,
+            orderNo,
+            status: 'pending',
+          });
+
+          const formattedTime =
+            new Date().toLocaleDateString('en-GB') +
+            ' ' +
+            new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+
+          updateUser((prev) => {
+            const cleanPrev = (prev.transactions || []).filter(
+              (t: any) => t.id !== orderNo && t.hash !== orderNo
+            );
+            return {
+              ...prev,
+              transactions: [
+                {
+                  id: orderNo,
+                  type: 'recharge',
+                  title: currentLang === 'bn' ? `ওয়ালেট রিচার্জ (${method || 'bKash'})` : `Wallet Recharge (${method || 'bKash'})`,
+                  amount: Number(amount),
+                  timestamp: formattedTime,
+                  date: new Date().toLocaleDateString('en-GB'),
+                  time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+                  status: 'pending',
+                  description: `Nekpay Order: ${orderNo} - অপেক্ষমাণ`,
+                  hash: orderNo,
+                  channel: `${method || 'bKash'} (Nekpay)`,
+                  isCredit: false,
+                },
+                ...cleanPrev,
+              ],
+            };
+          });
+
           let opened = null;
           try {
             opened = window.open(data.paymentLink, '_blank');
@@ -777,7 +843,6 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           );
 
           // Automated polling for order completion
-          const orderNo = data.orderNo;
           if (orderNo) {
             let attempts = 0;
             const pollInterval = setInterval(async () => {
@@ -799,29 +864,23 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                     channel: 'channel1',
                     trxId: checkData.order?.trxId || orderNo,
                     orderNo,
+                    status: 'completed',
                   });
 
                   updateUser((prev) => ({
                     ...prev,
                     walletBalance: prev.walletBalance + Number(amount),
-                    transactions: [
-                      {
-                        id: checkData.order?.trxId || orderNo,
-                        type: 'deposit',
-                        amount: Number(amount),
-                        timestamp:
-                          new Date().toLocaleDateString('en-GB') +
-                          ' ' +
-                          new Date().toLocaleTimeString('en-US', {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          }),
-                        status: 'completed',
-                        description: `Nekpay Deposit (${method})`,
-                        hash: checkData.order?.trxId || orderNo,
-                      },
-                      ...(prev.transactions || []),
-                    ],
+                    transactions: (prev.transactions || []).map((t: any) =>
+                      t.id === orderNo || t.hash === orderNo
+                        ? {
+                            ...t,
+                            status: 'completed',
+                            description: `Nekpay Deposit (${method || 'bKash'}) - সফল`,
+                            hash: checkData.order?.trxId || orderNo,
+                            isCredit: true,
+                          }
+                        : t
+                    ),
                   }));
 
                   showToast(
@@ -896,6 +955,63 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
       if (data && data.success && data.paymentLink) {
         const targetUrl = data.paymentLink;
+        const orderNo = data.orderNo || `WPY${Date.now().toString().slice(-8)}`;
+
+        // Record pending deposit in Firestore so it immediately shows in transaction history
+        await recordFirestoreDeposit(activeUid, {
+          amount: Number(amount),
+          method: method || 'Nagad',
+          channel: 'channel2',
+          trxId: orderNo,
+          orderNo,
+          status: 'pending',
+        });
+
+        // Store in localStorage for easy return recovery
+        try {
+          localStorage.setItem(
+            'pending_gateway_deposit',
+            JSON.stringify({
+              orderNo,
+              amount: Number(amount),
+              method: method || 'Nagad',
+              channel: 'channel2',
+              timestamp: Date.now(),
+            })
+          );
+        } catch (_) {}
+
+        const formattedTime =
+          new Date().toLocaleDateString('en-GB') +
+          ' ' +
+          new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+
+        updateUser((prev) => {
+          const cleanPrev = (prev.transactions || []).filter(
+            (t: any) => t.id !== orderNo && t.hash !== orderNo
+          );
+          return {
+            ...prev,
+            transactions: [
+              {
+                id: orderNo,
+                type: 'recharge',
+                title: currentLang === 'bn' ? `ওয়ালেট রিচার্জ (${method || 'Nagad'})` : `Wallet Recharge (${method || 'Nagad'})`,
+                amount: Number(amount),
+                timestamp: formattedTime,
+                date: new Date().toLocaleDateString('en-GB'),
+                time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+                status: 'pending',
+                description: `WatchPay Order: ${orderNo} - অপেক্ষমাণ`,
+                hash: orderNo,
+                channel: `${method || 'Nagad'} (WatchPay)`,
+                isCredit: false,
+              },
+              ...cleanPrev,
+            ],
+          };
+        });
+
         try {
           if (window.top && window.top !== window) {
             window.top.location.href = targetUrl;
@@ -1008,6 +1124,14 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
         // Remove payment callback query params so refreshing doesn't duplicate
         window.history.replaceState({}, document.title, window.location.pathname);
+      } else if (orderId && !isSuccess) {
+        // Returned from gateway with pending or unverified status
+        showToast(
+          currentLang === 'bn'
+            ? 'পেমেন্ট যাচাই প্রক্রিয়াধীন রয়েছে। আপনার ট্রানজেকশন হিস্ট্রিতে রেকর্ডটি অপেক্ষমাণ রয়েছে।'
+            : 'Payment verification is pending. The transaction is listed as pending in your history.'
+        );
+        window.history.replaceState({}, document.title, window.location.pathname);
       }
     } catch (err) {
       console.warn('[Payment Return Handling Warning]', err);
@@ -1062,9 +1186,19 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           const existingIds = new Set(prevTxns.map((t: any) => t.id || t.hash));
           const brandNewTxns = firestoreTxns.filter((t: any) => !existingIds.has(t.id || t.hash));
 
+          const combined = [...brandNewTxns, ...updatedExisting];
+          const seen = new Set<string>();
+          const dedupedTransactions = combined.filter((t: any) => {
+            const key = t.id || t.hash;
+            if (!key) return true;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          });
+
           return {
             ...prev,
-            transactions: [...brandNewTxns, ...updatedExisting],
+            transactions: dedupedTransactions,
           };
         });
       }
@@ -1642,8 +1776,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             onOpenRecharge={() => setActiveSubModal('recharge')}
             onOpenWithdraw={() => setActiveSubModal('withdraw')}
             onOpenBankBinding={() => setActiveSubModal('payment')}
-            onOpenGateway={(amount, method, channel) => {
-              handleInitiateDeposit(amount, method, channel);
+            onOpenGateway={(amount, method, channel, manualDetails) => {
+              handleInitiateDeposit(amount, method, channel, manualDetails);
             }}
             onOpenHistory={() => switchTab('transactions')}
             onBack={() => switchTab('home')}

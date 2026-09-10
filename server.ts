@@ -625,14 +625,12 @@ async function startServer() {
 
     const orderNo = `DEP-TXN-${Date.now().toString().slice(-6)}`;
 
-    // Real TrxID recognition criteria:
-    // 1. Pre-verified or completed in database
-    // 2. Starts with "REAL", "VERIFIED", "APPROVED", or "OK"
+    // Only allow COMPLETED if an existing order was already verified by payment gateway webhook
     const existing = ordersDatabase.get(cleanTrxId);
-    const isAlreadyCompleted = existing && (existing.status === 'COMPLETED' || existing.status === 'SUCCESS');
-    const isRecognizedReal = isAlreadyCompleted || cleanTrxId.startsWith('REAL') || cleanTrxId.startsWith('VERIFIED') || cleanTrxId.startsWith('APPROVED') || cleanTrxId.startsWith('OK');
+    const isAlreadyCompleted = Boolean(existing && (existing.status === 'COMPLETED' || existing.status === 'SUCCESS'));
 
-    const orderStatus = isRecognizedReal ? 'COMPLETED' : 'PENDING';
+    // Security: All submitted TrxIDs start strictly as PENDING until confirmed by gateway or admin
+    const orderStatus = isAlreadyCompleted ? 'COMPLETED' : 'PENDING';
     const isVerified = orderStatus === 'COMPLETED';
     const verificationDeadline = isVerified ? undefined : Date.now() + 20000; // 20s verification window for unverified/fake TrxIDs
 

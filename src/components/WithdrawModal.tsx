@@ -173,8 +173,8 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
       return;
     }
 
-    if (amt < 500) {
-      setErrorMsg(isBn ? 'সর্বনিম্ন উত্তোলনের পরিমাণ ৫০০ টাকা।' : 'Minimum withdrawal amount is ৳ 500.00');
+    if (amt < 400) {
+      setErrorMsg(isBn ? 'সর্বনিম্ন উত্তোলনের পরিমাণ ৪০০ টাকা।' : 'Minimum withdrawal amount is ৳ 400.00');
       return;
     }
 
@@ -359,14 +359,14 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
       {/* 1. Top Header Matching Main Site Design */}
       <header
         id="withdraw-page-header"
-        className="sticky top-0 z-30 bg-[#0A1325]/95 backdrop-blur-md px-4 py-3.5 sm:px-6 border-b border-slate-800/80 flex items-center justify-between"
+        className="sticky top-0 z-30 bg-[#042018]/95 backdrop-blur-md px-4 py-3.5 sm:px-6 border-b border-emerald-500/20 flex items-center justify-between"
       >
         <div className="flex items-center gap-3">
           <button
             id="withdraw-close-button"
             type="button"
             onClick={onClose}
-            className="w-9 h-9 rounded-full bg-[#0F192B] hover:bg-[#16243D] text-slate-300 hover:text-white flex items-center justify-center transition-all cursor-pointer active:scale-95 border border-slate-700/60"
+            className="w-9 h-9 rounded-full bg-[#042018] hover:bg-[#072c21] text-emerald-300 hover:text-white flex items-center justify-center transition-all cursor-pointer active:scale-95 border border-emerald-500/30"
             aria-label="Back"
           >
             <ArrowLeft className="w-5 h-5" />
@@ -375,13 +375,13 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
             <h1 className="text-base sm:text-lg font-bold text-white tracking-wide flex items-center gap-2">
               <span>{isBn ? 'টাকা উত্তোলন' : 'Withdraw Funds'}</span>
             </h1>
-            <p className="text-[11px] text-slate-400">
+            <p className="text-[11px] text-slate-300">
               {isBn ? 'যুক্ত করা ওয়ালেটে সরাসরি ক্যাশ আউট' : 'Instant payout to your linked account'}
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 text-xs font-semibold">
+        <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs font-semibold">
           <ShieldCheck className="w-3.5 h-3.5" />
           <span>{isBn ? 'সুরক্ষিত পেআউট' : 'Secure Payout'}</span>
         </div>
@@ -390,7 +390,7 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
       {/* Main Container */}
       <main className="flex-1 w-full max-w-md mx-auto px-4 py-5 space-y-4">
         {/* 2. Top Tabs: Deposit | Withdrawal (Site Color Theme) */}
-        <div className="bg-[#0A1428] p-1.5 rounded-2xl border border-slate-800/80 flex items-center gap-1 shadow-inner">
+        <div className="bg-[#042018] p-1.5 rounded-2xl border border-emerald-500/20 flex items-center gap-1 shadow-inner">
           <button
             type="button"
             onClick={() => {
@@ -401,36 +401,36 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
                 showToast?.(isBn ? 'ডিপোজিট সেকশন খুলুন' : 'Opening Deposit section');
               }
             }}
-            className="flex-1 py-2.5 rounded-xl text-xs sm:text-sm font-semibold text-slate-400 hover:text-white hover:bg-slate-800/50 transition-all cursor-pointer text-center"
+            className="flex-1 py-2.5 rounded-xl text-xs sm:text-sm font-semibold text-emerald-200/70 hover:text-white hover:bg-emerald-500/10 transition-all cursor-pointer text-center"
           >
             {isBn ? 'ডিপোজিট' : 'Deposit'}
           </button>
           <button
             type="button"
-            className="flex-1 py-2.5 rounded-xl text-xs sm:text-sm font-bold text-white bg-gradient-to-r from-blue-600 to-cyan-500 shadow-md shadow-blue-500/20 transition-all text-center cursor-default"
+            className="flex-1 py-2.5 rounded-xl text-xs sm:text-sm font-bold text-slate-950 bg-emerald-400 shadow-md shadow-emerald-500/20 transition-all text-center cursor-default"
           >
             {isBn ? 'উইথড্রয়াল' : 'Withdrawal'}
           </button>
         </div>
 
         {/* 3. Withdrawable Amount Card (Site Theme) */}
-        <div className="rounded-2xl bg-gradient-to-br from-[#09162D] via-[#0A1325] to-[#070E1C] border border-cyan-500/30 p-4 sm:p-5 flex items-center justify-between shadow-lg shadow-cyan-950/20 relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-32 h-32 bg-cyan-500/10 rounded-full blur-2xl pointer-events-none" />
+        <div className="rounded-2xl bg-[#062c22] border border-emerald-500/30 p-4 sm:p-5 flex items-center justify-between shadow-lg shadow-emerald-950/40 relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/10 rounded-full blur-2xl pointer-events-none" />
 
           <div className="space-y-1 relative z-10">
-            <div className="flex items-center gap-1.5 text-cyan-300 text-xs font-semibold uppercase tracking-wider">
+            <div className="flex items-center gap-1.5 text-emerald-300 text-xs font-semibold uppercase tracking-wider">
               <span>{isBn ? 'উত্তোলনযোগ্য ব্যালেন্স' : 'Withdrawable Amount'}</span>
               <button
                 type="button"
                 onClick={() => showToast?.(isBn ? 'ব্যালেন্স আপডেট হয়েছে' : 'Balance refreshed')}
-                className="p-0.5 text-slate-400 hover:text-cyan-400 transition-colors cursor-pointer"
+                className="p-0.5 text-emerald-300 hover:text-white transition-colors cursor-pointer"
                 title="Refresh"
               >
                 <RotateCw className="w-3.5 h-3.5" />
               </button>
             </div>
             <div className="text-2xl sm:text-3xl font-extrabold text-white font-mono tracking-tight flex items-baseline gap-1">
-              <span className="text-cyan-400 font-sans text-xl">৳</span>
+              <span className="text-emerald-400 font-sans text-xl">৳</span>
               <span>
                 {walletBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </span>
@@ -467,7 +467,7 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
             <button
               type="button"
               onClick={() => handleOpenBindModal(selectedMethod)}
-              className="px-3.5 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs cursor-pointer active:scale-95 transition-all shadow-md shrink-0 flex items-center gap-1.5"
+              className="px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs cursor-pointer active:scale-95 transition-all shadow-md shrink-0 flex items-center gap-1.5"
             >
               <Plus className="w-4 h-4" />
               <span>{isBn ? 'বাইন্ড করুন' : 'Bind Now'}</span>
@@ -490,11 +490,11 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
           {/* ========================================================= */}
           {/* 5. PAYMENT METHOD & BOUND GOLD CARD SECTION              */}
           {/* ========================================================= */}
-          <div className="bg-[#091224] rounded-2xl p-4 space-y-3.5 border border-slate-800/80 shadow-md">
+          <div className="bg-[#042018] rounded-2xl p-4 space-y-3.5 border border-emerald-500/25 shadow-md">
             {/* Section Header */}
             <div className="flex items-center justify-between">
               <div className="flex items-center">
-                <span className="w-1 h-4 bg-cyan-400 rounded-full mr-2" />
+                <span className="w-1 h-4 bg-emerald-400 rounded-full mr-2" />
                 <span className="text-sm font-bold text-white tracking-wide">
                   {isBn ? 'পেমেন্ট মেথড' : 'Payment Method'}
                 </span>
@@ -504,7 +504,7 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
                 <button
                   type="button"
                   onClick={() => handleOpenBindModal(selectedMethod)}
-                  className="text-xs text-cyan-400 hover:text-cyan-300 font-semibold cursor-pointer flex items-center gap-1"
+                  className="text-xs text-emerald-400 hover:text-emerald-300 font-semibold cursor-pointer flex items-center gap-1"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   <span>{isBn ? 'অন্য অ্যাকাউন্ট যুক্ত করুন' : 'Add Another'}</span>
@@ -523,8 +523,8 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
                 }}
                 className={`py-3 px-2 rounded-xl flex flex-col items-center justify-center gap-1.5 transition-all cursor-pointer border ${
                   selectedMethod === 'bKash'
-                    ? 'border-cyan-400 bg-cyan-950/30 text-cyan-300 shadow-[0_0_15px_rgba(6,182,212,0.15)]'
-                    : 'border-slate-800 bg-[#0B152B] hover:border-slate-700 text-slate-300'
+                    ? 'border-emerald-400 bg-emerald-950/40 text-emerald-300 shadow-[0_0_15px_rgba(16,185,129,0.15)]'
+                    : 'border-emerald-500/20 bg-[#031812] hover:border-emerald-500/40 text-slate-300'
                 }`}
               >
                 <div className="w-8 h-8 rounded-lg bg-[#E2136E] flex items-center justify-center text-white shadow-sm font-black text-xs">
@@ -547,8 +547,8 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
                 }}
                 className={`py-3 px-2 rounded-xl flex flex-col items-center justify-center gap-1.5 transition-all cursor-pointer border ${
                   selectedMethod === 'Nagad'
-                    ? 'border-cyan-400 bg-cyan-950/30 text-cyan-300 shadow-[0_0_15px_rgba(6,182,212,0.15)]'
-                    : 'border-slate-800 bg-[#0B152B] hover:border-slate-700 text-slate-300'
+                    ? 'border-emerald-400 bg-emerald-950/40 text-emerald-300 shadow-[0_0_15px_rgba(16,185,129,0.15)]'
+                    : 'border-emerald-500/20 bg-[#031812] hover:border-emerald-500/40 text-slate-300'
                 }`}
               >
                 <div className="w-8 h-8 rounded-lg bg-[#F7941D] flex items-center justify-center text-white shadow-sm font-black text-xs">
@@ -569,11 +569,11 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
                 }}
                 className={`py-3 px-2 rounded-xl flex flex-col items-center justify-center gap-1.5 transition-all cursor-pointer border ${
                   selectedMethod === 'Bank Transfer'
-                    ? 'border-cyan-400 bg-cyan-950/30 text-cyan-300 shadow-[0_0_15px_rgba(6,182,212,0.15)]'
-                    : 'border-slate-800 bg-[#0B152B] hover:border-slate-700 text-slate-300'
+                    ? 'border-emerald-400 bg-emerald-950/40 text-emerald-300 shadow-[0_0_15px_rgba(16,185,129,0.15)]'
+                    : 'border-emerald-500/20 bg-[#031812] hover:border-emerald-500/40 text-slate-300'
                 }`}
               >
-                <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white shadow-sm font-bold text-xs">
+                <div className="w-8 h-8 rounded-lg bg-emerald-600 flex items-center justify-center text-white shadow-sm font-bold text-xs">
                   <Building2 className="w-4 h-4" />
                 </div>
                 <span className="text-xs font-semibold">Bank</span>
@@ -642,9 +642,9 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
               /* IF NOT BOUND: Prompt in English as requested */
               <div
                 id="unbound-method-prompt-card"
-                className="rounded-2xl border border-dashed border-cyan-500/40 bg-[#0A162B] p-5 text-center space-y-3 mt-2 shadow-inner"
+                className="rounded-2xl border border-dashed border-emerald-500/40 bg-[#031812] p-5 text-center space-y-3 mt-2 shadow-inner"
               >
-                <div className="w-11 h-11 rounded-xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 flex items-center justify-center mx-auto">
+                <div className="w-11 h-11 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex items-center justify-center mx-auto">
                   <CreditCard className="w-5 h-5" />
                 </div>
 
@@ -653,7 +653,7 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
                   <p className="text-sm font-bold text-white tracking-wide">
                     Please bind your {selectedMethod} account first
                   </p>
-                  <p className="text-xs text-slate-400">
+                  <p className="text-xs text-slate-300">
                     {isBn
                       ? `টাকা উত্তোলন করার জন্য আপনার ${selectedMethod} অ্যাকাউন্টটি বাইন্ড করুন`
                       : `Link your verified ${selectedMethod} account to receive withdrawals directly`}
@@ -663,7 +663,7 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
                 <button
                   type="button"
                   onClick={() => handleOpenBindModal(selectedMethod)}
-                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 text-white font-bold text-xs cursor-pointer shadow-lg shadow-cyan-500/25 active:scale-95 transition-all"
+                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs cursor-pointer shadow-lg shadow-emerald-500/25 active:scale-95 transition-all"
                 >
                   <Plus className="w-4 h-4" />
                   <span>Please Bind {selectedMethod} Account</span>
@@ -675,17 +675,17 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
           {/* ========================================================= */}
           {/* 6. AMOUNT INPUT SECTION                                   */}
           {/* ========================================================= */}
-          <div className="bg-[#091224] rounded-2xl p-4 space-y-2.5 border border-slate-800/80 shadow-md">
+          <div className="bg-[#042018] rounded-2xl p-4 space-y-2.5 border border-emerald-500/25 shadow-md">
             <div className="flex items-center justify-between">
               <div className="flex items-center">
-                <span className="w-1 h-4 bg-cyan-400 rounded-full mr-2" />
+                <span className="w-1 h-4 bg-emerald-400 rounded-full mr-2" />
                 <span className="text-sm font-bold text-white tracking-wide">
                   {isBn ? 'পরিমাণ' : 'Amount'}
                 </span>
               </div>
 
-              <span className="text-xs text-slate-400 font-mono font-medium">
-                ৳ 500.00 - ৳ 25,000.00
+              <span className="text-xs text-slate-300 font-mono font-medium">
+                ৳ 400.00 - ৳ 25,000.00
               </span>
             </div>
 
@@ -693,7 +693,7 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
               <input
                 id="withdraw-amount-input-fresh"
                 type="number"
-                min={500}
+                min={400}
                 max={25000}
                 step="any"
                 value={withdrawAmount}
@@ -703,7 +703,7 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
                 }}
                 placeholder="0.00"
                 required
-                className="w-full bg-[#0A1325] border border-slate-700/80 rounded-xl px-4 py-3.5 text-white font-mono text-xl focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 placeholder-slate-500 transition-all text-right"
+                className="w-full bg-[#031812] border border-emerald-500/30 rounded-xl px-4 py-3.5 text-white font-mono text-xl focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400 placeholder-slate-500 transition-all text-right"
               />
             </div>
           </div>
@@ -711,16 +711,16 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
           {/* ========================================================= */}
           {/* 7. AUTHENTICATOR CODE (2FA)                              */}
           {/* ========================================================= */}
-          <div className="bg-[#091224] rounded-2xl p-4 space-y-2.5 border border-slate-800/80 shadow-md">
+          <div className="bg-[#042018] rounded-2xl p-4 space-y-2.5 border border-emerald-500/25 shadow-md">
             <div className="flex items-center justify-between">
               <div className="flex items-center">
-                <span className="w-1 h-4 bg-cyan-400 rounded-full mr-2" />
+                <span className="w-1 h-4 bg-emerald-400 rounded-full mr-2" />
                 <span className="text-sm font-bold text-white tracking-wide">
                   {isBn ? 'Authenticator কোড' : 'Authenticator code'}
                 </span>
               </div>
 
-              <span className="text-[11px] text-cyan-400 flex items-center gap-1 font-medium">
+              <span className="text-[11px] text-emerald-400 flex items-center gap-1 font-medium">
                 <Lock className="w-3 h-3" />
                 <span>6-Digit 2FA</span>
               </span>
@@ -742,7 +742,7 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
                 }}
                 placeholder={isBn ? '৬ ডিজিটের কোড দিন' : 'Enter 6-digit Authenticator code'}
                 required
-                className="w-full bg-[#0A1325] border border-slate-700/80 rounded-xl px-4 py-3.5 text-white font-mono text-base tracking-widest focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 placeholder:tracking-normal placeholder-slate-500 transition-all text-center"
+                className="w-full bg-[#031812] border border-emerald-500/30 rounded-xl px-4 py-3.5 text-white font-mono text-base tracking-widest focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400 placeholder:tracking-normal placeholder-slate-500 transition-all text-center"
               />
             </div>
           </div>
@@ -755,10 +755,10 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
               id="confirm-withdrawal-button"
               type="submit"
               disabled={isSubmitting}
-              className="w-full bg-gradient-to-r from-blue-600 via-indigo-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 active:scale-[0.99] text-white font-bold text-base py-3.5 rounded-xl shadow-lg shadow-blue-600/30 transition-all cursor-pointer flex items-center justify-center gap-2"
+              className="w-full bg-emerald-500 hover:bg-emerald-400 active:scale-[0.99] text-slate-950 font-extrabold text-base py-3.5 rounded-xl shadow-lg shadow-emerald-600/30 transition-all cursor-pointer flex items-center justify-center gap-2"
             >
               {isSubmitting ? (
-                <div className="w-5 h-5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                <div className="w-5 h-5 border-2 border-slate-950/40 border-t-slate-950 rounded-full animate-spin" />
               ) : (
                 <span>{isBn ? 'উত্তোলন নিশ্চিত করুন' : 'Confirm Withdrawal'}</span>
               )}
@@ -809,7 +809,7 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
         >
           <div
             id="withdrawal-receipt-container"
-            className="w-full max-w-sm bg-[#0C1833] border border-cyan-500/50 rounded-3xl p-5 text-white space-y-4 shadow-2xl relative max-h-[92vh] overflow-y-auto"
+            className="w-full max-w-sm bg-[#062c22] border border-emerald-500/40 rounded-3xl p-5 text-white space-y-4 shadow-2xl shadow-emerald-950/50 relative max-h-[92vh] overflow-y-auto"
           >
             {/* Close Button */}
             <button
@@ -818,7 +818,7 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
                 setReceiptData(null);
                 onClose();
               }}
-              className="absolute top-4 right-4 w-7 h-7 rounded-full bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-slate-400 hover:text-white transition-colors cursor-pointer"
+              className="absolute top-4 right-4 w-7 h-7 rounded-full bg-[#042018] hover:bg-[#072c21] border border-emerald-500/30 flex items-center justify-center text-emerald-300 hover:text-white transition-colors cursor-pointer"
             >
               <X className="w-4 h-4" />
             </button>
@@ -837,20 +837,20 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
             </div>
 
             {/* Total Amount Box */}
-            <div className="rounded-xl bg-[#091224] border border-slate-800 p-3.5 text-center space-y-0.5">
-              <span className="text-[11px] text-slate-400 uppercase font-semibold">
+            <div className="rounded-xl bg-[#042018] border border-emerald-500/20 p-3.5 text-center space-y-0.5">
+              <span className="text-[11px] text-slate-300 uppercase font-semibold">
                 {isBn ? 'উত্তোলনের পরিমাণ' : 'Withdrawal Amount'}
               </span>
-              <div className="text-2xl font-extrabold text-cyan-400 font-mono">
+              <div className="text-2xl font-extrabold text-emerald-400 font-mono">
                 ৳ {receiptData.amount.toFixed(2)}
               </div>
             </div>
 
             {/* Clean Receipt Details */}
-            <div className="rounded-xl bg-[#0A1428] border border-slate-800/80 p-3.5 space-y-2 text-xs">
+            <div className="rounded-xl bg-[#031812] border border-emerald-500/20 p-3.5 space-y-2 text-xs">
               <div className="flex items-center justify-between">
                 <span className="text-slate-400">{isBn ? 'রেফারেন্স আইডি:' : 'Trx Ref ID:'}</span>
-                <div className="flex items-center gap-1 font-mono text-cyan-400 font-bold">
+                <div className="flex items-center gap-1 font-mono text-emerald-400 font-bold">
                   <span>{receiptData.trxId}</span>
                   <button
                     type="button"
@@ -883,7 +883,7 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
                 <span className="text-white font-medium uppercase">{receiptData.accountName}</span>
               </div>
 
-              <div className="flex items-center justify-between border-t border-slate-800 pt-2">
+              <div className="flex items-center justify-between border-t border-emerald-500/20 pt-2">
                 <span className="text-slate-400">{isBn ? 'সার্ভিস চার্জ:' : 'Platform Fee:'}</span>
                 <span className="text-emerald-400 font-bold">৳ 0.00 (Free)</span>
               </div>
@@ -914,7 +914,7 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
                   setReceiptData(null);
                   onClose();
                 }}
-                className="w-full rounded-xl bg-[#091224] hover:bg-[#0E1A33] border border-slate-800 text-slate-300 font-bold text-xs py-2.5 transition-colors cursor-pointer text-center"
+                className="w-full rounded-xl bg-[#042018] hover:bg-[#072c21] border border-emerald-500/30 text-emerald-200 font-bold text-xs py-2.5 transition-colors cursor-pointer text-center"
               >
                 {isBn ? 'ঠিক আছে' : 'Done'}
               </button>

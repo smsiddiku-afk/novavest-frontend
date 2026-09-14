@@ -48,6 +48,10 @@ export interface ReferralTreeSummary {
   level2Count: number;
   level3Count: number;
   totalTeamCount: number;
+  activeLevel1Count: number;
+  activeLevel2Count: number;
+  activeLevel3Count: number;
+  totalActiveCount: number;
   level1Earnings: number;
   level2Earnings: number;
   level3Earnings: number;
@@ -285,22 +289,31 @@ export function getReferralTreeForUser(userCode: string, userMemberId?: string):
   let l1Count = 0;
   let l2Count = 0;
   let l3Count = 0;
+  let activeL1Count = 0;
+  let activeL2Count = 0;
+  let activeL3Count = 0;
   let l1Earn = 0;
   let l2Earn = 0;
   let l3Earn = 0;
 
   members.forEach((m) => {
+    const isActive = m.status === 'active' && m.investAmount > 0;
     if (m.level === 1) {
       l1Count++;
+      if (isActive) activeL1Count++;
       l1Earn += m.commissionEarned;
     } else if (m.level === 2) {
       l2Count++;
+      if (isActive) activeL2Count++;
       l2Earn += m.commissionEarned;
     } else if (m.level === 3) {
       l3Count++;
+      if (isActive) activeL3Count++;
       l3Earn += m.commissionEarned;
     }
   });
+
+  const totalActiveCount = activeL1Count + activeL2Count + activeL3Count;
 
   // Commission logs calculation for today and yesterday
   let todayEarnings = 0.0;
@@ -355,6 +368,10 @@ export function getReferralTreeForUser(userCode: string, userMemberId?: string):
     level2Count: l2Count,
     level3Count: l3Count,
     totalTeamCount: members.length,
+    activeLevel1Count: activeL1Count,
+    activeLevel2Count: activeL2Count,
+    activeLevel3Count: activeL3Count,
+    totalActiveCount: totalActiveCount,
     level1Earnings: Number(l1Earn.toFixed(2)),
     level2Earnings: Number(l2Earn.toFixed(2)),
     level3Earnings: Number(l3Earn.toFixed(2)),
@@ -386,20 +403,53 @@ export function distributeReferralDepositCommissions(
 
   try {
     const raw = localStorage.getItem(STORAGE_KEY_ACCOUNTS);
-    if (!raw) return result;
-    const accounts: Record<string, any> = JSON.parse(raw);
+    let accounts: Record<string, any> = raw ? JSON.parse(raw) : {};
 
     const cleanDepositCode = (depositUserCode || '').trim().toUpperCase();
 
-    // Find the depositing user's account by code or memberId
+    // Find the depositing user's account by code, memberId, userId, or phone
     let userAcc = accounts[cleanDepositCode];
     if (!userAcc) {
       userAcc = Object.values(accounts).find(
-        (a: any) => codesMatch(a.userCode, cleanDepositCode) || codesMatch(a.memberId, cleanDepositCode)
+        (a: any) =>
+          codesMatch(a.userCode, cleanDepositCode) ||
+          codesMatch(a.memberId, cleanDepositCode) ||
+          (a.userId && a.userId === depositUserCode) ||
+          (a.phone && maskPhone(a.phone) === maskPhone(depositUserCode))
       );
     }
 
-    // Update depositing user's own total investment
+    // Fallback: Check logged in user in localStorage
+    if (!userAcc) {
+      try {
+        const authUserRaw = localStorage.getItem('novavest_auth_user');
+        if (authUserRaw) {
+          const authUser = JSON.parse(authUserRaw);
+          if (
+            codesMatch(authUser.referralCode, cleanDepositCode) ||
+            codesMatch(authUser.memberId, cleanDepositCode) ||
+            authUser.uid === depositUserCode ||
+            authUser.memberId === depositUserCode
+          ) {
+            const refBy = (authUser.referredBy || authUser.referrerCode || '').trim().toUpperCase();
+            const codeToUse = (authUser.referralCode || authUser.memberId || cleanDepositCode).trim().toUpperCase();
+            userAcc = {
+              userId: authUser.uid || '',
+              userCode: codeToUse,
+              memberId: authUser.memberId ? authUser.memberId.trim().toUpperCase() : undefined,
+              referredByCode: refBy,
+              phone: authUser.phone || '',
+              username: authUser.name || authUser.username || 'User',
+              joinedAt: new Date().toISOString(),
+              investAmount: 0,
+            };
+            accounts[codeToUse] = userAcc;
+          }
+        }
+      } catch {}
+    }
+
+    // Update depositing user's own total investment & status
     if (userAcc) {
       userAcc.investAmount = (userAcc.investAmount || 0) + depositAmount;
       accounts[userAcc.userCode] = userAcc;
@@ -509,6 +559,10 @@ export function distributeReferralDepositCommissions(
 
     localStorage.setItem(STORAGE_KEY_COMMISSION_LOGS, JSON.stringify(logs));
     localStorage.setItem(STORAGE_KEY_ACCOUNTS, JSON.stringify(accounts));
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('referral_rewards_updated'));
+    }
   } catch (err) {
     console.warn('[ReferralService] distributeReferralDepositCommissions error:', err);
   }

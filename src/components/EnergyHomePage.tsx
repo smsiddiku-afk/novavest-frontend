@@ -1771,33 +1771,17 @@ export function EnergyHomePage({
               <h3 className="text-lg font-bold text-white">How Our Energy Technology Works</h3>
             </div>
 
-            {/* Video Player Mockup with Animated Waves */}
-            <div className="relative w-full aspect-video rounded-xl overflow-hidden bg-black flex flex-col items-center justify-center border border-slate-800">
-              <img
-                src={resolveImageSrc('/images/smart_turbine_plant_1788466039952.jpg', 'turbine')}
-                alt="Plant preview"
-                referrerPolicy="no-referrer"
-                className="absolute inset-0 w-full h-full object-cover opacity-30"
-                onError={(e) => handleImageError(e, 'turbine')}
+            {/* Video Player with Real Footage */}
+            <div className="relative w-full aspect-video rounded-xl overflow-hidden bg-black flex flex-col items-center justify-center border border-slate-800 shadow-2xl">
+              <video
+                src="/company-profile/videos/solar-park-grid.mp4"
+                poster={resolveImageSrc('/images/solar_ai_substation_1788465992131.jpg', 'solar')}
+                controls
+                autoPlay
+                playsInline
+                preload="auto"
+                className="w-full h-full object-contain"
               />
-              <div className="relative z-10 flex flex-col items-center space-y-3">
-                <div className="w-14 h-14 rounded-full bg-cyan-500/20 border border-cyan-400 flex items-center justify-center text-cyan-400 animate-pulse">
-                  <Play className="w-6 h-6 fill-current ml-1" />
-                </div>
-                <div className="text-center">
-                  <p className="text-sm font-semibold text-white">Telemetry & AI Distribution Engine (Live Transmission)</p>
-                  <p className="text-xs text-slate-400">Real-time sub-second frequency control and turbine dispatching</p>
-                </div>
-              </div>
-
-              {/* Fake player scrubber */}
-              <div className="absolute bottom-0 inset-x-0 p-3 bg-gradient-to-t from-black to-transparent flex items-center gap-3 text-[11px] font-mono text-slate-300">
-                <span>01:24</span>
-                <div className="flex-1 h-1 bg-slate-800 rounded-full overflow-hidden">
-                  <div className="h-full bg-cyan-400 w-1/3" />
-                </div>
-                <span>03:45</span>
-              </div>
             </div>
 
             <div className="mt-4 flex justify-end">

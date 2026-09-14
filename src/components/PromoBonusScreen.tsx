@@ -144,13 +144,25 @@ export const PromoBonusScreen: React.FC<PromoBonusScreenProps> = ({
     propUserCode || authUser?.referralCode || authUser?.memberId?.slice(-6).toUpperCase() || '';
   const effectiveMemberId = propUserMemberId || authUser?.memberId || '';
 
+  const [refreshTick, setRefreshTick] = useState(0);
+
+  useEffect(() => {
+    const handleUpdate = () => setRefreshTick((t) => t + 1);
+    window.addEventListener('referral_rewards_updated', handleUpdate);
+    return () => window.removeEventListener('referral_rewards_updated', handleUpdate);
+  }, []);
+
   const realTree = useMemo(
     () => getReferralTreeForUser(effectiveUserCode, effectiveMemberId),
-    [effectiveUserCode, effectiveMemberId]
+    [effectiveUserCode, effectiveMemberId, refreshTick]
   );
 
   const level1Count = realTree.level1Count;
   const totalTeam = realTree.totalTeamCount;
+  const activeLevel1Count = realTree.activeLevel1Count ?? 0;
+  const activeLevel2Count = realTree.activeLevel2Count ?? 0;
+  const activeLevel3Count = realTree.activeLevel3Count ?? 0;
+  const totalActiveCount = realTree.totalActiveCount ?? 0;
 
   // Track claimed tiers (supports both 'v1' and 'vip1' for 100% backward compatibility)
   const [claimedTiers, setClaimedTiers] = useState<Record<string, boolean>>(() => {
@@ -204,13 +216,13 @@ export const PromoBonusScreen: React.FC<PromoBonusScreenProps> = ({
 
     if (isCompleted) return;
 
-    const currentProgress = tier.type === 'direct' ? level1Count : totalTeam;
+    const currentProgress = tier.type === 'direct' ? activeLevel1Count : totalActiveCount;
     if (currentProgress < tier.targetCount) {
       if (showToast) {
         showToast(
           lang === 'en'
-            ? `Target not reached yet. Current: ${currentProgress}/${tier.targetCount}`
-            : `লক্ষ্য এখনো পূরণ হয়নি। বর্তমান অগ্রগতি: ${currentProgress}/${tier.targetCount}`
+            ? `Target not reached yet. Active members: ${currentProgress}/${tier.targetCount}`
+            : `লক্ষ্য এখনো পূরণ হয়নি। সক্রিয় সদস্য: ${currentProgress}/${tier.targetCount}`
         );
       }
       return;
@@ -328,7 +340,7 @@ export const PromoBonusScreen: React.FC<PromoBonusScreenProps> = ({
               <span className="text-[11px] text-[#6ee7b7] font-normal">
                 {lang === 'en' ? 'Total Active:' : 'মোট সক্রিয়:'}
               </span>
-              <span className="font-mono font-bold text-white text-[13px]">{totalTeam}</span>
+              <span className="font-mono font-bold text-white text-[13px]">{totalActiveCount}</span>
             </div>
           </div>
 
@@ -340,11 +352,14 @@ export const PromoBonusScreen: React.FC<PromoBonusScreenProps> = ({
               <span className="text-[11px] font-normal text-slate-300">
                 {lang === 'en' ? '1st Level' : '১ম লেভেল'}
               </span>
-              <span className="text-[18px] sm:text-[20px] font-bold text-white font-mono my-0.5">
+              <span className="text-[20px] sm:text-[22px] font-black text-emerald-400 font-mono my-0.5">
                 {level1Count}
               </span>
               <span className="text-[10px] text-[#34d399] font-medium">
-                {lang === 'en' ? 'Direct' : 'সরাসরি'}
+                {lang === 'en' ? 'Direct Member' : 'সরাসরি সদস্য'}
+              </span>
+              <span className="text-[9px] text-[#6ee7b7] mt-0.5 font-medium">
+                {lang === 'en' ? `Active: ${activeLevel1Count}` : `সক্রিয়: ${activeLevel1Count}`}
               </span>
             </div>
 
@@ -354,11 +369,14 @@ export const PromoBonusScreen: React.FC<PromoBonusScreenProps> = ({
               <span className="text-[11px] font-normal text-slate-300">
                 {lang === 'en' ? '2nd Level' : '২য় লেভেল'}
               </span>
-              <span className="text-[18px] sm:text-[20px] font-bold text-white font-mono my-0.5">
+              <span className="text-[20px] sm:text-[22px] font-black text-emerald-400 font-mono my-0.5">
                 {realTree.level2Count}
               </span>
               <span className="text-[10px] text-[#34d399] font-medium">
                 {lang === 'en' ? 'Sub-team' : 'সাব-টিম'}
+              </span>
+              <span className="text-[9px] text-[#6ee7b7] mt-0.5 font-medium">
+                {lang === 'en' ? `Active: ${activeLevel2Count}` : `সক্রিয়: ${activeLevel2Count}`}
               </span>
             </div>
 
@@ -368,11 +386,14 @@ export const PromoBonusScreen: React.FC<PromoBonusScreenProps> = ({
               <span className="text-[11px] font-normal text-slate-300">
                 {lang === 'en' ? '3rd Level' : '৩য় লেভেল'}
               </span>
-              <span className="text-[18px] sm:text-[20px] font-bold text-white font-mono my-0.5">
+              <span className="text-[20px] sm:text-[22px] font-black text-emerald-400 font-mono my-0.5">
                 {realTree.level3Count}
               </span>
               <span className="text-[10px] text-[#34d399] font-medium">
                 {lang === 'en' ? 'Network' : 'নেটওয়ার্ক'}
+              </span>
+              <span className="text-[9px] text-[#6ee7b7] mt-0.5 font-medium">
+                {lang === 'en' ? `Active: ${activeLevel3Count}` : `সক্রিয়: ${activeLevel3Count}`}
               </span>
             </div>
           </div>
@@ -388,8 +409,8 @@ export const PromoBonusScreen: React.FC<PromoBonusScreenProps> = ({
               !!claimedTiers[tier.level.toLowerCase()] ||
               !!claimedTiers[`vip${tier.tierNumber}`];
 
-            // V1-V4 count from direct level 1; V5-V8 count from total team (L1 + L2 + L3)
-            const currentProgress = tier.type === 'direct' ? level1Count : totalTeam;
+            // V1-V4 count from direct active level 1; V5-V8 count from total active team (L1 + L2 + L3)
+            const currentProgress = tier.type === 'direct' ? activeLevel1Count : totalActiveCount;
             const isReadyToClaim = currentProgress >= tier.targetCount && !isCompleted;
 
             return (

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { scrollAppToTop } from '../utils/scrollHelper';
 import {
+  ArrowLeft,
   ChevronLeft,
   Bell,
   User,
@@ -314,6 +315,85 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     initialUser?.transactions?.length,
   ]);
 
+  // Auto-check and recover any pending gateway deposit (WatchPay / Nekpay) when returning to the app
+  useEffect(() => {
+    const checkPendingGatewayDeposit = async () => {
+      try {
+        const raw = localStorage.getItem('pending_gateway_deposit');
+        if (!raw) return;
+        const pending = JSON.parse(raw);
+        if (!pending || !pending.orderNo) return;
+
+        // Skip if older than 24 hours
+        if (pending.timestamp && Date.now() - pending.timestamp > 24 * 60 * 60 * 1000) {
+          localStorage.removeItem('pending_gateway_deposit');
+          return;
+        }
+
+        const res = await fetch(`/api/payments/order-status/${encodeURIComponent(pending.orderNo)}`);
+        const data = await res.json();
+        const status = String(data?.order?.status || '').toUpperCase();
+
+        if (status === 'COMPLETED' || status === 'SUCCESS') {
+          const depositAmount = Number(pending.amount || data?.order?.amount || 0);
+          const activeUid = user.memberId || user.phone || 'USER1001';
+
+          // Update Firestore deposit status
+          await updateFirestoreDepositStatus(activeUid, pending.orderNo, 'completed', depositAmount);
+
+          // Update user state
+          updateUser((prev) => {
+            const alreadyCredited = (prev.transactions || []).some(
+              (t: any) => (t.id === pending.orderNo || t.hash === pending.orderNo) && t.status === 'completed'
+            );
+            if (alreadyCredited) return prev;
+
+            return {
+              ...prev,
+              walletBalance: prev.walletBalance + depositAmount,
+              transactions: (prev.transactions || []).map((t: any) =>
+                t.id === pending.orderNo || t.hash === pending.orderNo
+                  ? {
+                      ...t,
+                      status: 'completed',
+                      description: `${pending.channel === 'channel2' ? 'WatchPay' : 'Nekpay'} Deposit (${pending.method || 'Nagad'}) - সফল`,
+                      hash: data?.order?.trxId || pending.orderNo,
+                      isCredit: true,
+                    }
+                  : t
+              ),
+            };
+          });
+
+          // Distribute referral deposit commissions
+          try {
+            distributeReferralDepositCommissions(
+              user.referralCode || user.memberId || user.phone || '',
+              depositAmount,
+              user.referralCode || user.memberId || ''
+            );
+          } catch (commErr) {
+            console.warn('[Referral Comm Distribute Warn]', commErr);
+          }
+
+          localStorage.removeItem('pending_gateway_deposit');
+
+          showToast(
+            currentLang === 'bn'
+              ? `🎉 পেমেন্ট সফল! ৳${depositAmount.toLocaleString()} ওয়ালেটে সফলভাবে যোগ হয়েছে!`
+              : `🎉 Payment confirmed! ৳${depositAmount.toLocaleString()} added to your wallet!`
+          );
+        }
+      } catch (_) {
+        // non-blocking
+      }
+    };
+
+    checkPendingGatewayDeposit();
+    window.addEventListener('focus', checkPendingGatewayDeposit);
+    return () => window.removeEventListener('focus', checkPendingGatewayDeposit);
+  }, [user.memberId, user.phone, user.referralCode, currentLang]);
+
   // Modal & Toast states
   const [isDownloadModalOpen, setIsDownloadModalOpen] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
@@ -509,6 +589,17 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             };
           });
 
+          // Distribute referral deposit commissions and activate user status
+          try {
+            distributeReferralDepositCommissions(
+              user.referralCode || user.memberId || user.phone || '',
+              depositAmount,
+              user.referralCode || user.memberId || ''
+            );
+          } catch (commErr) {
+            console.warn('[Referral Comm Distribute Warn]', commErr);
+          }
+
           showToast(
             currentLang === 'bn'
               ? `✅ TrxID যাচাই সফল! ৳${depositAmount.toLocaleString()} ওয়ালেটে যুক্ত হয়েছে (TrxID: ${trxId})`
@@ -574,6 +665,17 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                     ),
                   };
                 });
+
+                // Distribute referral deposit commissions and activate user status
+                try {
+                  distributeReferralDepositCommissions(
+                    user.referralCode || user.memberId || user.phone || '',
+                    depositAmount,
+                    user.referralCode || user.memberId || ''
+                  );
+                } catch (commErr) {
+                  console.warn('[Referral Comm Distribute Warn]', commErr);
+                }
 
                 showToast(
                   currentLang === 'bn'
@@ -883,6 +985,17 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                     ),
                   }));
 
+                  // Distribute referral deposit commissions and activate user status
+                  try {
+                    distributeReferralDepositCommissions(
+                      user.referralCode || user.memberId || user.phone || '',
+                      Number(amount),
+                      user.referralCode || user.memberId || ''
+                    );
+                  } catch (commErr) {
+                    console.warn('[Referral Comm Distribute Warn]', commErr);
+                  }
+
                   showToast(
                     currentLang === 'bn'
                       ? `রিচার্জ সফল! ৳${Number(amount).toLocaleString()} আপনার ওয়ালেটে জমা হয়েছে।`
@@ -1012,15 +1125,88 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           };
         });
 
+        let opened = null;
         try {
-          if (window.top && window.top !== window) {
-            window.top.location.href = targetUrl;
-          } else {
+          opened = window.open(targetUrl, '_blank');
+        } catch (e) {
+          opened = null;
+        }
+        if (!opened || opened.closed || typeof opened.closed === 'undefined') {
+          try {
+            if (window.top && window.top !== window) {
+              window.top.location.href = targetUrl;
+            } else {
+              window.location.href = targetUrl;
+            }
+          } catch (navErr) {
+            console.warn('[WatchPay] Top navigation failed, fallback to location.href:', navErr);
             window.location.href = targetUrl;
           }
-        } catch (navErr) {
-          console.warn('[WatchPay] Top navigation failed, fallback to location.href:', navErr);
-          window.location.href = targetUrl;
+        }
+        showToast(
+          currentLang === 'bn'
+            ? 'WatchPay পেমেন্ট পেজে নিয়ে যাওয়া হচ্ছে...'
+            : 'Redirecting to WatchPay payment link...'
+        );
+
+        // Automated polling for WatchPay order completion
+        if (orderNo) {
+          let attempts = 0;
+          const pollInterval = setInterval(async () => {
+            attempts++;
+            if (attempts > 40) {
+              clearInterval(pollInterval);
+              return;
+            }
+            try {
+              const checkRes = await fetch(`/api/payments/order-status/${orderNo}`);
+              const checkData = await checkRes.json();
+              const status = String(checkData?.order?.status || '').toUpperCase();
+              if (checkData.success && (status === 'COMPLETED' || status === 'SUCCESS')) {
+                clearInterval(pollInterval);
+
+                // Update Firestore wallet balance and transaction record
+                await updateFirestoreDepositStatus(activeUid, orderNo, 'completed', Number(amount));
+
+                updateUser((prev) => ({
+                  ...prev,
+                  walletBalance: prev.walletBalance + Number(amount),
+                  transactions: (prev.transactions || []).map((t: any) =>
+                    t.id === orderNo || t.hash === orderNo
+                      ? {
+                          ...t,
+                          status: 'completed',
+                          description: `WatchPay Deposit (${method || 'Nagad'}) - সফল`,
+                          hash: checkData.order?.trxId || orderNo,
+                          isCredit: true,
+                        }
+                      : t
+                  ),
+                }));
+
+                // Distribute referral deposit commissions and activate user status
+                try {
+                  distributeReferralDepositCommissions(
+                    user.referralCode || user.memberId || user.phone || '',
+                    Number(amount),
+                    user.referralCode || user.memberId || ''
+                  );
+                } catch (commErr) {
+                  console.warn('[Referral Comm Distribute Warn]', commErr);
+                }
+
+                localStorage.removeItem('pending_gateway_deposit');
+
+                showToast(
+                  currentLang === 'bn'
+                    ? `WatchPay রিচার্জ সফল! ৳${Number(amount).toLocaleString()} আপনার ওয়ালেটে জমা হয়েছে।`
+                    : `WatchPay recharge successful! ৳${Number(amount).toLocaleString()} added to your wallet.`
+                );
+              }
+            } catch (e) {
+              // ignore polling errors
+            }
+          }, 3000);
         }
       } else {
         showToast(
@@ -2525,7 +2711,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             <div className={`mt-4 mb-2 p-4 rounded-2xl border text-center space-y-2.5 transition-colors duration-200 ${
               themeMode === 'day'
                 ? 'bg-white border-slate-200/90 shadow-sm text-slate-600'
-                : 'bg-[#0b1222]/80 border-slate-800/80 text-slate-400'
+                : 'bg-[#042018] border-emerald-500/25 text-slate-300'
             }`}>
               <div className="flex items-center justify-center gap-2 flex-wrap text-[11px]">
                 <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">
@@ -2560,7 +2746,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       <div className={`md:hidden fixed bottom-0 left-0 right-0 z-40 max-w-md mx-auto backdrop-blur-lg border-t transition-colors duration-200 ${
         themeMode === 'day'
           ? 'bg-white/95 border-slate-200/90 shadow-[0_-4px_20px_-4px_rgba(0,0,0,0.06)]'
-          : 'bg-[#001228]/95 border-slate-800/80'
+          : 'bg-[#042018]/95 border-emerald-500/25'
       }`}>
         <nav
           id="bottom-navbar"
@@ -2721,48 +2907,158 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
         currentLang={currentLang}
       />
 
-      {/* Sub-Modals (Personal Info, Security, Wallet, Edit, Logout) */}
+      {/* Sub-Pages (Wallet, Personal Info, Notifications, Edit Profile) */}
       {activeSubModal === 'wallet' && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
-          <div className="w-full max-w-xs bg-[#0e1628] border border-slate-700 rounded-3xl p-5 text-white space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="text-base font-bold flex items-center gap-2">
-                <Wallet className="w-4 h-4 text-blue-400" /> My Wallet
-              </h3>
+        <div
+          id="profile-subpage-wallet"
+          className="fixed inset-0 z-50 overflow-y-auto bg-[#06483A] flex flex-col text-slate-100 animate-in fade-in duration-200"
+        >
+          <header className="sticky top-0 z-20 bg-[#062c22]/95 backdrop-blur-md border-b border-emerald-500/30 px-4 py-3.5 sm:px-6 sm:py-4 flex items-center justify-between shrink-0">
+            <div className="flex items-center gap-3">
               <button
+                type="button"
                 onClick={() => setActiveSubModal(null)}
-                className="w-7 h-7 rounded-full bg-slate-800 flex items-center justify-center text-slate-400 hover:text-white"
+                className="w-10 h-10 rounded-full bg-[#042018] hover:bg-[#07362a] text-emerald-300 hover:text-white flex items-center justify-center transition-all cursor-pointer active:scale-95 border border-emerald-500/30 shadow-sm"
+                aria-label="Back to Profile"
               >
-                <X className="w-3.5 h-3.5" />
+                <ArrowLeft className="w-5 h-5" />
               </button>
+              <div>
+                <h1 className="text-base sm:text-lg font-bold text-white tracking-wide flex items-center gap-2">
+                  <Wallet className="w-5 h-5 text-emerald-400" />
+                  <span>{currentLang === 'bn' ? 'আমার ওয়ালেট' : 'My Wallet'}</span>
+                </h1>
+                <p className="text-[11px] text-slate-300">
+                  {currentLang === 'bn' ? 'ব্যালেন্স, রিচার্জ ও উত্তোলন ব্যবস্থাপনা' : 'Balance, recharge & fund management'}
+                </p>
+              </div>
             </div>
-            <div className="p-3 rounded-xl bg-[#131e36] text-center">
-              <span className="text-xs text-slate-400">Available Balance</span>
-              <p className="text-2xl font-bold text-white font-mono mt-0.5">
-                ৳{user.walletBalance.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-              </p>
+            <button
+              type="button"
+              onClick={() => {
+                setActiveSubModal(null);
+                switchTab('transactions');
+              }}
+              className="px-3 py-1.5 rounded-full bg-[#042018] hover:bg-[#07362a] border border-emerald-500/30 text-emerald-300 text-xs font-semibold flex items-center gap-1 transition-colors cursor-pointer"
+            >
+              <span>{currentLang === 'bn' ? 'হিস্ট্রি' : 'History'}</span>
+            </button>
+          </header>
+
+          <main className="flex-1 w-full max-w-xl mx-auto px-4 py-6 sm:px-6 sm:py-8 space-y-5">
+            {/* Balance Card */}
+            <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#07362a] via-[#062c22] to-[#042018] border border-emerald-500/30 p-6 shadow-xl space-y-4">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-emerald-300/90 tracking-wide uppercase">
+                  {currentLang === 'bn' ? 'মোট ব্যবহারযোগ্য ব্যালেন্স' : 'Available Balance'}
+                </span>
+                <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-bold">
+                  {currentLang === 'bn' ? 'সক্রিয়' : 'Active'}
+                </span>
+              </div>
+              <div>
+                <p className="text-3xl sm:text-4xl font-extrabold text-white font-mono tracking-tight">
+                  ৳{(user.walletBalance || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                </p>
+                <p className="text-xs text-slate-300 mt-1">
+                  {currentLang === 'bn' ? 'দৈনিক মুনাফা ও উত্তোলনযোগ্য তহবিল' : 'Daily profits and withdrawable funds'}
+                </p>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="grid grid-cols-2 gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setActiveSubModal('recharge')}
+                  className="py-3 px-4 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-sm flex items-center justify-center gap-2 transition-all shadow-lg shadow-emerald-500/25 cursor-pointer active:scale-95"
+                >
+                  <ArrowDownToLine className="w-4 h-4 stroke-[2.5]" />
+                  <span>{currentLang === 'bn' ? 'রিচার্জ করুন' : 'Recharge'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveSubModal('withdraw')}
+                  className="py-3 px-4 rounded-2xl bg-[#042018] hover:bg-[#072c21] text-emerald-200 border border-emerald-500/40 font-bold text-sm flex items-center justify-center gap-2 transition-colors cursor-pointer active:scale-95 shadow-sm"
+                >
+                  <ArrowUpFromLine className="w-4 h-4 stroke-[2.5]" />
+                  <span>{currentLang === 'bn' ? 'উত্তোলন করুন' : 'Withdraw'}</span>
+                </button>
+              </div>
             </div>
-            <div className="grid grid-cols-2 gap-2">
+
+            {/* Quick Links */}
+            <div className="grid grid-cols-2 gap-3">
               <button
-                onClick={() => {
-                  setActiveSubModal('recharge');
-                }}
-                className="py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 font-bold text-xs flex items-center justify-center gap-1.5 transition-colors"
+                type="button"
+                onClick={() => setActiveSubModal('payment')}
+                className="p-4 rounded-2xl bg-[#062c22] border border-emerald-500/25 hover:border-emerald-500/50 transition-all text-left space-y-2 cursor-pointer group"
               >
-                <ArrowDownToLine className="w-3.5 h-3.5" />
-                <span>+ Recharge</span>
+                <div className="w-9 h-9 rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400 group-hover:scale-105 transition-transform">
+                  <CreditCard className="w-4.5 h-4.5" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-white group-hover:text-emerald-300 transition-colors">
+                    {currentLang === 'bn' ? 'পেমেন্ট মেথড' : 'Payment Methods'}
+                  </h4>
+                  <p className="text-[10px] text-slate-300">
+                    {currentLang === 'bn' ? 'বিকাশ, নগদ ওয়ালেট সংযোগ' : 'Bind bKash, Nagad accounts'}
+                  </p>
+                </div>
               </button>
+
               <button
+                type="button"
                 onClick={() => {
-                  setActiveSubModal('withdraw');
+                  setActiveSubModal(null);
+                  switchTab('transactions');
                 }}
-                className="py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 font-bold text-xs flex items-center justify-center gap-1.5 transition-colors"
+                className="p-4 rounded-2xl bg-[#062c22] border border-emerald-500/25 hover:border-emerald-500/50 transition-all text-left space-y-2 cursor-pointer group"
               >
-                <ArrowUpFromLine className="w-3.5 h-3.5" />
-                <span>- Withdraw</span>
+                <div className="w-9 h-9 rounded-xl bg-teal-500/15 border border-teal-500/30 flex items-center justify-center text-teal-300 group-hover:scale-105 transition-transform">
+                  <ArrowLeftRight className="w-4.5 h-4.5" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-white group-hover:text-teal-300 transition-colors">
+                    {currentLang === 'bn' ? 'লেনদেন বিবরণী' : 'Transactions'}
+                  </h4>
+                  <p className="text-[10px] text-slate-300">
+                    {currentLang === 'bn' ? 'সকল লেনদেনের ইতিহাস' : 'Deposit & withdrawal ledger'}
+                  </p>
+                </div>
               </button>
             </div>
-          </div>
+
+            {/* Income Highlights Card */}
+            <div className="rounded-3xl bg-[#062c22] border border-emerald-500/25 p-5 space-y-3">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-emerald-400">
+                {currentLang === 'bn' ? 'আয়ের সারসংক্ষেপ' : 'Earnings Summary'}
+              </h3>
+              <div className="grid grid-cols-3 gap-2">
+                <div className="p-3 rounded-2xl bg-[#042018] border border-emerald-500/20 text-center">
+                  <span className="text-[10px] text-slate-300 block">{currentLang === 'bn' ? 'মোট আয়' : 'Total'}</span>
+                  <span className="text-xs sm:text-sm font-bold font-mono text-[#00e676]">৳{(user.totalEarnings || 0).toFixed(0)}</span>
+                </div>
+                <div className="p-3 rounded-2xl bg-[#042018] border border-emerald-500/20 text-center">
+                  <span className="text-[10px] text-slate-300 block">{currentLang === 'bn' ? 'দৈনিক রিওয়ার্ড' : 'Daily'}</span>
+                  <span className="text-xs sm:text-sm font-bold font-mono text-[#00e676]">৳{(user.dailyRewards || 0).toFixed(0)}</span>
+                </div>
+                <div className="p-3 rounded-2xl bg-[#042018] border border-emerald-500/20 text-center">
+                  <span className="text-[10px] text-slate-300 block">{currentLang === 'bn' ? 'ইউনিট' : 'Units'}</span>
+                  <span className="text-xs sm:text-sm font-bold font-mono text-white">{user.activeUnits || 0}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Security note */}
+            <div className="p-3.5 rounded-2xl bg-[#042018] border border-emerald-500/20 flex items-center gap-3 text-xs text-slate-300">
+              <ShieldCheck className="w-5 h-5 text-emerald-400 shrink-0" />
+              <span>
+                {currentLang === 'bn'
+                  ? 'সকল লেনদেন ২৫৬-বিট এসএসএল এনক্রিপশনের মাধ্যমে সম্পূর্ণ সুরক্ষিত।'
+                  : 'All financial transactions are protected with 256-bit SSL encryption.'}
+              </span>
+            </div>
+          </main>
         </div>
       )}
 
@@ -2814,41 +3110,128 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
         />
       )}
 
+      {/* Personal Info Page (Full-Page View) */}
       {activeSubModal === 'personal' && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
-          <div className="w-full max-w-xs bg-[#0e1628] border border-slate-700 rounded-3xl p-5 text-white space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="text-base font-bold flex items-center gap-2">
-                <User className="w-4 h-4 text-blue-400" /> Personal Info
-              </h3>
+        <div
+          id="profile-subpage-personal"
+          className="fixed inset-0 z-50 overflow-y-auto bg-[#06483A] flex flex-col text-slate-100 animate-in fade-in duration-200"
+        >
+          <header className="sticky top-0 z-20 bg-[#062c22]/95 backdrop-blur-md border-b border-emerald-500/30 px-4 py-3.5 sm:px-6 sm:py-4 flex items-center justify-between shrink-0">
+            <div className="flex items-center gap-3">
               <button
+                type="button"
                 onClick={() => setActiveSubModal(null)}
-                className="w-7 h-7 rounded-full bg-slate-800 flex items-center justify-center text-slate-400 hover:text-white"
+                className="w-10 h-10 rounded-full bg-[#042018] hover:bg-[#07362a] text-emerald-300 hover:text-white flex items-center justify-center transition-all cursor-pointer active:scale-95 border border-emerald-500/30 shadow-sm"
+                aria-label="Back to Profile"
               >
-                <X className="w-3.5 h-3.5" />
+                <ArrowLeft className="w-5 h-5" />
               </button>
-            </div>
-            <div className="space-y-2 text-xs">
-              <div className="p-2.5 rounded-xl bg-[#131e36] flex justify-between">
-                <span className="text-slate-400">Full Name</span>
-                <span className="font-semibold text-white">{user.name}</span>
-              </div>
-              <div className="p-2.5 rounded-xl bg-[#131e36] flex justify-between">
-                <span className="text-slate-400">Phone Number</span>
-                <span className="font-semibold text-white">{user.phone}</span>
-              </div>
-              <div className="p-2.5 rounded-xl bg-[#131e36] flex justify-between">
-                <span className="text-slate-400">Member ID</span>
-                <span className="font-semibold text-blue-400">{user.memberId}</span>
+              <div>
+                <h1 className="text-base sm:text-lg font-bold text-white tracking-wide flex items-center gap-2">
+                  <User className="w-5 h-5 text-emerald-400" />
+                  <span>{currentLang === 'bn' ? 'ব্যক্তিগত তথ্য' : 'Personal Information'}</span>
+                </h1>
+                <p className="text-[11px] text-slate-300">
+                  {currentLang === 'bn' ? 'অ্যাকাউন্ট ও ব্যবহারকারী পরিচিতি' : 'Account & profile details'}
+                </p>
               </div>
             </div>
             <button
-              onClick={() => setActiveSubModal(null)}
-              className="w-full py-2 rounded-xl bg-blue-600 font-bold text-xs"
+              type="button"
+              onClick={() => setActiveSubModal('edit')}
+              className="px-3 py-1.5 rounded-full bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer"
             >
-              Done
+              <Pencil className="w-3.5 h-3.5" />
+              <span>{currentLang === 'bn' ? 'এডিট' : 'Edit'}</span>
             </button>
-          </div>
+          </header>
+
+          <main className="flex-1 w-full max-w-xl mx-auto px-4 py-6 sm:px-6 sm:py-8 space-y-5">
+            {/* Profile Card */}
+            <div className="rounded-3xl bg-[#062c22] border border-emerald-500/30 p-5 sm:p-6 shadow-xl space-y-4">
+              <div className="flex items-center gap-4">
+                <div className="w-16 h-16 rounded-2xl bg-emerald-500/20 border-2 border-emerald-400 flex items-center justify-center text-emerald-300 text-2xl font-black shadow-inner">
+                  {user.name.charAt(0).toUpperCase()}
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-lg font-bold text-white">{user.name}</h3>
+                    <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 text-[10px] font-bold">
+                      {currentLang === 'bn' ? 'যাচাইকৃত' : 'Verified'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-300 font-mono mt-0.5">{user.phone}</p>
+                  <p className="text-[11px] text-emerald-300 mt-0.5">
+                    {currentLang === 'bn' ? `ভিআইপি স্তর: VIP ${user.vipLevel || 0}` : `VIP Status: VIP ${user.vipLevel || 0}`}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Detailed Info List */}
+            <div className="rounded-3xl bg-[#062c22] border border-emerald-500/25 p-5 space-y-3">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-emerald-400">
+                {currentLang === 'bn' ? 'বিস্তারিত প্রোফাইল' : 'Account Details'}
+              </h3>
+
+              <div className="space-y-2.5 text-xs">
+                <div className="p-3 rounded-2xl bg-[#042018] border border-emerald-500/20 flex justify-between items-center">
+                  <span className="text-slate-300">{currentLang === 'bn' ? 'পূর্ণ নাম' : 'Full Name'}</span>
+                  <span className="font-semibold text-white">{user.name}</span>
+                </div>
+
+                <div className="p-3 rounded-2xl bg-[#042018] border border-emerald-500/20 flex justify-between items-center">
+                  <span className="text-slate-300">{currentLang === 'bn' ? 'মোবাইল নম্বর' : 'Phone Number'}</span>
+                  <span className="font-semibold text-white font-mono">{user.phone}</span>
+                </div>
+
+                <div className="p-3 rounded-2xl bg-[#042018] border border-emerald-500/20 flex justify-between items-center">
+                  <span className="text-slate-300">{currentLang === 'bn' ? 'সদস্য আইডি (Member ID)' : 'Member ID'}</span>
+                  <span className="font-semibold font-mono text-emerald-400">{user.memberId}</span>
+                </div>
+
+                <div className="p-3 rounded-2xl bg-[#042018] border border-emerald-500/20 flex justify-between items-center">
+                  <span className="text-slate-300">{currentLang === 'bn' ? 'ভিআইপি স্তর' : 'VIP Level'}</span>
+                  <span className="font-bold text-amber-400">VIP {user.vipLevel || 0}</span>
+                </div>
+
+                <div className="p-3 rounded-2xl bg-[#042018] border border-emerald-500/20 flex justify-between items-center">
+                  <span className="text-slate-300">{currentLang === 'bn' ? 'অ্যাকাউন্ট স্ট্যাটাস' : 'Account Status'}</span>
+                  <span className="font-bold text-emerald-400 flex items-center gap-1">
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>{currentLang === 'bn' ? 'সক্রিয় ও সুরক্ষিত' : 'Active & Secured'}</span>
+                  </span>
+                </div>
+
+                <div className="p-3 rounded-2xl bg-[#042018] border border-emerald-500/20 flex justify-between items-center">
+                  <span className="text-slate-300">{currentLang === 'bn' ? 'দ্বি-স্তর নিরাপত্তা (2FA)' : 'Two-Factor (2FA)'}</span>
+                  <span className={`font-semibold ${isAuthenticatorEnabled ? 'text-emerald-400' : 'text-slate-400'}`}>
+                    {isAuthenticatorEnabled ? (currentLang === 'bn' ? 'চালু রয়েছে' : 'Enabled') : (currentLang === 'bn' ? 'বন্ধ' : 'Disabled')}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="grid grid-cols-2 gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setActiveSubModal('edit')}
+                className="py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-md shadow-emerald-500/20 cursor-pointer"
+              >
+                <Pencil className="w-3.5 h-3.5" />
+                <span>{currentLang === 'bn' ? 'তথ্য সম্পাদনা করুন' : 'Edit Information'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveSubModal('security')}
+                className="py-3 rounded-2xl bg-[#042018] hover:bg-[#072c21] text-emerald-200 border border-emerald-500/30 font-bold text-xs flex items-center justify-center gap-2 transition-colors cursor-pointer"
+              >
+                <ShieldCheck className="w-3.5 h-3.5" />
+                <span>{currentLang === 'bn' ? 'নিরাপত্তা সেটিংস' : 'Security Settings'}</span>
+              </button>
+            </div>
+          </main>
         </div>
       )}
 
@@ -2871,193 +3254,333 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
         />
       )}
 
+      {/* Notifications Page (Full-Page View) */}
       {activeSubModal === 'notifications' && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
-          <div className="w-full max-w-xs bg-[#0e1628] border border-slate-700 rounded-3xl p-5 text-white space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="text-base font-bold flex items-center gap-2">
-                <Bell className="w-4 h-4 text-blue-400" /> Notifications
-              </h3>
-              <button
-                onClick={() => setActiveSubModal(null)}
-                className="w-7 h-7 rounded-full bg-slate-800 flex items-center justify-center text-slate-400 hover:text-white"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </div>
-            <div className="space-y-2 text-xs">
-              <div className="p-2.5 rounded-xl bg-[#131e36]">
-                <p className="font-semibold text-white">Daily Profit Credited</p>
-                <p className="text-slate-400 text-[10px]">৳250.00 has been added to your wallet.</p>
-              </div>
-            </div>
-            <button
-              onClick={() => setActiveSubModal(null)}
-              className="w-full py-2 rounded-xl bg-blue-600 font-bold text-xs"
-            >
-              Close
-            </button>
-          </div>
-        </div>
-      )}
-
-      {activeSubModal === 'edit' && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
-          <div className="w-full max-w-xs bg-[#0e1628] border border-slate-700 rounded-3xl p-5 text-white space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="text-base font-bold flex items-center gap-2">
-                <Pencil className="w-4 h-4 text-blue-400" /> Edit Profile
-              </h3>
-              <button
-                onClick={() => setActiveSubModal(null)}
-                className="w-7 h-7 rounded-full bg-slate-800 flex items-center justify-center text-slate-400 hover:text-white"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </div>
-            <div className="space-y-2.5 text-xs">
-              <div>
-                <label className="block text-slate-400 mb-1">Name</label>
-                <input
-                  type="text"
-                  value={user.name}
-                  onChange={(e) => updateUser((prev) => ({ ...prev, name: e.target.value }))}
-                  className="w-full p-2 rounded-xl bg-[#131e36] border border-slate-700 text-white focus:outline-none focus:border-blue-500"
-                />
-              </div>
-              <div>
-                <label className="block text-slate-400 mb-1">Phone</label>
-                <input
-                  type="text"
-                  value={user.phone}
-                  onChange={(e) => updateUser((prev) => ({ ...prev, phone: e.target.value }))}
-                  className="w-full p-2 rounded-xl bg-[#131e36] border border-slate-700 text-white focus:outline-none focus:border-blue-500"
-                />
-              </div>
-            </div>
-            <button
-              onClick={() => {
-                showToast('Profile updated!');
-                setActiveSubModal(null);
-              }}
-              className="w-full py-2 rounded-xl bg-blue-600 font-bold text-xs"
-            >
-              Save Changes
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Google Authenticator Modal */}
-      {activeSubModal === 'authenticator' && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md animate-in fade-in">
-          <div className="w-full max-w-[360px] bg-[#0c1324] border border-cyan-500/30 rounded-3xl p-5 text-white space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
-            {/* Header */}
-            <div className="flex items-center justify-between pb-2 border-b border-slate-800">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-full bg-cyan-500/15 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
-                  <QrCode className="w-4 h-4" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-white leading-tight">Google Authenticator</h3>
-                  <p className="text-[11px] text-slate-400">Two-Factor Authentication (2FA)</p>
-                </div>
-              </div>
+        <div
+          id="profile-subpage-notifications"
+          className="fixed inset-0 z-50 overflow-y-auto bg-[#06483A] flex flex-col text-slate-100 animate-in fade-in duration-200"
+        >
+          <header className="sticky top-0 z-20 bg-[#062c22]/95 backdrop-blur-md border-b border-emerald-500/30 px-4 py-3.5 sm:px-6 sm:py-4 flex items-center justify-between shrink-0">
+            <div className="flex items-center gap-3">
               <button
                 type="button"
                 onClick={() => setActiveSubModal(null)}
-                className="w-7 h-7 rounded-full bg-slate-800/80 hover:bg-slate-700 flex items-center justify-center text-slate-400 hover:text-white transition-colors"
+                className="w-10 h-10 rounded-full bg-[#042018] hover:bg-[#07362a] text-emerald-300 hover:text-white flex items-center justify-center transition-all cursor-pointer active:scale-95 border border-emerald-500/30 shadow-sm"
+                aria-label="Back to Profile"
               >
-                <X className="w-3.5 h-3.5" />
+                <ArrowLeft className="w-5 h-5" />
               </button>
+              <div>
+                <h1 className="text-base sm:text-lg font-bold text-white tracking-wide flex items-center gap-2">
+                  <Bell className="w-5 h-5 text-emerald-400" />
+                  <span>{currentLang === 'bn' ? 'নোটিফিকেশন সেন্টার' : 'Notification Center'}</span>
+                </h1>
+                <p className="text-[11px] text-slate-300">
+                  {currentLang === 'bn' ? 'সকল লেনদেন ও সিস্টেম বার্তা' : 'Transactions & system updates'}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => showToast(currentLang === 'bn' ? 'সকল বার্তা পঠিত হিসেবে চিহ্নিত' : 'All marked as read')}
+              className="px-3 py-1.5 rounded-full bg-[#042018] hover:bg-[#07362a] border border-emerald-500/30 text-emerald-300 text-xs font-semibold cursor-pointer"
+            >
+              <span>{currentLang === 'bn' ? 'রিড অল' : 'Read All'}</span>
+            </button>
+          </header>
+
+          <main className="flex-1 w-full max-w-xl mx-auto px-4 py-6 sm:px-6 sm:py-8 space-y-4">
+            <div className="space-y-3">
+              <div className="p-4 rounded-3xl bg-[#062c22] border border-emerald-500/30 shadow-lg space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-400">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                    {currentLang === 'bn' ? 'দৈনিক মুনাফা ক্রেডিট' : 'Daily Profit Credited'}
+                  </span>
+                  <span className="text-[10px] text-slate-400">Today 00:05</span>
+                </div>
+                <p className="text-xs text-slate-200">
+                  {currentLang === 'bn'
+                    ? 'আপনার সক্রিয় এআই পাওয়ার গ্রিড চুক্তি থেকে দৈনিক মুনাফা সফলভাবে ওয়ালেটে যোগ করা হয়েছে।'
+                    : 'Daily yield from your active smart grid contract has been added to your balance.'}
+                </p>
+              </div>
+
+              <div className="p-4 rounded-3xl bg-[#062c22] border border-emerald-500/30 shadow-lg space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-teal-300">
+                    {currentLang === 'bn' ? 'নিরাপত্তা সুরক্ষা সক্রিয়' : 'Security Check Complete'}
+                  </span>
+                  <span className="text-[10px] text-slate-400">Yesterday</span>
+                </div>
+                <p className="text-xs text-slate-200">
+                  {currentLang === 'bn'
+                    ? 'আপনার অ্যাকাউন্টে নতুন নিরাপত্তা প্রোটোকল ও ২৫৬-বিট এনক্রিপশন সক্রিয় রয়েছে।'
+                    : 'Your account is safeguarded with end-to-end 256-bit encryption.'}
+                </p>
+              </div>
+
+              <div className="p-4 rounded-3xl bg-[#062c22] border border-emerald-500/30 shadow-lg space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-amber-400">
+                    {currentLang === 'bn' ? 'দৈনিক জনসভা (Town Hall)' : 'Daily Town Hall Meeting'}
+                  </span>
+                  <span className="text-[10px] text-slate-400">Daily 08:30 PM</span>
+                </div>
+                <p className="text-xs text-slate-200">
+                  {currentLang === 'bn'
+                    ? 'আজকের সান্ধ্যকালীন লাইভ ব্রিফিংয়ে যোগ দিন এবং নতুন বোনাস অফার জানুন।'
+                    : 'Join today’s evening briefing session with community leadership.'}
+                </p>
+              </div>
             </div>
 
-            {/* Status Toggle Card */}
-            <div className="p-3 rounded-2xl bg-[#131d36] border border-slate-800/80 flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => setActiveSubModal(null)}
+              className="w-full py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs transition-all shadow-md shadow-emerald-500/20 cursor-pointer"
+            >
+              {currentLang === 'bn' ? 'প্রোফাইলে ফিরে যান' : 'Return to Profile'}
+            </button>
+          </main>
+        </div>
+      )}
+
+      {/* Edit Profile Page (Full-Page View) */}
+      {activeSubModal === 'edit' && (
+        <div
+          id="profile-subpage-edit"
+          className="fixed inset-0 z-50 overflow-y-auto bg-[#06483A] flex flex-col text-slate-100 animate-in fade-in duration-200"
+        >
+          <header className="sticky top-0 z-20 bg-[#062c22]/95 backdrop-blur-md border-b border-emerald-500/30 px-4 py-3.5 sm:px-6 sm:py-4 flex items-center justify-between shrink-0">
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setActiveSubModal(null)}
+                className="w-10 h-10 rounded-full bg-[#042018] hover:bg-[#07362a] text-emerald-300 hover:text-white flex items-center justify-center transition-all cursor-pointer active:scale-95 border border-emerald-500/30 shadow-sm"
+                aria-label="Back to Profile"
+              >
+                <ArrowLeft className="w-5 h-5" />
+              </button>
               <div>
-                <span className="text-xs font-semibold text-white block">Authenticator Status</span>
-                <span className="text-[10px] text-slate-400">Protects withdrawals & login</span>
+                <h1 className="text-base sm:text-lg font-bold text-white tracking-wide flex items-center gap-2">
+                  <Pencil className="w-5 h-5 text-emerald-400" />
+                  <span>{currentLang === 'bn' ? 'প্রোফাইল সম্পাদনা' : 'Edit Profile'}</span>
+                </h1>
+                <p className="text-[11px] text-slate-300">
+                  {currentLang === 'bn' ? 'নাম ও যোগাযোগ নম্বর আপডেট করুন' : 'Update name & contact details'}
+                </p>
+              </div>
+            </div>
+          </header>
+
+          <main className="flex-1 w-full max-w-xl mx-auto px-4 py-6 sm:px-6 sm:py-8 space-y-6">
+            <div className="rounded-3xl bg-[#062c22] border border-emerald-500/30 p-5 sm:p-6 shadow-xl space-y-5">
+              <div className="flex flex-col items-center justify-center space-y-2 py-2">
+                <div className="w-20 h-20 rounded-2xl bg-emerald-500/20 border-2 border-emerald-400 flex items-center justify-center text-emerald-300 text-3xl font-black shadow-inner">
+                  {user.name.charAt(0).toUpperCase()}
+                </div>
+                <span className="text-xs text-emerald-300 font-mono">ID: {user.memberId}</span>
+              </div>
+
+              <div className="space-y-4 text-xs">
+                <div>
+                  <label className="block text-emerald-300 font-semibold mb-1.5">
+                    {currentLang === 'bn' ? 'আপনার পূর্ণ নাম' : 'Full Name'}
+                  </label>
+                  <input
+                    type="text"
+                    value={user.name}
+                    onChange={(e) => updateUser((prev) => ({ ...prev, name: e.target.value }))}
+                    className="w-full p-3 rounded-xl bg-[#042018] border border-emerald-500/30 text-white focus:outline-none focus:border-emerald-400 text-sm font-medium"
+                    placeholder="Enter your name"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-emerald-300 font-semibold mb-1.5">
+                    {currentLang === 'bn' ? 'মোবাইল নম্বর' : 'Phone Number'}
+                  </label>
+                  <input
+                    type="text"
+                    value={user.phone}
+                    onChange={(e) => updateUser((prev) => ({ ...prev, phone: e.target.value }))}
+                    className="w-full p-3 rounded-xl bg-[#042018] border border-emerald-500/30 text-white focus:outline-none focus:border-emerald-400 text-sm font-mono"
+                    placeholder="01XXXXXXXXX"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-emerald-300/80 font-semibold mb-1.5">
+                    {currentLang === 'bn' ? 'সদস্য আইডি (স্থায়ী)' : 'Member ID (Permanent)'}
+                  </label>
+                  <input
+                    type="text"
+                    value={user.memberId}
+                    disabled
+                    className="w-full p-3 rounded-xl bg-[#031812] border border-emerald-500/20 text-slate-400 cursor-not-allowed font-mono text-sm"
+                  />
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  showToast(currentLang === 'bn' ? 'প্রোফাইল সফলভাবে আপডেট করা হয়েছে!' : 'Profile updated successfully!');
+                  setActiveSubModal(null);
+                }}
+                className="w-full py-3.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-sm transition-all shadow-lg shadow-emerald-500/25 cursor-pointer active:scale-98"
+              >
+                {currentLang === 'bn' ? 'পরিবর্তন সংরক্ষণ করুন' : 'Save Changes'}
+              </button>
+            </div>
+          </main>
+        </div>
+      )}
+
+      {/* Google Authenticator Page (Full-Page View) */}
+      {activeSubModal === 'authenticator' && (
+        <div
+          id="profile-subpage-authenticator"
+          className="fixed inset-0 z-50 overflow-y-auto bg-[#06483A] flex flex-col text-slate-100 animate-in fade-in duration-200"
+        >
+          <header className="sticky top-0 z-20 bg-[#062c22]/95 backdrop-blur-md border-b border-emerald-500/30 px-4 py-3.5 sm:px-6 sm:py-4 flex items-center justify-between shrink-0">
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setActiveSubModal(null)}
+                className="w-10 h-10 rounded-full bg-[#042018] hover:bg-[#07362a] text-emerald-300 hover:text-white flex items-center justify-center transition-all cursor-pointer active:scale-95 border border-emerald-500/30 shadow-sm"
+                aria-label="Back to Profile"
+              >
+                <ArrowLeft className="w-5 h-5" />
+              </button>
+              <div>
+                <h1 className="text-base sm:text-lg font-bold text-white tracking-wide flex items-center gap-2">
+                  <QrCode className="w-5 h-5 text-emerald-400" />
+                  <span>{currentLang === 'bn' ? 'গুগল অথেন্টিকেটর (2FA)' : 'Google Authenticator (2FA)'}</span>
+                </h1>
+                <p className="text-[11px] text-slate-300">
+                  {currentLang === 'bn' ? 'উত্তোলন ও অ্যাকাউন্টের দ্বি-স্তর নিরাপত্তা' : 'Two-Factor Authentication Security'}
+                </p>
+              </div>
+            </div>
+            <span
+              className={`px-3 py-1 rounded-full text-xs font-bold border ${
+                isAuthenticatorEnabled
+                  ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                  : 'bg-slate-800 text-slate-400 border-slate-700'
+              }`}
+            >
+              {isAuthenticatorEnabled
+                ? currentLang === 'bn'
+                  ? 'সক্রিয়'
+                  : 'Active'
+                : currentLang === 'bn'
+                ? 'নিষ্ক্রিয়'
+                : 'Disabled'}
+            </span>
+          </header>
+
+          <main className="flex-1 w-full max-w-xl mx-auto px-4 py-6 sm:px-6 sm:py-8 space-y-6">
+            {/* Status Toggle Card */}
+            <div className="p-4 rounded-3xl bg-[#062c22] border border-emerald-500/30 shadow-xl flex items-center justify-between">
+              <div>
+                <span className="text-sm font-bold text-white block">
+                  {currentLang === 'bn' ? 'অথেন্টিকেটর স্ট্যাটাস' : 'Authenticator Status'}
+                </span>
+                <span className="text-xs text-slate-300">
+                  {currentLang === 'bn'
+                    ? 'উত্তোলন ও সংবেদনশীল লেনদেনের সুরক্ষা দেয়'
+                    : 'Protects withdrawals & sensitive changes'}
+                </span>
               </div>
               <button
                 type="button"
                 onClick={() => {
                   const nextState = !isAuthenticatorEnabled;
                   setIsAuthenticatorEnabled(nextState);
-                  showToast(nextState ? 'Google Authenticator Activated!' : 'Google Authenticator Deactivated');
+                  showToast(
+                    nextState
+                      ? currentLang === 'bn'
+                        ? 'গুগল অথেন্টিকেটর সক্রিয় হয়েছে!'
+                        : 'Google Authenticator Activated!'
+                      : currentLang === 'bn'
+                      ? 'গুগল অথেন্টিকেটর নিষ্ক্রিয় করা হয়েছে'
+                      : 'Google Authenticator Deactivated'
+                  );
                 }}
-                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
-                  isAuthenticatorEnabled ? 'bg-cyan-500' : 'bg-slate-700'
+                className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
+                  isAuthenticatorEnabled ? 'bg-emerald-500' : 'bg-slate-700'
                 }`}
               >
                 <span
-                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                  className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
                     isAuthenticatorEnabled ? 'translate-x-5' : 'translate-x-0'
                   }`}
                 />
               </button>
             </div>
 
-            {/* QR Code Simulation */}
-            <div className="bg-[#11182c] border border-slate-800 rounded-2xl p-4 flex flex-col items-center text-center space-y-3">
-              <div className="text-[11px] text-slate-300 font-medium">
-                Scan QR Code with Google Authenticator
+            {/* QR Code Matrix & Manual Key */}
+            <div className="rounded-3xl bg-[#062c22] border border-emerald-500/30 p-6 shadow-xl space-y-5">
+              <div className="text-center space-y-1">
+                <h3 className="text-sm font-bold text-white">
+                  {currentLang === 'bn'
+                    ? 'QR কোড স্ক্যান করুন অথবা সিক্রেট কি ব্যবহার করুন'
+                    : 'Scan QR Code or Use Secret Key'}
+                </h3>
+                <p className="text-xs text-slate-300">
+                  {currentLang === 'bn'
+                    ? 'আপনার মোবাইল অ্যাপে স্ক্যান করে ৬-সংখ্যার কোডটি সেটআপ সম্পন্ন করুন।'
+                    : 'Scan with Google Authenticator or enter the manual key below.'}
+                </p>
               </div>
-              
+
               {/* Realistic SVG QR Matrix */}
-              <div className="w-36 h-36 bg-white rounded-xl p-2 flex items-center justify-center shadow-inner relative group">
-                <svg
-                  viewBox="0 0 100 100"
-                  className="w-full h-full text-slate-900"
-                  fill="currentColor"
-                >
+              <div className="w-44 h-44 mx-auto bg-white rounded-2xl p-3 flex items-center justify-center shadow-lg">
+                <svg viewBox="0 0 100 100" className="w-full h-full text-slate-900" fill="currentColor">
                   {/* Top-Left Finder */}
-                  <rect x="5" y="5" width="28" height="28" fill="#0f172a" rx="3" />
+                  <rect x="5" y="5" width="28" height="28" fill="#062c22" rx="3" />
                   <rect x="10" y="10" width="18" height="18" fill="white" rx="2" />
-                  <rect x="14" y="14" width="10" height="10" fill="#0f172a" rx="1.5" />
-                  
+                  <rect x="14" y="14" width="10" height="10" fill="#062c22" rx="1.5" />
                   {/* Top-Right Finder */}
-                  <rect x="67" y="5" width="28" height="28" fill="#0f172a" rx="3" />
+                  <rect x="67" y="5" width="28" height="28" fill="#062c22" rx="3" />
                   <rect x="72" y="10" width="18" height="18" fill="white" rx="2" />
-                  <rect x="76" y="14" width="10" height="10" fill="#0f172a" rx="1.5" />
-                  
+                  <rect x="76" y="14" width="10" height="10" fill="#062c22" rx="1.5" />
                   {/* Bottom-Left Finder */}
-                  <rect x="5" y="67" width="28" height="28" fill="#0f172a" rx="3" />
+                  <rect x="5" y="67" width="28" height="28" fill="#062c22" rx="3" />
                   <rect x="10" y="72" width="18" height="18" fill="white" rx="2" />
-                  <rect x="14" y="76" width="10" height="10" fill="#0f172a" rx="1.5" />
-
+                  <rect x="14" y="76" width="10" height="10" fill="#062c22" rx="1.5" />
                   {/* Matrix Patterns */}
-                  <rect x="40" y="8" width="6" height="6" fill="#0f172a" />
-                  <rect x="50" y="14" width="8" height="6" fill="#0f172a" />
-                  <rect x="42" y="24" width="6" height="8" fill="#0f172a" />
-                  <rect x="52" y="26" width="6" height="6" fill="#0f172a" />
-                  
-                  <rect x="8" y="40" width="6" height="8" fill="#0f172a" />
-                  <rect x="18" y="44" width="8" height="6" fill="#0f172a" />
-                  <rect x="28" y="40" width="6" height="6" fill="#0f172a" />
-                  
-                  {/* Center Key icon */}
-                  <rect x="40" y="40" width="20" height="20" fill="#0f172a" rx="3" />
-                  <circle cx="50" cy="50" r="5" fill="#38bdf8" />
-
-                  {/* Lower Right Matrix */}
-                  <rect x="68" y="42" width="8" height="6" fill="#0f172a" />
-                  <rect x="80" y="40" width="6" height="8" fill="#0f172a" />
-                  <rect x="68" y="54" width="6" height="6" fill="#0f172a" />
-                  <rect x="80" y="52" width="8" height="6" fill="#0f172a" />
-                  <rect x="40" y="68" width="6" height="8" fill="#0f172a" />
-                  <rect x="52" y="74" width="8" height="6" fill="#0f172a" />
-                  <rect x="42" y="82" width="6" height="6" fill="#0f172a" />
-                  <rect x="68" y="72" width="8" height="6" fill="#0f172a" />
-                  <rect x="82" y="70" width="6" height="8" fill="#0f172a" />
-                  <rect x="74" y="84" width="8" height="6" fill="#0f172a" />
+                  <rect x="40" y="8" width="6" height="6" fill="#062c22" />
+                  <rect x="50" y="14" width="8" height="6" fill="#062c22" />
+                  <rect x="42" y="24" width="6" height="8" fill="#062c22" />
+                  <rect x="52" y="26" width="6" height="6" fill="#062c22" />
+                  <rect x="8" y="40" width="6" height="8" fill="#062c22" />
+                  <rect x="18" y="44" width="8" height="6" fill="#062c22" />
+                  <rect x="28" y="40" width="6" height="6" fill="#062c22" />
+                  <rect x="40" y="40" width="20" height="20" fill="#062c22" rx="3" />
+                  <circle cx="50" cy="50" r="5" fill="#10b981" />
+                  <rect x="68" y="42" width="8" height="6" fill="#062c22" />
+                  <rect x="80" y="40" width="6" height="8" fill="#062c22" />
+                  <rect x="68" y="54" width="6" height="6" fill="#062c22" />
+                  <rect x="80" y="52" width="8" height="6" fill="#062c22" />
+                  <rect x="40" y="68" width="6" height="8" fill="#062c22" />
+                  <rect x="52" y="74" width="8" height="6" fill="#062c22" />
+                  <rect x="42" y="82" width="6" height="6" fill="#062c22" />
+                  <rect x="68" y="72" width="8" height="6" fill="#062c22" />
+                  <rect x="82" y="70" width="6" height="8" fill="#062c22" />
+                  <rect x="74" y="84" width="8" height="6" fill="#062c22" />
                 </svg>
               </div>
 
               {/* Secret Key with Copy */}
-              <div className="w-full">
-                <span className="text-[10px] text-slate-400 block mb-1">Or enter setup key manually:</span>
-                <div className="flex items-center justify-between p-2 rounded-xl bg-[#090e1b] border border-slate-700/80">
-                  <code className="text-xs font-mono text-cyan-300 tracking-wider">
+              <div>
+                <span className="text-xs text-slate-300 block mb-1.5">
+                  {currentLang === 'bn' ? 'ম্যানুয়াল সিক্রেট কি (Secret Key):' : 'Or enter setup key manually:'}
+                </span>
+                <div className="flex items-center justify-between p-3 rounded-2xl bg-[#042018] border border-emerald-500/30">
+                  <code className="text-xs sm:text-sm font-mono text-emerald-300 tracking-wider">
                     {authSecretKey}
                   </code>
                   <button
@@ -3065,26 +3588,32 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                     onClick={() => {
                       navigator.clipboard?.writeText?.(authSecretKey);
                       setIsAuthKeyCopied(true);
-                      showToast('Setup Key copied to clipboard!');
+                      showToast(currentLang === 'bn' ? 'কি ক্লিপবোর্ডে কপি করা হয়েছে!' : 'Setup Key copied!');
                       setTimeout(() => setIsAuthKeyCopied(false), 2000);
                     }}
-                    className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
-                    title="Copy Key"
+                    className="p-1.5 rounded-xl text-emerald-400 hover:text-white hover:bg-emerald-500/20 transition-colors flex items-center gap-1 text-xs font-semibold cursor-pointer"
                   >
-                    {isAuthKeyCopied ? (
-                      <Check className="w-3.5 h-3.5 text-emerald-400" />
-                    ) : (
-                      <Copy className="w-3.5 h-3.5" />
-                    )}
+                    {isAuthKeyCopied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+                    <span>
+                      {isAuthKeyCopied
+                        ? currentLang === 'bn'
+                          ? 'কপি হয়েছে'
+                          : 'Copied'
+                        : currentLang === 'bn'
+                        ? 'কপি'
+                        : 'Copy'}
+                    </span>
                   </button>
                 </div>
               </div>
             </div>
 
             {/* Test Verification Input */}
-            <div className="space-y-2">
-              <label className="text-[11px] text-slate-300 font-medium block">
-                Enter 6-digit Code from Authenticator:
+            <div className="rounded-3xl bg-[#062c22] border border-emerald-500/30 p-5 space-y-3">
+              <label className="text-xs font-semibold text-emerald-200 block">
+                {currentLang === 'bn'
+                  ? 'অথেন্টিকেটর অ্যাপের ৬-ডিজিট কোড যাচাই করুন:'
+                  : 'Enter 6-digit Code from Authenticator:'}
               </label>
               <div className="flex gap-2">
                 <input
@@ -3093,123 +3622,169 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                   value={authInputCode}
                   onChange={(e) => setAuthInputCode(e.target.value.replace(/\D/g, ''))}
                   placeholder="000 000"
-                  className="flex-1 px-3 py-2 text-center font-mono tracking-[0.3em] text-sm bg-[#131d36] border border-slate-700 rounded-xl text-white focus:outline-none focus:border-cyan-500 placeholder:text-slate-600"
+                  className="flex-1 px-4 py-3 text-center font-mono tracking-[0.35em] text-base bg-[#042018] border border-emerald-500/30 rounded-2xl text-white focus:outline-none focus:border-emerald-400 placeholder:text-slate-600"
                 />
                 <button
                   type="button"
                   onClick={() => {
                     if (authInputCode.length === 6) {
-                      showToast('2FA Code Verified Successfully!');
+                      showToast(
+                        currentLang === 'bn'
+                          ? '২এফএ কোড সফলভাবে যাচাই হয়েছে!'
+                          : '2FA Code Verified Successfully!'
+                      );
                       setAuthInputCode('');
                     } else {
-                      showToast('Please enter a 6-digit code');
+                      showToast(currentLang === 'bn' ? 'দয়া করে ৬-সংখ্যার কোড লিখুন' : 'Please enter 6-digit code');
                     }
                   }}
-                  className="px-3.5 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold shrink-0 transition-colors"
+                  className="px-5 py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold shrink-0 transition-colors cursor-pointer"
                 >
-                  Verify
+                  {currentLang === 'bn' ? 'যাচাই' : 'Verify'}
                 </button>
               </div>
             </div>
 
-            {/* Done / Close Button */}
             <button
               type="button"
               onClick={() => {
-                showToast('Google Authenticator configuration saved!');
+                showToast(
+                  currentLang === 'bn'
+                    ? 'গুগল অথেন্টিকেটর কনফিগারেশন সংরক্ষণ করা হয়েছে!'
+                    : 'Google Authenticator configuration saved!'
+                );
                 setActiveSubModal(null);
               }}
-              className="w-full py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold text-xs shadow-lg shadow-cyan-600/20 transition-all cursor-pointer"
+              className="w-full py-3.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-sm shadow-lg shadow-emerald-500/25 transition-all cursor-pointer"
             >
-              Done & Save
+              {currentLang === 'bn' ? 'সংরক্ষণ সম্পন্ন করুন' : 'Done & Save'}
             </button>
-          </div>
+          </main>
         </div>
       )}
 
-      {/* Daily Town Hall (দৈনিক জনসভা) Modal */}
+      {/* Daily Town Hall (দৈনিক জনসভা) Page (Full-Page View) */}
       {activeSubModal === 'townHall' && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md animate-in fade-in">
-          <div className="w-full max-w-[360px] bg-[#0c1324] border border-indigo-500/30 rounded-3xl p-5 text-white space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
-            {/* Header */}
-            <div className="flex items-center justify-between pb-2 border-b border-slate-800">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-full bg-indigo-500/15 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
-                  <Users className="w-4 h-4" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-white leading-tight">Daily Town Hall</h3>
-                  <p className="text-[11px] text-slate-400">Community Gathering & Briefing</p>
-                </div>
-              </div>
+        <div
+          id="profile-subpage-townhall"
+          className="fixed inset-0 z-50 overflow-y-auto bg-[#06483A] flex flex-col text-slate-100 animate-in fade-in duration-200"
+        >
+          <header className="sticky top-0 z-20 bg-[#062c22]/95 backdrop-blur-md border-b border-emerald-500/30 px-4 py-3.5 sm:px-6 sm:py-4 flex items-center justify-between shrink-0">
+            <div className="flex items-center gap-3">
               <button
                 type="button"
                 onClick={() => setActiveSubModal(null)}
-                className="w-7 h-7 rounded-full bg-slate-800/80 hover:bg-slate-700 flex items-center justify-center text-slate-400 hover:text-white transition-colors"
+                className="w-10 h-10 rounded-full bg-[#042018] hover:bg-[#07362a] text-emerald-300 hover:text-white flex items-center justify-center transition-all cursor-pointer active:scale-95 border border-emerald-500/30 shadow-sm"
+                aria-label="Back to Profile"
               >
-                <X className="w-3.5 h-3.5" />
+                <ArrowLeft className="w-5 h-5" />
               </button>
-            </div>
-
-            {/* Live Assembly Status Card */}
-            <div className="p-3.5 rounded-2xl bg-gradient-to-br from-indigo-950/60 to-purple-950/40 border border-indigo-500/30 space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
-                  Live Every Evening
-                </span>
-                <span className="text-[11px] font-semibold text-indigo-300">08:30 PM BST</span>
-              </div>
               <div>
-                <h4 className="text-xs font-bold text-white">Daily Member Strategy & Yield Briefing</h4>
-                <p className="text-[10px] text-slate-300 mt-0.5">
-                  Connect live with senior portfolio analysts and top community leaders.
+                <h1 className="text-base sm:text-lg font-bold text-white tracking-wide flex items-center gap-2">
+                  <Users className="w-5 h-5 text-emerald-400" />
+                  <span>{currentLang === 'bn' ? 'দৈনিক জনসভা' : 'Daily Town Hall'}</span>
+                </h1>
+                <p className="text-[11px] text-slate-300">
+                  {currentLang === 'bn' ? 'কমিউনিটি ব্রিফিং ও সান্ধ্যকালীন আলোচনা' : 'Community Gathering & Briefing'}
                 </p>
               </div>
-              <div className="flex items-center gap-2 pt-1 text-[10px] text-slate-400">
-                <Users className="w-3 h-3 text-indigo-400" />
-                <span>2,840+ Investors attending today</span>
+            </div>
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+              <span>08:30 PM BST</span>
+            </span>
+          </header>
+
+          <main className="flex-1 w-full max-w-xl mx-auto px-4 py-6 sm:px-6 sm:py-8 space-y-5">
+            {/* Live Assembly Status Card */}
+            <div className="p-5 rounded-3xl bg-gradient-to-br from-[#07362a] to-[#042018] border border-emerald-500/30 space-y-3 shadow-xl">
+              <div className="flex items-center justify-between">
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  {currentLang === 'bn' ? 'প্রতি সন্ধ্যায় সরাসরি সম্প্রচার' : 'Live Every Evening'}
+                </span>
+                <span className="text-xs font-semibold text-emerald-300">08:30 PM BST</span>
+              </div>
+              <div>
+                <h3 className="text-sm sm:text-base font-bold text-white">
+                  {currentLang === 'bn'
+                    ? 'দৈনিক মেম্বার স্ট্র্যাটেজি ও ইল্ড ডিস্ট্রিবিউশন ব্রিফিং'
+                    : 'Daily Member Strategy & Yield Briefing'}
+                </h3>
+                <p className="text-xs text-slate-300 mt-1">
+                  {currentLang === 'bn'
+                    ? 'প্রধান পোর্টফোলিও বিশ্লেষক এবং শীর্ষ কমিউনিটি লিডারদের সাথে সরাসরি যুক্ত হোন।'
+                    : 'Connect live with senior portfolio analysts and community leaders.'}
+                </p>
+              </div>
+              <div className="flex items-center gap-2 pt-1 text-xs text-emerald-300/90 font-medium">
+                <Users className="w-4 h-4 text-emerald-400" />
+                <span>2,840+ {currentLang === 'bn' ? 'বিনিয়োগকারী সক্রিয়ভাবে যুক্ত' : 'Investors attending today'}</span>
               </div>
             </div>
 
             {/* Today's Agenda */}
-            <div className="p-3 rounded-2xl bg-[#11182c] border border-slate-800/80 space-y-2">
-              <div className="text-[11px] font-semibold text-slate-300 flex items-center gap-1.5">
-                <Clock className="w-3.5 h-3.5 text-indigo-400" />
-                <span>Today's Meeting Agenda:</span>
+            <div className="p-5 rounded-3xl bg-[#062c22] border border-emerald-500/30 space-y-3 shadow-xl">
+              <div className="text-xs font-bold text-emerald-300 uppercase tracking-wider flex items-center gap-2">
+                <Clock className="w-4 h-4 text-emerald-400" />
+                <span>{currentLang === 'bn' ? 'আজকের জনসভার আলোচ্যসূচি:' : "Today's Meeting Agenda:"}</span>
               </div>
-              <ul className="space-y-1.5 text-[11px] text-slate-300 pl-1">
-                <li className="flex items-start gap-2">
-                  <span className="text-indigo-400 font-bold">•</span>
-                  <span>Daily portfolio yields & bonus profit distribution breakdown</span>
+              <ul className="space-y-2.5 text-xs text-slate-200">
+                <li className="flex items-start gap-2.5 p-3 rounded-2xl bg-[#042018] border border-emerald-500/20">
+                  <span className="text-emerald-400 font-black text-sm">•</span>
+                  <span>
+                    {currentLang === 'bn'
+                      ? 'দৈনিক পাওয়ার প্লান্ট লাভ ও বোনাস প্রফিট ডিস্ট্রিবিউশনের পুঙ্খানুপুঙ্খ বিবরণ'
+                      : 'Daily portfolio yields & bonus profit distribution breakdown'}
+                  </span>
                 </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-indigo-400 font-bold">•</span>
-                  <span>VIP referral contest leaderboard & instant reward rollout</span>
+                <li className="flex items-start gap-2.5 p-3 rounded-2xl bg-[#042018] border border-emerald-500/20">
+                  <span className="text-emerald-400 font-black text-sm">•</span>
+                  <span>
+                    {currentLang === 'bn'
+                      ? 'ভিআইপি রেফারেল কনটেস্ট লিডারবোর্ড ও তাৎক্ষণিক রিওয়ার্ড ঘোষণা'
+                      : 'VIP referral contest leaderboard & instant reward rollout'}
+                  </span>
                 </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-indigo-400 font-bold">•</span>
-                  <span>Open mic Q&A session with Chief Portfolio Director</span>
+                <li className="flex items-start gap-2.5 p-3 rounded-2xl bg-[#042018] border border-emerald-500/20">
+                  <span className="text-emerald-400 font-black text-sm">•</span>
+                  <span>
+                    {currentLang === 'bn'
+                      ? 'চিফ পোর্টফোলিও ডিরেক্টরের সাথে সরাসরি ওপেন মাইক প্রশ্নোত্তর পর্ব'
+                      : 'Open mic Q&A session with Chief Portfolio Director'}
+                  </span>
                 </li>
               </ul>
             </div>
 
             {/* Interactive Action Buttons */}
-            <div className="space-y-2">
+            <div className="space-y-3 pt-1">
               <button
                 type="button"
                 onClick={() => {
                   setIsTownHallJoined(true);
-                  showToast('Connecting to Daily Town Hall live audio stream...');
+                  showToast(
+                    currentLang === 'bn'
+                      ? 'দৈনিক জনসভার অডিও স্ট্রিমে সফলভাবে সংযুক্ত হয়েছে...'
+                      : 'Connecting to Daily Town Hall live audio stream...'
+                  );
                 }}
-                className={`w-full py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                className={`w-full py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 transition-all cursor-pointer ${
                   isTownHallJoined
                     ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/30'
-                    : 'bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white shadow-lg shadow-indigo-600/20'
+                    : 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold shadow-lg shadow-emerald-500/20 active:scale-98'
                 }`}
               >
-                <Radio className="w-3.5 h-3.5 animate-pulse" />
-                <span>{isTownHallJoined ? 'Connected to Live Session' : 'Join Live Assembly Now'}</span>
+                <Radio className="w-4 h-4 animate-pulse" />
+                <span>
+                  {isTownHallJoined
+                    ? currentLang === 'bn'
+                      ? 'লাইভ সেশনে সংযুক্ত রয়েছে'
+                      : 'Connected to Live Session'
+                    : currentLang === 'bn'
+                    ? 'এখনই লাইভ জনসভায় যোগ দিন'
+                    : 'Join Live Assembly Now'}
+                </span>
               </button>
 
               <button
@@ -3219,19 +3794,29 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                   setIsTownHallReminderSet(nextState);
                   showToast(
                     nextState
-                      ? 'Reminder set! You will be alerted at 08:15 PM'
+                      ? currentLang === 'bn'
+                        ? 'স্মারক সেট করা হয়েছে! রাত ০৮:১৫ টায় অ্যালার্ট পাবেন'
+                        : 'Reminder set! You will be alerted at 08:15 PM'
+                      : currentLang === 'bn'
+                      ? 'মিটিং অ্যালার্ট বন্ধ করা হয়েছে'
                       : 'Meeting reminder turned off'
                   );
                 }}
-                className="w-full py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-semibold text-xs border border-slate-700 flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                className="w-full py-3 rounded-2xl bg-[#042018] hover:bg-[#072c21] text-emerald-200 font-semibold text-xs border border-emerald-500/30 flex items-center justify-center gap-2 transition-colors cursor-pointer"
               >
-                <Bell className="w-3.5 h-3.5 text-indigo-400" />
+                <Bell className="w-4 h-4 text-emerald-400" />
                 <span>
-                  {isTownHallReminderSet ? 'Reminder Active (08:15 PM)' : 'Set Daily Session Reminder'}
+                  {isTownHallReminderSet
+                    ? currentLang === 'bn'
+                      ? 'স্মারক সক্রিয় (০৮:১৫ PM)'
+                      : 'Reminder Active (08:15 PM)'
+                    : currentLang === 'bn'
+                    ? 'দৈনিক সেশনের নোটিফিকেশন সেট করুন'
+                    : 'Set Daily Session Reminder'}
                 </span>
               </button>
             </div>
-          </div>
+          </main>
         </div>
       )}
 
@@ -3246,262 +3831,346 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
         />
       )}
 
-      {/* 3. Substations Modal */}
+      {/* 3. Substations Page (Full-Page View) */}
       {activeSubModal === 'substations' && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
-          <div className="w-full max-w-sm max-h-[90vh] overflow-y-auto bg-[#0e1628] border border-cyan-500/30 rounded-3xl p-5 text-white space-y-4 shadow-2xl">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-800">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-xl bg-cyan-500/20 text-cyan-400 flex items-center justify-center border border-cyan-500/30">
-                  <Zap className="w-4 h-4" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-white">
-                    {currentLang === 'bn' ? 'বিদ্যুৎ সাবস্টেশন নেটওয়ার্ক' : 'Grid Substation Network'}
-                  </h3>
-                  <p className="text-[10px] text-slate-400">
-                    {currentLang === 'bn' ? '১৪টি রিয়েল-টাইম পাওয়ার নোড' : '14 Automated Power Nodes'}
-                  </p>
-                </div>
-              </div>
+        <div
+          id="profile-subpage-substations"
+          className="fixed inset-0 z-50 overflow-y-auto bg-[#06483A] flex flex-col text-slate-100 animate-in fade-in duration-200"
+        >
+          <header className="sticky top-0 z-20 bg-[#062c22]/95 backdrop-blur-md border-b border-emerald-500/30 px-4 py-3.5 sm:px-6 sm:py-4 flex items-center justify-between shrink-0">
+            <div className="flex items-center gap-3">
               <button
                 type="button"
                 onClick={() => setActiveSubModal(null)}
-                className="w-7 h-7 rounded-full bg-slate-800/80 hover:bg-slate-700 flex items-center justify-center text-slate-400 hover:text-white transition-colors"
+                className="w-10 h-10 rounded-full bg-[#042018] hover:bg-[#07362a] text-emerald-300 hover:text-white flex items-center justify-center transition-all cursor-pointer active:scale-95 border border-emerald-500/30 shadow-sm"
+                aria-label="Back to Profile"
               >
-                <X className="w-3.5 h-3.5" />
+                <ArrowLeft className="w-5 h-5" />
               </button>
+              <div>
+                <h1 className="text-base sm:text-lg font-bold text-white tracking-wide flex items-center gap-2">
+                  <Zap className="w-5 h-5 text-emerald-400" />
+                  <span>{currentLang === 'bn' ? 'বিদ্যুৎ সাবস্টেশন নেটওয়ার্ক' : 'Grid Substation Network'}</span>
+                </h1>
+                <p className="text-[11px] text-slate-300">
+                  {currentLang === 'bn' ? '১৪টি রিয়েল-টাইম পাওয়ার নোড' : '14 Automated Power Nodes'}
+                </p>
+              </div>
+            </div>
+            <span className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-bold font-mono">
+              560 MW Peak
+            </span>
+          </header>
+
+          <main className="flex-1 w-full max-w-xl mx-auto px-4 py-6 sm:px-6 sm:py-8 space-y-4">
+            <div className="p-4 rounded-3xl bg-[#062c22] border border-emerald-500/30 shadow-xl flex items-center justify-between">
+              <div>
+                <span className="text-xs font-semibold text-emerald-300/80 block uppercase tracking-wide">
+                  {currentLang === 'bn' ? 'নেটওয়ার্ক স্ট্যাটাস' : 'Network Health'}
+                </span>
+                <span className="text-base font-bold text-white">99.98% System Uptime</span>
+              </div>
+              <span className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-bold flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                All 14 Nodes Synced
+              </span>
             </div>
 
-            <div className="space-y-2 text-xs">
+            <div className="space-y-3">
               {[
-                { name: 'Dhaka North Smart Substation', load: '120 MW', status: 'Online 99.98%' },
-                { name: 'Chattogram Industrial Grid Node', load: '140 MW', status: 'Online 100%' },
-                { name: 'Sylhet Hydro-Hybrid Substation', load: '85 MW', status: 'Online 99.95%' },
-                { name: 'Rajshahi Solar Hub #4', load: '95 MW', status: 'Online 100%' },
-                { name: 'Khulna Eco Power Station', load: '60 MW', status: 'Online 99.91%' },
+                { name: 'Dhaka North Smart Substation', load: '120 MW', status: 'Online 99.98%', region: 'Dhaka Division' },
+                { name: 'Chattogram Industrial Grid Node', load: '140 MW', status: 'Online 100%', region: 'Chattogram Division' },
+                { name: 'Sylhet Hydro-Hybrid Substation', load: '85 MW', status: 'Online 99.95%', region: 'Sylhet Division' },
+                { name: 'Rajshahi Solar Hub #4', load: '95 MW', status: 'Online 100%', region: 'Rajshahi Division' },
+                { name: 'Khulna Eco Power Station', load: '60 MW', status: 'Online 99.91%', region: 'Khulna Division' },
+                { name: 'Barishal Coastal Tidal Substation', load: '60 MW', status: 'Online 99.97%', region: 'Barishal Division' },
               ].map((sub, idx) => (
-                <div key={idx} className="p-2.5 rounded-xl bg-[#11182c] border border-slate-800 flex items-center justify-between">
+                <div
+                  key={idx}
+                  className="p-4 rounded-3xl bg-[#062c22] border border-emerald-500/25 hover:border-emerald-500/50 transition-all flex items-center justify-between"
+                >
                   <div>
-                    <span className="font-semibold text-white block">{sub.name}</span>
-                    <span className="text-[10px] text-emerald-400 flex items-center gap-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                      {sub.status}
-                    </span>
+                    <span className="font-bold text-white text-sm block">{sub.name}</span>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className="text-[11px] text-slate-400">{sub.region}</span>
+                      <span className="text-slate-600">•</span>
+                      <span className="text-[11px] text-emerald-400 flex items-center gap-1 font-semibold">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                        {sub.status}
+                      </span>
+                    </div>
                   </div>
-                  <span className="font-mono font-bold text-cyan-400 bg-cyan-950/40 px-2 py-0.5 rounded border border-cyan-800/40 text-[11px]">
+                  <span className="font-mono font-bold text-emerald-300 bg-[#042018] px-3 py-1.5 rounded-xl border border-emerald-500/30 text-xs">
                     {sub.load}
                   </span>
                 </div>
               ))}
-
-              <button
-                type="button"
-                onClick={() => setActiveSubModal(null)}
-                className="w-full py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 font-bold text-white text-xs transition-colors cursor-pointer mt-2"
-              >
-                {currentLang === 'bn' ? 'বন্ধ করুন' : 'Close'}
-              </button>
             </div>
-          </div>
+
+            <button
+              type="button"
+              onClick={() => setActiveSubModal(null)}
+              className="w-full py-3.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 font-bold text-slate-950 text-xs transition-colors cursor-pointer mt-4"
+            >
+              {currentLang === 'bn' ? 'প্রোফাইলে ফিরে যান' : 'Return to Profile'}
+            </button>
+          </main>
         </div>
       )}
 
-      {/* 4. Engineering Team Modal */}
+      {/* 4. Engineering Team Page (Full-Page View) */}
       {activeSubModal === 'engineering' && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
-          <div className="w-full max-w-sm max-h-[90vh] overflow-y-auto bg-[#0e1628] border border-indigo-500/30 rounded-3xl p-5 text-white space-y-4 shadow-2xl">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-800">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center border border-indigo-500/30">
-                  <Users className="w-4 h-4" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-white">
-                    {currentLang === 'bn' ? 'প্রধান প্রকৌশলী দল' : 'Executive Engineering Team'}
-                  </h3>
-                  <p className="text-[10px] text-slate-400">
-                    {currentLang === 'bn' ? 'এআই পাওয়ার ম্যানেজমেন্ট বিশেষজ্ঞ' : 'AI Power System Specialists'}
-                  </p>
-                </div>
-              </div>
+        <div
+          id="profile-subpage-engineering"
+          className="fixed inset-0 z-50 overflow-y-auto bg-[#06483A] flex flex-col text-slate-100 animate-in fade-in duration-200"
+        >
+          <header className="sticky top-0 z-20 bg-[#062c22]/95 backdrop-blur-md border-b border-emerald-500/30 px-4 py-3.5 sm:px-6 sm:py-4 flex items-center justify-between shrink-0">
+            <div className="flex items-center gap-3">
               <button
                 type="button"
                 onClick={() => setActiveSubModal(null)}
-                className="w-7 h-7 rounded-full bg-slate-800/80 hover:bg-slate-700 flex items-center justify-center text-slate-400 hover:text-white transition-colors"
+                className="w-10 h-10 rounded-full bg-[#042018] hover:bg-[#07362a] text-emerald-300 hover:text-white flex items-center justify-center transition-all cursor-pointer active:scale-95 border border-emerald-500/30 shadow-sm"
+                aria-label="Back to Profile"
               >
-                <X className="w-3.5 h-3.5" />
+                <ArrowLeft className="w-5 h-5" />
               </button>
+              <div>
+                <h1 className="text-base sm:text-lg font-bold text-white tracking-wide flex items-center gap-2">
+                  <Users className="w-5 h-5 text-emerald-400" />
+                  <span>{currentLang === 'bn' ? 'প্রধান প্রকৌশলী দল' : 'Executive Engineering Team'}</span>
+                </h1>
+                <p className="text-[11px] text-slate-300">
+                  {currentLang === 'bn' ? 'এআই পাওয়ার ম্যানেজমেন্ট বিশেষজ্ঞ' : 'AI Power System Specialists'}
+                </p>
+              </div>
             </div>
+          </header>
 
-            <div className="space-y-2 text-xs">
+          <main className="flex-1 w-full max-w-xl mx-auto px-4 py-6 sm:px-6 sm:py-8 space-y-4">
+            <div className="space-y-3">
               {[
-                { name: 'Dr. Tariqul Islam, Ph.D.', role: 'Chief Technical Officer (CTO)', org: 'Ex-Siemens Smart Grid' },
-                { name: 'Engr. Sarah Rahman', role: 'Head of AI Transmission', org: 'BUET Electrical Fellow' },
-                { name: 'Kazi Mahbub Alam', role: 'Director of Plant Safety', org: 'ISO Lead Auditor' },
+                {
+                  name: 'Dr. Tariqul Islam, Ph.D.',
+                  role: 'Chief Technical Officer (CTO)',
+                  org: 'Ex-Siemens Smart Grid, 18+ Yrs Exp.',
+                  desc: 'Specialized in algorithmic micro-grid distribution and automated telemetry routing.',
+                },
+                {
+                  name: 'Engr. Sarah Rahman',
+                  role: 'Head of AI Transmission',
+                  org: 'BUET Electrical Fellow, IEEE Senior Member',
+                  desc: 'Pioneered continuous voltage stabilization and neural predictive load shifting.',
+                },
+                {
+                  name: 'Kazi Mahbub Alam',
+                  role: 'Director of Plant Safety',
+                  org: 'ISO 45001 & ISO 14001 Lead Auditor',
+                  desc: 'Oversees safety protocols, grid redundancy mechanisms, and zero-accident compliance.',
+                },
+                {
+                  name: 'Engr. Tanvir Ahmed',
+                  role: 'Principal Grid Architect',
+                  org: 'Renewable Systems Specialist, Ex-DESCO',
+                  desc: 'Directs real-time battery storage synchronizations and commercial plant expansion.',
+                },
               ].map((eng, idx) => (
-                <div key={idx} className="p-3 rounded-2xl bg-[#11182c] border border-slate-800 space-y-1">
-                  <span className="font-bold text-white block">{eng.name}</span>
-                  <span className="text-indigo-300 text-[11px] block">{eng.role}</span>
-                  <span className="text-slate-400 text-[10px] block">{eng.org}</span>
+                <div key={idx} className="p-4 rounded-3xl bg-[#062c22] border border-emerald-500/25 space-y-2 shadow-lg">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <span className="font-bold text-white text-sm block">{eng.name}</span>
+                      <span className="text-emerald-300 text-xs font-semibold block">{eng.role}</span>
+                    </div>
+                    <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-bold border border-emerald-500/30">
+                      Verified
+                    </span>
+                  </div>
+                  <span className="text-slate-400 text-[11px] block">{eng.org}</span>
+                  <p className="text-xs text-slate-300 pt-1 border-t border-emerald-500/15">{eng.desc}</p>
                 </div>
               ))}
-
-              <button
-                type="button"
-                onClick={() => setActiveSubModal(null)}
-                className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 font-bold text-white text-xs transition-colors cursor-pointer mt-2"
-              >
-                {currentLang === 'bn' ? 'বন্ধ করুন' : 'Close'}
-              </button>
             </div>
-          </div>
+
+            <button
+              type="button"
+              onClick={() => setActiveSubModal(null)}
+              className="w-full py-3.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 font-bold text-slate-950 text-xs transition-colors cursor-pointer mt-4"
+            >
+              {currentLang === 'bn' ? 'প্রোফাইলে ফিরে যান' : 'Return to Profile'}
+            </button>
+          </main>
         </div>
       )}
 
-      {/* 5. ESG Audit Modal */}
+      {/* 5. ESG Audit Page (Full-Page View) */}
       {activeSubModal === 'esg' && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
-          <div className="w-full max-w-sm max-h-[90vh] overflow-y-auto bg-[#0e1628] border border-emerald-500/30 rounded-3xl p-5 text-white space-y-4 shadow-2xl">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-800">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center border border-emerald-500/30">
-                  <Leaf className="w-4 h-4" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-white">
-                    {currentLang === 'bn' ? 'ইএসজি ও গ্রিন অডিট' : 'ESG & Green Energy Audit'}
-                  </h3>
-                  <p className="text-[10px] text-slate-400">
-                    {currentLang === 'bn' ? 'পরিবেশবান্ধব বিদ্যুৎ প্রকল্প' : 'Environmental, Social & Governance'}
-                  </p>
-                </div>
-              </div>
+        <div
+          id="profile-subpage-esg"
+          className="fixed inset-0 z-50 overflow-y-auto bg-[#06483A] flex flex-col text-slate-100 animate-in fade-in duration-200"
+        >
+          <header className="sticky top-0 z-20 bg-[#062c22]/95 backdrop-blur-md border-b border-emerald-500/30 px-4 py-3.5 sm:px-6 sm:py-4 flex items-center justify-between shrink-0">
+            <div className="flex items-center gap-3">
               <button
                 type="button"
                 onClick={() => setActiveSubModal(null)}
-                className="w-7 h-7 rounded-full bg-slate-800/80 hover:bg-slate-700 flex items-center justify-center text-slate-400 hover:text-white transition-colors"
+                className="w-10 h-10 rounded-full bg-[#042018] hover:bg-[#07362a] text-emerald-300 hover:text-white flex items-center justify-center transition-all cursor-pointer active:scale-95 border border-emerald-500/30 shadow-sm"
+                aria-label="Back to Profile"
               >
-                <X className="w-3.5 h-3.5" />
+                <ArrowLeft className="w-5 h-5" />
               </button>
+              <div>
+                <h1 className="text-base sm:text-lg font-bold text-white tracking-wide flex items-center gap-2">
+                  <Leaf className="w-5 h-5 text-emerald-400" />
+                  <span>{currentLang === 'bn' ? 'ইএসজি ও গ্রিন অডিট' : 'ESG & Green Energy Audit'}</span>
+                </h1>
+                <p className="text-[11px] text-slate-300">
+                  {currentLang === 'bn' ? 'পরিবেশবান্ধব বিদ্যুৎ প্রকল্প' : 'Environmental, Social & Governance'}
+                </p>
+              </div>
+            </div>
+            <span className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-bold font-mono">
+              ISO 14001:2024
+            </span>
+          </header>
+
+          <main className="flex-1 w-full max-w-xl mx-auto px-4 py-6 sm:px-6 sm:py-8 space-y-4">
+            <div className="p-5 rounded-3xl bg-gradient-to-br from-[#07362a] to-[#042018] border border-emerald-500/30 shadow-xl space-y-2">
+              <span className="text-xs font-bold uppercase tracking-wider text-emerald-300 block">Carbon Offset Achieved</span>
+              <p className="text-2xl sm:text-3xl font-extrabold font-mono text-[#00e676]">350,000+ Metric Tons</p>
+              <p className="text-xs text-slate-300">
+                Prevented from entering Bangladesh’s atmosphere through automated AI load balancing and clean renewable energy distribution.
+              </p>
             </div>
 
-            <div className="space-y-2.5 text-xs text-slate-300">
-              <div className="p-3 rounded-2xl bg-emerald-950/30 border border-emerald-500/30 space-y-1">
-                <span className="font-bold text-emerald-300 block">Carbon Offset Achieved</span>
-                <p className="text-[11px] text-slate-300">Over 350,000 Metric Tons of CO₂ emissions prevented through automated AI load balancing.</p>
+            <div className="space-y-3 text-xs text-slate-300">
+              <div className="p-4 rounded-3xl bg-[#062c22] border border-emerald-500/25 flex justify-between items-center shadow-lg">
+                <span className="font-semibold text-white">Green Renewable Energy Ratio:</span>
+                <span className="font-bold text-emerald-400 font-mono text-sm">92.4% Clean</span>
               </div>
-
-              <div className="p-2.5 rounded-xl bg-[#11182c] border border-slate-800 flex justify-between items-center">
-                <span>Green Power Ratio:</span>
-                <span className="font-bold text-emerald-400">92.4% Renewable</span>
+              <div className="p-4 rounded-3xl bg-[#062c22] border border-emerald-500/25 flex justify-between items-center shadow-lg">
+                <span className="font-semibold text-white">Community Reinvestment:</span>
+                <span className="font-bold text-emerald-400 font-mono text-sm">5.0% Net Profits</span>
               </div>
-              <div className="p-2.5 rounded-xl bg-[#11182c] border border-slate-800 flex justify-between items-center">
-                <span>Community Reinvestment:</span>
-                <span className="font-bold text-cyan-400">5.0% of Net Profits</span>
+              <div className="p-4 rounded-3xl bg-[#062c22] border border-emerald-500/25 flex justify-between items-center shadow-lg">
+                <span className="font-semibold text-white">Audit Standard Compliance:</span>
+                <span className="font-bold text-teal-300">Certified Grade AAA</span>
               </div>
-
-              <button
-                type="button"
-                onClick={() => setActiveSubModal(null)}
-                className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 font-bold text-white text-xs transition-colors cursor-pointer mt-2"
-              >
-                {currentLang === 'bn' ? 'বন্ধ করুন' : 'Close'}
-              </button>
             </div>
-          </div>
+
+            <button
+              type="button"
+              onClick={() => setActiveSubModal(null)}
+              className="w-full py-3.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 font-bold text-slate-950 text-xs transition-colors cursor-pointer mt-4"
+            >
+              {currentLang === 'bn' ? 'প্রোফাইলে ফিরে যান' : 'Return to Profile'}
+            </button>
+          </main>
         </div>
       )}
 
-      {/* 6. Corporate Helpline 24/7 Modal */}
+      {/* 6. Corporate Helpline 24/7 Page (Full-Page View) */}
       {activeSubModal === 'helpline' && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
-          <div className="w-full max-w-sm max-h-[90vh] overflow-y-auto bg-[#0e1628] border border-rose-500/30 rounded-3xl p-5 text-white space-y-4 shadow-2xl">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-800">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-xl bg-rose-500/20 text-rose-400 flex items-center justify-center border border-rose-500/30">
-                  <Headphones className="w-4 h-4" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-white">
-                    {currentLang === 'bn' ? '২৪/৭ কর্পোরেট হেল্পলাইন' : '24/7 Priority Helpline'}
-                  </h3>
-                  <p className="text-[10px] text-slate-400">
-                    {currentLang === 'bn' ? 'গ্রাহক সহায়তা ও জরুরি সেবা' : 'Customer Support & Dispatch'}
-                  </p>
-                </div>
-              </div>
+        <div
+          id="profile-subpage-helpline"
+          className="fixed inset-0 z-50 overflow-y-auto bg-[#06483A] flex flex-col text-slate-100 animate-in fade-in duration-200"
+        >
+          <header className="sticky top-0 z-20 bg-[#062c22]/95 backdrop-blur-md border-b border-emerald-500/30 px-4 py-3.5 sm:px-6 sm:py-4 flex items-center justify-between shrink-0">
+            <div className="flex items-center gap-3">
               <button
                 type="button"
                 onClick={() => setActiveSubModal(null)}
-                className="w-7 h-7 rounded-full bg-slate-800/80 hover:bg-slate-700 flex items-center justify-center text-slate-400 hover:text-white transition-colors"
+                className="w-10 h-10 rounded-full bg-[#042018] hover:bg-[#07362a] text-emerald-300 hover:text-white flex items-center justify-center transition-all cursor-pointer active:scale-95 border border-emerald-500/30 shadow-sm"
+                aria-label="Back to Profile"
               >
-                <X className="w-3.5 h-3.5" />
+                <ArrowLeft className="w-5 h-5" />
               </button>
+              <div>
+                <h1 className="text-base sm:text-lg font-bold text-white tracking-wide flex items-center gap-2">
+                  <Headphones className="w-5 h-5 text-emerald-400" />
+                  <span>{currentLang === 'bn' ? '২৪/৭ কর্পোরেট হেল্পলাইন' : '24/7 Priority Helpline'}</span>
+                </h1>
+                <p className="text-[11px] text-slate-300">
+                  {currentLang === 'bn' ? 'গ্রাহক সহায়তা ও জরুরি সেবা' : 'Customer Support & Dispatch'}
+                </p>
+              </div>
             </div>
+            <span className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-bold">
+              24/7 Live
+            </span>
+          </header>
 
-            <div className="space-y-2 text-xs">
+          <main className="flex-1 w-full max-w-xl mx-auto px-4 py-6 sm:px-6 sm:py-8 space-y-4">
+            <div className="space-y-3 text-xs">
               <a
                 href="tel:+8809612001122"
-                className="p-3 rounded-2xl bg-[#11182c] hover:bg-[#162244] border border-slate-800 flex items-center justify-between transition-colors block"
+                className="p-4 rounded-3xl bg-[#062c22] hover:bg-[#07362a] border border-emerald-500/30 flex items-center justify-between transition-colors block shadow-lg"
               >
-                <div className="flex items-center gap-2.5">
-                  <PhoneCall className="w-4 h-4 text-rose-400" />
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+                    <PhoneCall className="w-5 h-5" />
+                  </div>
                   <div>
-                    <span className="font-bold text-white block">Toll-Free Hotline</span>
-                    <span className="text-[11px] text-slate-400">09612-001122</span>
+                    <span className="font-bold text-white text-sm block">Toll-Free Hotline</span>
+                    <span className="text-xs text-slate-300 font-mono">09612-001122</span>
                   </div>
                 </div>
-                <span className="text-[10px] text-rose-400 font-semibold">Call Now</span>
+                <span className="text-xs text-emerald-400 font-bold bg-emerald-500/15 px-3 py-1.5 rounded-xl border border-emerald-500/30">
+                  Call Now
+                </span>
               </a>
 
               <a
                 href="mailto:support@ai-energy.bd"
-                className="p-3 rounded-2xl bg-[#11182c] hover:bg-[#162244] border border-slate-800 flex items-center justify-between transition-colors block"
+                className="p-4 rounded-3xl bg-[#062c22] hover:bg-[#07362a] border border-emerald-500/30 flex items-center justify-between transition-colors block shadow-lg"
               >
-                <div className="flex items-center gap-2.5">
-                  <Mail className="w-4 h-4 text-cyan-400" />
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+                    <Mail className="w-5 h-5" />
+                  </div>
                   <div>
-                    <span className="font-bold text-white block">Official Support Desk</span>
-                    <span className="text-[11px] text-slate-400">support@ai-energy.bd</span>
+                    <span className="font-bold text-white text-sm block">Official Support Desk</span>
+                    <span className="text-xs text-slate-300 font-mono">support@ai-energy.bd</span>
                   </div>
                 </div>
-                <span className="text-[10px] text-cyan-400 font-semibold">Email</span>
+                <span className="text-xs text-emerald-400 font-bold bg-emerald-500/15 px-3 py-1.5 rounded-xl border border-emerald-500/30">
+                  Email
+                </span>
               </a>
 
-              <div className="p-3 rounded-2xl bg-[#11182c] border border-slate-800 flex items-start gap-2.5">
-                <MapPin className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+              <div className="p-4 rounded-3xl bg-[#062c22] border border-emerald-500/30 flex items-start gap-3 shadow-lg">
+                <div className="w-10 h-10 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
+                  <MapPin className="w-5 h-5" />
+                </div>
                 <div>
-                  <span className="font-bold text-white block">Corporate Headquarters</span>
-                  <span className="text-[11px] text-slate-400 leading-tight block">
+                  <span className="font-bold text-white text-sm block">Corporate Headquarters</span>
+                  <span className="text-xs text-slate-300 leading-relaxed block mt-0.5">
                     Level 14, Silicon Energy Tower, Road 11, Gulshan-2, Dhaka-1212
                   </span>
                 </div>
               </div>
-
-              <button
-                type="button"
-                onClick={() => setActiveSubModal(null)}
-                className="w-full py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 font-bold text-white text-xs transition-colors cursor-pointer mt-2"
-              >
-                {currentLang === 'bn' ? 'বন্ধ করুন' : 'Close'}
-              </button>
             </div>
-          </div>
+
+            <button
+              type="button"
+              onClick={() => setActiveSubModal(null)}
+              className="w-full py-3.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 font-bold text-slate-950 text-xs transition-colors cursor-pointer mt-4"
+            >
+              {currentLang === 'bn' ? 'প্রোফাইলে ফিরে যান' : 'Return to Profile'}
+            </button>
+          </main>
         </div>
       )}
 
       {/* Logout Confirmation */}
       {showLogoutConfirm && (
         <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
-          <div className="w-full max-w-xs bg-[#0e1628] border border-rose-500/30 rounded-3xl p-5 text-white space-y-3 text-center">
+          <div className="w-full max-w-xs bg-[#062c22] border border-emerald-500/30 rounded-3xl p-5 text-white space-y-3 text-center shadow-2xl">
             <div className="w-10 h-10 rounded-full bg-rose-500/20 border border-rose-500/40 text-rose-400 flex items-center justify-center mx-auto">
               <LogOut className="w-5 h-5" />
             </div>
             <h3 className="text-base font-bold">
               {currentLang === 'bn' ? 'লগআউট নিশ্চিতকরণ' : 'Logout Confirmation'}
             </h3>
-            <p className="text-xs text-slate-400">
+            <p className="text-xs text-slate-300">
               {currentLang === 'bn'
                 ? 'আপনি কি নিশ্চিত যে আপনার অ্যাকাউন্ট থেকে লগআউট করতে চান?'
                 : 'Are you sure you want to log out of your account?'}
@@ -3510,7 +4179,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               <button
                 type="button"
                 onClick={() => setShowLogoutConfirm(false)}
-                className="py-2 rounded-xl bg-slate-800 text-slate-300 font-semibold text-xs"
+                className="py-2 rounded-xl bg-[#042018] hover:bg-[#072c21] text-emerald-200 border border-emerald-500/30 font-semibold text-xs transition-colors"
               >
                 {currentLang === 'bn' ? 'বাতিল' : 'Cancel'}
               </button>
@@ -3520,7 +4189,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                   setShowLogoutConfirm(false);
                   onLogout();
                 }}
-                className="py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs shadow-lg shadow-rose-600/30"
+                className="py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs shadow-lg shadow-rose-600/30 transition-colors"
               >
                 {currentLang === 'bn' ? 'লগআউট' : 'Logout'}
               </button>

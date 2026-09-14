@@ -236,6 +236,31 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
             { start: 12, end: 18, text: '⚡ Payout delivered to your verified wallet in 5 to 30 minutes' },
             { start: 18, end: 999, text: '✅ 24/7 Support Hotline & Downloadable Official Receipts' },
           ]
+    },
+    {
+      id: 'ep-4',
+      title: lang === 'bn' ? 'কীভাবে জাতীয় বিদ্যুৎ গ্রিড কাজ করে' : 'How the National Power Grid Works',
+      subtitle: lang === 'bn' ? 'স্মার্ট অটোমেশন ও ১০০% জিরো-কার্বন বিদ্যুৎ ডেসপ্যাচ' : 'Smart Automation & Zero-Carbon Dispatch',
+      duration: '00:23',
+      totalSec: 23,
+      image: '/images/energy_hero_facility_1788465969350.jpg',
+      videoSrc: '/company-profile/videos/how-power-grid-works.mp4',
+      narration: lang === 'bn'
+        ? 'আমাদের আধুনিক এআই পাওয়ার গ্রিড সিস্টেমের মাধ্যমে সার্বক্ষণিক বিদ্যুৎ ফ্রিকোয়েন্সি ৫০ হার্জে নিখুঁতভাবে স্থিতিশীল রাখা হয়। স্বয়ংক্রিয় এআই ডেসপ্যাচের মাধ্যমে জাতীয় বিদ্যুৎ গ্রিডে নির্ভরযোগ্য বিদ্যুৎ সরবরাহ নিশ্চিত করা হয়।'
+        : 'Our state-of-the-art AI power grid maintains frequency precisely at 50 Hz, ensuring seamless clean power dispatch into national distribution networks.',
+      captions: lang === 'bn'
+        ? [
+            { start: 0, end: 6, text: '🌐 এআই পাওয়ার গ্রিড: ১০০% কার্বন-মুক্ত নির্ভরযোগ্য বিদ্যুৎ' },
+            { start: 6, end: 12, text: '⚡ ৫০ হার্জ নিখুঁত ফ্রিকোয়েন্সি ও স্বয়ংক্রিয় ভোল্টেজ ব্যালেন্সিং' },
+            { start: 12, end: 18, text: '🔄 জাতীয় পাওয়ার গ্রিডে সার্বক্ষণিক স্মার্ট ডেসপ্যাচ' },
+            { start: 18, end: 999, text: '✅ আধুনিক গ্রিন এনার্জি প্রযুক্তি ও টেকসই ভবিষ্যৎ' },
+          ]
+        : [
+            { start: 0, end: 6, text: '🌐 AI Power Grid: 100% Zero-Carbon Certified Generation' },
+            { start: 6, end: 12, text: '⚡ 50 Hz Precision Frequency & Voltage Balancing' },
+            { start: 12, end: 18, text: '🔄 Continuous Automated Smart Grid Dispatch' },
+            { start: 18, end: 999, text: '✅ Cutting-edge Sustainable Clean Energy Future' },
+          ]
     }
   ], [lang]);
 
@@ -551,20 +576,21 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
     return () => clearInterval(timer);
   }, [heroSlides.length]);
 
-  // Single-line withdrawal notification alerts under carousel (matching user screenshot)
+  // Single-line withdrawal notification alerts (matching min 400, max 2000, majority 400-1000)
   const [liveWithdrawalAlertIndex, setLiveWithdrawalAlertIndex] = useState(0);
   const liveWithdrawalAlerts = useMemo(() => [
-    { id: '18**36', amount: '4500' },
-    { id: '17**92', amount: '5000' },
-    { id: '19**44', amount: '2500' },
-    { id: '18**11', amount: '12000' },
-    { id: '16**90', amount: '8500' },
-    { id: '13**21', amount: '3000' },
-    { id: '17**94', amount: '10000' },
-    { id: '15**08', amount: '6200' },
-    { id: '18**10', amount: '15000' },
-    { id: '19**23', amount: '4500' },
-    { id: '17**31', amount: '20000' },
+    { id: '18**36', amount: '450' },
+    { id: '17**92', amount: '500' },
+    { id: '19**44', amount: '650' },
+    { id: '18**11', amount: '1350' },
+    { id: '16**90', amount: '850' },
+    { id: '13**21', amount: '400' },
+    { id: '17**94', amount: '1600' },
+    { id: '15**08', amount: '720' },
+    { id: '18**10', amount: '2000' },
+    { id: '19**23', amount: '550' },
+    { id: '17**31', amount: '920' },
+    { id: '16**45', amount: '480' },
   ], []);
 
   useEffect(() => {
@@ -574,18 +600,24 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
     return () => clearInterval(alertTimer);
   }, [liveWithdrawalAlerts.length]);
 
-  // Live Payouts data (Bangladesh mobile banking & withdrawals for detailed feed)
+  // Live Payouts data (Min 400, Max 2000, majority 75% between 400 and 1000)
   const livePayouts = useMemo(() => [
-    { phone: '017****5892', amount: '৳৫,০০০', method: 'bKash', time: lang === 'bn' ? 'এইমাত্র' : 'Just now', type: lang === 'bn' ? 'উত্তোলন সফল' : 'Withdrawal Paid', brandBg: 'bg-[#e2136e]', brandText: 'bKash' },
-    { phone: '019****4412', amount: '৳২,৫০০', method: 'Nagad', time: lang === 'bn' ? '১ মিনিট আগে' : '1m ago', type: lang === 'bn' ? 'উত্তোলন সফল' : 'Withdrawal Paid', brandBg: 'bg-[#f7941d]', brandText: 'Nagad' },
-    { phone: '018****1154', amount: '৳১২,০০০', method: 'Rocket', time: lang === 'bn' ? '২ মিনিট আগে' : '2m ago', type: lang === 'bn' ? 'উত্তোলন সফল' : 'Withdrawal Paid', brandBg: 'bg-[#8c3494]', brandText: 'Rocket' },
-    { phone: '016****7890', amount: '৳৮,৫০০', method: 'bKash', time: lang === 'bn' ? '৩ মিনিট আগে' : '3m ago', type: lang === 'bn' ? 'উত্তোলন সফল' : 'Withdrawal Paid', brandBg: 'bg-[#e2136e]', brandText: 'bKash' },
-    { phone: '013****6621', amount: '৳৩,০০০', method: 'Nagad', time: lang === 'bn' ? '৩ মিনিট আগে' : '3m ago', type: lang === 'bn' ? 'টাকা গ্রহণ সফল' : 'Payout Received', brandBg: 'bg-[#f7941d]', brandText: 'Nagad' },
-    { phone: '017****2394', amount: '৳১০,০০০', method: 'bKash', time: lang === 'bn' ? '৪ মিনিট আগে' : '4m ago', type: lang === 'bn' ? 'উত্তোলন সফল' : 'Withdrawal Paid', brandBg: 'bg-[#e2136e]', brandText: 'bKash' },
-    { phone: '015****9908', amount: '৳৬,২০০', method: 'Rocket', time: lang === 'bn' ? '৫ মিনিট আগে' : '5m ago', type: lang === 'bn' ? 'উত্তোলন সফল' : 'Withdrawal Paid', brandBg: 'bg-[#8c3494]', brandText: 'Rocket' },
-    { phone: '018****3410', amount: '৳১৫,০০০', method: 'bKash', time: lang === 'bn' ? '৬ মিনিট আগে' : '6m ago', type: lang === 'bn' ? 'উত্তোলন সফল' : 'Withdrawal Paid', brandBg: 'bg-[#e2136e]', brandText: 'bKash' },
-    { phone: '019****7823', amount: '৳৪,৫০০', method: 'Nagad', time: lang === 'bn' ? '৭ মিনিট আগে' : '7m ago', type: lang === 'bn' ? 'উত্তোলন সফল' : 'Withdrawal Paid', brandBg: 'bg-[#f7941d]', brandText: 'Nagad' },
-    { phone: '017****4931', amount: '৳২০,০০০', method: 'bKash', time: lang === 'bn' ? '৮ মিনিট আগে' : '8m ago', type: lang === 'bn' ? 'উত্তোলন সফল' : 'Withdrawal Paid', brandBg: 'bg-[#e2136e]', brandText: 'bKash' },
+    { phone: '017****5892', amount: lang === 'bn' ? '৳৫০০' : '৳ 500', method: 'bKash', time: lang === 'bn' ? 'এইমাত্র' : 'Just now', type: lang === 'bn' ? 'উত্তোলন সফল' : 'Withdrawal Paid', brandBg: 'bg-[#e2136e]', brandText: 'bKash' },
+    { phone: '019****4412', amount: lang === 'bn' ? '৳৪২০' : '৳ 420', method: 'Nagad', time: lang === 'bn' ? '১ মিনিট আগে' : '1m ago', type: lang === 'bn' ? 'উত্তোলন সফল' : 'Withdrawal Paid', brandBg: 'bg-[#f7941d]', brandText: 'Nagad' },
+    { phone: '018****1154', amount: lang === 'bn' ? '৳১,৩৫০' : '৳ 1,350', method: 'Rocket', time: lang === 'bn' ? '২ মিনিট আগে' : '2m ago', type: lang === 'bn' ? 'উত্তোলন সফল' : 'Withdrawal Paid', brandBg: 'bg-[#8c3494]', brandText: 'Rocket' },
+    { phone: '016****7890', amount: lang === 'bn' ? '৳৬৫০' : '৳ 650', method: 'bKash', time: lang === 'bn' ? '৩ মিনিট আগে' : '3m ago', type: lang === 'bn' ? 'উত্তোলন সফল' : 'Withdrawal Paid', brandBg: 'bg-[#e2136e]', brandText: 'bKash' },
+    { phone: '013****6621', amount: lang === 'bn' ? '৳৭৮০' : '৳ 780', method: 'Nagad', time: lang === 'bn' ? '৩ মিনিট আগে' : '3m ago', type: lang === 'bn' ? 'টাকা গ্রহণ সফল' : 'Payout Received', brandBg: 'bg-[#f7941d]', brandText: 'Nagad' },
+    { phone: '017****2394', amount: lang === 'bn' ? '৳৪০০' : '৳ 400', method: 'bKash', time: lang === 'bn' ? '৪ মিনিট আগে' : '4m ago', type: lang === 'bn' ? 'উত্তোলন সফল' : 'Withdrawal Paid', brandBg: 'bg-[#e2136e]', brandText: 'bKash' },
+    { phone: '015****9908', amount: lang === 'bn' ? '৳৮৫০' : '৳ 850', method: 'Rocket', time: lang === 'bn' ? '৫ মিনিট আগে' : '5m ago', type: lang === 'bn' ? 'উত্তোলন সফল' : 'Withdrawal Paid', brandBg: 'bg-[#8c3494]', brandText: 'Rocket' },
+    { phone: '018****3410', amount: lang === 'bn' ? '৳১,৬০০' : '৳ 1,600', method: 'bKash', time: lang === 'bn' ? '৬ মিনিট আগে' : '6m ago', type: lang === 'bn' ? 'উত্তোলন সফল' : 'Withdrawal Paid', brandBg: 'bg-[#e2136e]', brandText: 'bKash' },
+    { phone: '019****7823', amount: lang === 'bn' ? '৳৫৫০' : '৳ 550', method: 'Nagad', time: lang === 'bn' ? '৭ মিনিট আগে' : '7m ago', type: lang === 'bn' ? 'উত্তোলন সফল' : 'Withdrawal Paid', brandBg: 'bg-[#f7941d]', brandText: 'Nagad' },
+    { phone: '017****4931', amount: lang === 'bn' ? '৳২,০০০' : '৳ 2,000', method: 'bKash', time: lang === 'bn' ? '৮ মিনিট আগে' : '8m ago', type: lang === 'bn' ? 'উত্তোলন সফল' : 'Withdrawal Paid', brandBg: 'bg-[#e2136e]', brandText: 'bKash' },
+    { phone: '016****4189', amount: lang === 'bn' ? '৳৯২০' : '৳ 920', method: 'bKash', time: lang === 'bn' ? '৯ মিনিট আগে' : '9m ago', type: lang === 'bn' ? 'উত্তোলন সফল' : 'Withdrawal Paid', brandBg: 'bg-[#e2136e]', brandText: 'bKash' },
+    { phone: '018****8234', amount: lang === 'bn' ? '৳৪৬০' : '৳ 460', method: 'Rocket', time: lang === 'bn' ? '১০ মিনিট আগে' : '10m ago', type: lang === 'bn' ? 'উত্তোলন সফল' : 'Withdrawal Paid', brandBg: 'bg-[#8c3494]', brandText: 'Rocket' },
+    { phone: '019****9012', amount: lang === 'bn' ? '৳১,০০০' : '৳ 1,000', method: 'Nagad', time: lang === 'bn' ? '১১ মিনিট আগে' : '11m ago', type: lang === 'bn' ? 'উত্তোলন সফল' : 'Withdrawal Paid', brandBg: 'bg-[#f7941d]', brandText: 'Nagad' },
+    { phone: '017****6371', amount: lang === 'bn' ? '৳৭২০' : '৳ 720', method: 'bKash', time: lang === 'bn' ? '১২ মিনিট আগে' : '12m ago', type: lang === 'bn' ? 'উত্তোলন সফল' : 'Withdrawal Paid', brandBg: 'bg-[#e2136e]', brandText: 'bKash' },
+    { phone: '015****3948', amount: lang === 'bn' ? '৳১,৭৫০' : '৳ 1,750', method: 'Rocket', time: lang === 'bn' ? '১৩ মিনিট আগে' : '13m ago', type: lang === 'bn' ? 'উত্তোলন সফল' : 'Withdrawal Paid', brandBg: 'bg-[#8c3494]', brandText: 'Rocket' },
+    { phone: '013****5520', amount: lang === 'bn' ? '৳৪৮০' : '৳ 480', method: 'Nagad', time: lang === 'bn' ? '১৪ মিনিট আগে' : '14m ago', type: lang === 'bn' ? 'উত্তোলন সফল' : 'Withdrawal Paid', brandBg: 'bg-[#f7941d]', brandText: 'Nagad' },
   ], [lang]);
 
   // Live Payout rotator timer
@@ -1054,6 +1086,7 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
           {/* Native Clean Video Element */}
           <video
             ref={videoElementRef}
+            key={videoEpisodes[selectedVideoIndex].videoSrc}
             src={videoEpisodes[selectedVideoIndex].videoSrc}
             poster={resolveImageSrc(videoEpisodes[selectedVideoIndex].image, 'solar')}
             className="w-full h-full object-cover"
@@ -1062,27 +1095,34 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
             loop
             onPlay={() => setIsVideoPlaying(true)}
             onPause={() => setIsVideoPlaying(false)}
+            onEnded={() => {
+              setIsVideoPlaying(false);
+              setVideoSeconds(0);
+            }}
             onTimeUpdate={(e) => setVideoSeconds(Math.floor(e.currentTarget.currentTime))}
             onClick={handleToggleVideoPlay}
           />
 
-          <div className="absolute inset-0 bg-gradient-to-t from-[#060a14] via-black/20 to-black/40 pointer-events-none" />
+          {/* Vignette ONLY when paused/stopped - NEVER covers playing video */}
+          {!isVideoPlaying && (
+            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-black/40 pointer-events-none transition-opacity duration-300" />
+          )}
 
           {/* Center Interactive Play Prompt when stopped */}
           {!isVideoPlaying ? (
             <div
               onClick={handleToggleVideoPlay}
-              className="absolute inset-0 flex flex-col items-center justify-center bg-black/40 backdrop-blur-[1px] cursor-pointer transition-all hover:bg-black/30"
+              className="absolute inset-0 flex flex-col items-center justify-center bg-black/30 backdrop-blur-[1px] cursor-pointer transition-all hover:bg-black/20 z-10"
             >
-              <div className="w-16 h-16 rounded-full bg-gradient-to-tr from-cyan-400 to-emerald-400 text-black flex items-center justify-center shadow-2xl shadow-cyan-500/50 transform hover:scale-110 active:scale-95 transition-all">
+              <div className="w-16 h-16 rounded-full bg-gradient-to-tr from-emerald-400 to-cyan-400 text-slate-950 flex items-center justify-center shadow-2xl shadow-emerald-500/50 transform hover:scale-110 active:scale-95 transition-all">
                 <Play className="w-8 h-8 fill-current ml-1" />
               </div>
-              <div className="mt-3 px-3.5 py-1.5 rounded-full bg-black/80 text-xs font-bold text-cyan-300 shadow-md">
+              <div className="mt-3 px-3.5 py-1.5 rounded-full bg-black/80 text-xs font-bold text-emerald-300 shadow-md border border-emerald-500/25 backdrop-blur-md">
                 {lang === 'bn' ? 'ভিডিও দেখতে এখানে ক্লিক করুন' : 'Click to Watch Facility Video'}
               </div>
             </div>
           ) : (
-            <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+            <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
               <button
                 type="button"
                 onClick={handleToggleVideoPlay}
@@ -1096,17 +1136,17 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
 
           {/* Captions / Subtitles */}
           {isVideoPlaying && (
-            <div className="absolute bottom-12 inset-x-3 text-center pointer-events-none">
-              <div className="inline-block max-w-[92%] px-3.5 py-1.5 rounded-xl bg-black/85 text-xs sm:text-sm text-cyan-200 font-medium shadow-xl animate-in fade-in duration-300">
+            <div className="absolute bottom-12 inset-x-3 text-center pointer-events-none z-10">
+              <div className="inline-block max-w-[92%] px-3.5 py-1.5 rounded-xl bg-black/85 text-xs sm:text-sm text-cyan-200 font-medium shadow-xl animate-in fade-in duration-300 border border-white/10 backdrop-blur-md">
                 {videoEpisodes[selectedVideoIndex].captions.find(
-                  (c) => (videoSeconds % 25) >= c.start && (videoSeconds % 25) < c.end
+                  (c) => (videoSeconds % (videoEpisodes[selectedVideoIndex].totalSec || 25)) >= c.start && (videoSeconds % (videoEpisodes[selectedVideoIndex].totalSec || 25)) < c.end
                 )?.text || videoEpisodes[selectedVideoIndex].captions[0]?.text}
               </div>
             </div>
           )}
 
           {/* Bottom Control Bar */}
-          <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/95 via-black/80 to-transparent p-3 pt-4 space-y-2">
+          <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/95 via-black/80 to-transparent p-3 pt-4 space-y-2 z-10">
             {/* Scrubber Progress Bar */}
             <div
               onClick={() => {
@@ -1174,6 +1214,25 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
               </span>
             </div>
           </div>
+        </div>
+
+        {/* Video Clips Carousel/Tabs */}
+        <div className="bg-[#031d16] p-2 sm:p-2.5 border-t border-emerald-500/20 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+          {videoEpisodes.map((ep, idx) => (
+            <button
+              key={ep.id}
+              type="button"
+              onClick={() => handleSelectVideoEpisode(idx)}
+              className={`px-3 py-1.5 rounded-xl text-[11px] sm:text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
+                selectedVideoIndex === idx
+                  ? 'bg-emerald-500 text-slate-950 font-bold shadow-md shadow-emerald-500/30 scale-[1.02]'
+                  : 'bg-[#062a1f] hover:bg-[#093a2b] text-slate-300 border border-emerald-500/20'
+              }`}
+            >
+              <span>{ep.id === 'ep-1' ? '☀️' : ep.id === 'ep-2' ? '🔋' : ep.id === 'ep-3' ? '💰' : '🌐'}</span>
+              <span>{ep.title}</span>
+            </button>
+          ))}
         </div>
       </div>
 

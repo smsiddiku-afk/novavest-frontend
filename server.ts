@@ -448,10 +448,48 @@ async function startServer() {
   // ───────────────────────────────────────────────────────────
   // ORDER STATUS & VERIFICATION APIS
   // ───────────────────────────────────────────────────────────
-  app.get(['/api/payments/order-status/:orderNo', '/api/payments/status/:orderNo'], (req, res) => {
+  app.get(['/api/payments/order-status/:orderNo', '/api/payments/status/:orderNo'], async (req, res) => {
     const { orderNo } = req.params;
     const cleanKey = String(orderNo || '').trim();
-    const order = ordersDatabase.get(cleanKey) || ordersDatabase.get(cleanKey.toUpperCase());
+    let order = ordersDatabase.get(cleanKey) || ordersDatabase.get(cleanKey.toUpperCase());
+
+    // If order is not found or still pending, check live remote backend on Render
+    if (!order || order.status === 'PENDING') {
+      try {
+        const remoteRes = await fetch(`https://nekpay-backend.onrender.com/order-status/${encodeURIComponent(cleanKey)}`, {
+          headers: { 'Accept': 'application/json' },
+          signal: AbortSignal.timeout(4000),
+        });
+        if (remoteRes.ok) {
+          const remoteData: any = await remoteRes.json();
+          const remoteStatus = String(remoteData.status || '').toUpperCase();
+          if (remoteStatus === 'COMPLETED' || remoteStatus === 'SUCCESS' || remoteStatus === 'PAID') {
+            if (!order) {
+              order = {
+                orderId: cleanKey,
+                trxId: remoteData.trxId || cleanKey,
+                amount: Number(remoteData.amount) || 0,
+                status: 'COMPLETED',
+                channel: remoteData.gateway?.toLowerCase() || 'watchpay',
+                channelName: remoteData.gateway || 'WatchPay',
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+              };
+            } else {
+              order.status = 'COMPLETED';
+              order.trxId = remoteData.trxId || order.trxId || cleanKey;
+              if (remoteData.amount) order.amount = Number(remoteData.amount);
+              order.updatedAt = new Date().toISOString();
+            }
+            ordersDatabase.set(cleanKey, order);
+            if (order.orderId) ordersDatabase.set(order.orderId, order);
+            if (order.trxId) ordersDatabase.set(order.trxId, order);
+          }
+        }
+      } catch (_) {
+        // remote check non-fatal
+      }
+    }
 
     if (!order) {
       return res.json({

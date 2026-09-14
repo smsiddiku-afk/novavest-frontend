@@ -154,14 +154,14 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
       {/* Background ambient teal glows (only in dark mode) */}
       {themeMode === 'night' && (
         <>
-          <div className="absolute -top-16 -left-16 w-64 h-64 bg-[#18c4e6]/10 rounded-full blur-3xl pointer-events-none" />
-          <div className="absolute top-1/4 -right-20 w-72 h-72 bg-[#0a3548]/25 rounded-full blur-3xl pointer-events-none" />
+          <div className="absolute -top-16 -left-16 w-64 h-64 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
+          <div className="absolute top-1/4 -right-20 w-72 h-72 bg-teal-500/15 rounded-full blur-3xl pointer-events-none" />
         </>
       )}
 
       {/* Local Toast Alert */}
       {localToast && (
-        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 px-5 py-3 rounded-2xl bg-slate-900/95 border-2 border-cyan-500/60 text-cyan-300 text-sm font-bold shadow-2xl backdrop-blur-md animate-in fade-in">
+        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 px-5 py-3 rounded-2xl bg-[#062c22]/95 border-2 border-emerald-500/60 text-emerald-300 text-sm font-bold shadow-2xl backdrop-blur-md animate-in fade-in">
           {localToast}
         </div>
       )}
@@ -177,7 +177,7 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
             className={`w-11 h-11 rounded-2xl flex items-center justify-center transition-all active:scale-95 cursor-pointer shadow-sm ${
               themeMode === 'day'
                 ? 'bg-white border border-slate-200 text-slate-700 hover:text-slate-900 shadow-sm'
-                : 'bg-[#0d1c28] border border-slate-800/80 hover:border-cyan-500/50 text-white'
+                : 'bg-[#042018] border border-emerald-500/30 hover:border-emerald-400 text-emerald-300 hover:text-white'
             }`}
           >
             <ArrowLeft className="w-5 h-5 stroke-[2.5]" />
@@ -199,7 +199,7 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
               className={`w-11 h-11 rounded-2xl flex items-center justify-center transition-all active:scale-95 cursor-pointer shadow-sm ${
                 themeMode === 'day'
                   ? 'bg-white border border-slate-200 text-slate-700 hover:text-slate-900 shadow-sm'
-                  : 'bg-[#0d1c28] border border-slate-800/80 hover:border-cyan-500/50 text-white'
+                  : 'bg-[#042018] border border-emerald-500/30 hover:border-emerald-400 text-emerald-300 hover:text-white'
               }`}
               title={currentLang === 'bn' ? 'লেনদেনের ইতিহাস' : 'Transaction History'}
             >
@@ -212,7 +212,7 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
         <div className={`p-1.5 rounded-2xl flex items-center gap-1.5 shadow-inner my-2.5 ${
           themeMode === 'day'
             ? 'bg-slate-200/90 border border-slate-300'
-            : 'bg-[#091520] border border-slate-800'
+            : 'bg-[#042018] border border-emerald-500/20'
         }`}>
           <button
             id="wallet-tab-recharge-btn"
@@ -224,11 +224,11 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
             className={`flex-1 py-3 sm:py-3.5 rounded-xl font-black text-sm sm:text-base tracking-wide transition-all cursor-pointer flex items-center justify-center gap-2 ${
               activeTab === 'recharge'
                 ? themeMode === 'day'
-                  ? 'bg-blue-600 text-white shadow-md font-black scale-[1.01]'
-                  : 'bg-[#18c4e6] text-[#051119] shadow-[0_4px_16px_rgba(24,196,230,0.4)] font-black scale-[1.01]'
+                  ? 'bg-emerald-600 text-white shadow-md font-black scale-[1.01]'
+                  : 'bg-emerald-400 text-slate-950 shadow-[0_4px_16px_rgba(16,185,129,0.35)] font-black scale-[1.01]'
                 : themeMode === 'day'
                 ? 'text-slate-600 hover:text-slate-900 font-bold'
-                : 'text-slate-400 hover:text-white font-semibold'
+                : 'text-emerald-200/70 hover:text-white font-semibold'
             }`}
           >
             <ArrowDownToLine className="w-5 h-5 stroke-[2.5]" />
@@ -244,11 +244,11 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
             className={`flex-1 py-3 sm:py-3.5 rounded-xl font-black text-sm sm:text-base tracking-wide transition-all cursor-pointer flex items-center justify-center gap-2 ${
               activeTab === 'withdraw'
                 ? themeMode === 'day'
-                  ? 'bg-blue-600 text-white shadow-md font-black scale-[1.01]'
-                  : 'bg-[#18c4e6] text-[#051119] shadow-[0_4px_16px_rgba(24,196,230,0.4)] font-black scale-[1.01]'
+                  ? 'bg-emerald-600 text-white shadow-md font-black scale-[1.01]'
+                  : 'bg-emerald-400 text-slate-950 shadow-[0_4px_16px_rgba(16,185,129,0.35)] font-black scale-[1.01]'
                 : themeMode === 'day'
                 ? 'text-slate-600 hover:text-slate-900 font-bold'
-                : 'text-slate-400 hover:text-white font-semibold'
+                : 'text-emerald-200/70 hover:text-white font-semibold'
             }`}
           >
             <ArrowUpFromLine className="w-5 h-5 stroke-[2.5]" />
@@ -262,10 +262,10 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
         {activeTab === 'recharge' ? (
           <>
             {/* 1. AMOUNT INPUT & PRESET CHIPS (PROMINENT AT TOP) */}
-            <div className="rounded-3xl bg-[#07141f] border border-slate-800/90 p-4 sm:p-5 space-y-4 shadow-xl">
+            <div className="rounded-3xl bg-[#062c22] border border-emerald-500/30 p-4 sm:p-5 space-y-4 shadow-xl">
               <div className="flex items-center justify-between">
-                <span className="text-slate-200 text-sm sm:text-base font-extrabold flex items-center gap-1.5">
-                  <Sparkles className="w-4 h-4 text-[#18c4e6]" />
+                <span className="text-slate-100 text-sm sm:text-base font-extrabold flex items-center gap-1.5">
+                  <Sparkles className="w-4 h-4 text-emerald-400" />
                   <span>{currentLang === 'bn' ? 'রিচার্জের পরিমাণ (টাকা)' : 'Recharge Amount (BDT)'}</span>
                 </span>
                 <span className="px-3 py-1 rounded-full text-xs sm:text-sm font-extrabold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-mono">
@@ -274,8 +274,8 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
               </div>
 
               {/* Amount Input Box */}
-              <div className="relative flex items-center bg-[#050e17] border-2 border-slate-700/90 rounded-2xl px-5 py-4 focus-within:border-[#18c4e6] focus-within:ring-4 focus-within:ring-[#18c4e6]/25 transition-all">
-                <span className="text-[#18c4e6] text-2xl sm:text-3xl font-black mr-3 select-none font-mono">
+              <div className="relative flex items-center bg-[#031812] border-2 border-emerald-500/30 rounded-2xl px-5 py-4 focus-within:border-emerald-400 focus-within:ring-4 focus-within:ring-emerald-500/25 transition-all">
+                <span className="text-emerald-400 text-2xl sm:text-3xl font-black mr-3 select-none font-mono">
                   ৳
                 </span>
                 <input
@@ -301,8 +301,8 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
                       onClick={() => setAmount(String(preset))}
                       className={`py-2.5 sm:py-3 px-2 rounded-2xl text-sm sm:text-base font-mono font-black transition-all cursor-pointer relative flex items-center justify-center ${
                         isSelected
-                          ? 'bg-[#18c4e6] text-[#051119] shadow-lg shadow-[#18c4e6]/30 scale-[1.03]'
-                          : 'bg-[#0b1b2a] hover:bg-[#102438] text-slate-100 border border-slate-700/80 hover:border-slate-600'
+                          ? 'bg-emerald-400 text-slate-950 shadow-lg shadow-emerald-500/30 scale-[1.03]'
+                          : 'bg-[#042018] hover:bg-[#072c21] text-emerald-100 border border-emerald-500/25 hover:border-emerald-500/40'
                       }`}
                     >
                       {preset === 100 && (
@@ -320,11 +320,11 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
             {/* 2. PAYMENT CHANNEL SELECTOR (OFFICIAL LIVE CHANNELS) */}
             <div className="space-y-2 pt-1">
               <div className="flex items-center justify-between">
-                <span className="text-slate-200 text-sm sm:text-base font-extrabold flex items-center gap-1.5">
-                  <Layers className="w-4 h-4 text-[#18c4e6]" />
+                <span className="text-slate-100 text-sm sm:text-base font-extrabold flex items-center gap-1.5">
+                  <Layers className="w-4 h-4 text-emerald-400" />
                   <span>{currentLang === 'bn' ? '১. পেমেন্ট চ্যানেল নির্বাচন করুন' : '1. Select Payment Channel'}</span>
                 </span>
-                <span className="text-xs sm:text-sm text-[#18c4e6] font-mono font-bold">
+                <span className="text-xs sm:text-sm text-emerald-400 font-mono font-bold">
                   {selectedChannel === 'channel1' && 'NEKpay Auto'}
                   {selectedChannel === 'channel2' && 'WatchPay'}
                   {!selectedChannel && (currentLang === 'bn' ? 'চ্যানেল সিলেক্ট করুন' : 'Select channel')}
@@ -338,13 +338,13 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
                   onClick={() => setSelectedChannel('channel1')}
                   className={`relative overflow-hidden p-4 sm:p-5 rounded-2xl flex items-center justify-between cursor-pointer transition-all duration-300 border-2 group ${
                     selectedChannel === 'channel1'
-                      ? 'bg-gradient-to-br from-[#092b42] to-[#061826] border-[#18c4e6] shadow-[0_0_24px_rgba(24,196,230,0.35)] text-white scale-[1.01]'
-                      : 'bg-[#07141f] border-slate-800 text-slate-400 hover:border-slate-700 hover:bg-[#091b29]'
+                      ? 'bg-gradient-to-br from-[#063b2f] to-[#042018] border-emerald-400 shadow-[0_0_24px_rgba(16,185,129,0.3)] text-white scale-[1.01]'
+                      : 'bg-[#042018] border-emerald-500/25 text-slate-300 hover:border-emerald-500/40 hover:bg-[#062c22]'
                   }`}
                 >
                   {/* Animated top energy shimmer when active */}
                   {selectedChannel === 'channel1' && (
-                    <div className="absolute top-0 left-0 right-0 h-[3px] bg-gradient-to-r from-transparent via-[#18c4e6] to-transparent animate-pulse" />
+                    <div className="absolute top-0 left-0 right-0 h-[3px] bg-gradient-to-r from-transparent via-emerald-400 to-transparent animate-pulse" />
                   )}
 
                   <div className="flex items-center gap-3.5">
@@ -352,8 +352,8 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
                     <div
                       className={`relative w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 transition-all duration-300 ${
                         selectedChannel === 'channel1'
-                          ? 'bg-gradient-to-tr from-amber-500/20 via-emerald-500/20 to-cyan-500/30 border border-cyan-400/50 shadow-[0_0_16px_rgba(24,196,230,0.4)]'
-                          : 'bg-[#0b1d2c] border border-slate-700/60 group-hover:border-cyan-500/30'
+                          ? 'bg-emerald-500/20 border border-emerald-400/50 shadow-[0_0_16px_rgba(16,185,129,0.4)]'
+                          : 'bg-[#031812] border border-emerald-500/20 group-hover:border-emerald-500/40'
                       }`}
                     >
                       {/* Pulse Ping effect when active */}
@@ -367,7 +367,7 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
                         className={`w-6 h-6 transition-transform duration-300 ${
                           selectedChannel === 'channel1'
                             ? 'text-amber-300 fill-amber-300/60 scale-110 drop-shadow-[0_0_8px_rgba(252,211,77,0.8)] animate-pulse'
-                            : 'text-[#18c4e6] group-hover:scale-110'
+                            : 'text-emerald-400 group-hover:scale-110'
                         }`}
                       />
                     </div>
@@ -386,12 +386,12 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
                   <div
                     className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-all duration-300 ${
                       selectedChannel === 'channel1'
-                        ? 'border-[#18c4e6] bg-[#18c4e6] scale-110'
+                        ? 'border-emerald-400 bg-emerald-400 scale-110'
                         : 'border-slate-700 bg-slate-900/50'
                     }`}
                   >
                     {selectedChannel === 'channel1' ? (
-                      <Check className="w-3.5 h-3.5 text-[#051119] stroke-[3]" />
+                      <Check className="w-3.5 h-3.5 text-slate-950 stroke-[3]" />
                     ) : (
                       <span className="w-1.5 h-1.5 rounded-full bg-slate-600" />
                     )}
@@ -404,13 +404,13 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
                   onClick={() => setSelectedChannel('channel2')}
                   className={`relative overflow-hidden p-4 sm:p-5 rounded-2xl flex items-center justify-between cursor-pointer transition-all duration-300 border-2 group ${
                     selectedChannel === 'channel2'
-                      ? 'bg-gradient-to-br from-[#092b42] to-[#061826] border-[#18c4e6] shadow-[0_0_24px_rgba(24,196,230,0.35)] text-white scale-[1.01]'
-                      : 'bg-[#07141f] border-slate-800 text-slate-400 hover:border-slate-700 hover:bg-[#091b29]'
+                      ? 'bg-gradient-to-br from-[#063b2f] to-[#042018] border-emerald-400 shadow-[0_0_24px_rgba(16,185,129,0.3)] text-white scale-[1.01]'
+                      : 'bg-[#042018] border-emerald-500/25 text-slate-300 hover:border-emerald-500/40 hover:bg-[#062c22]'
                   }`}
                 >
                   {/* Animated top energy shimmer when active */}
                   {selectedChannel === 'channel2' && (
-                    <div className="absolute top-0 left-0 right-0 h-[3px] bg-gradient-to-r from-transparent via-[#18c4e6] to-transparent animate-pulse" />
+                    <div className="absolute top-0 left-0 right-0 h-[3px] bg-gradient-to-r from-transparent via-emerald-400 to-transparent animate-pulse" />
                   )}
 
                   <div className="flex items-center gap-3.5">
@@ -418,22 +418,22 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
                     <div
                       className={`relative w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 transition-all duration-300 ${
                         selectedChannel === 'channel2'
-                          ? 'bg-gradient-to-tr from-cyan-500/20 via-blue-500/20 to-indigo-500/30 border border-cyan-400/50 shadow-[0_0_16px_rgba(24,196,230,0.4)]'
-                          : 'bg-[#0b1d2c] border border-slate-700/60 group-hover:border-cyan-500/30'
+                          ? 'bg-emerald-500/20 border border-emerald-400/50 shadow-[0_0_16px_rgba(16,185,129,0.4)]'
+                          : 'bg-[#031812] border border-emerald-500/20 group-hover:border-emerald-500/40'
                       }`}
                     >
                       {/* Pulse Ping effect when active */}
                       {selectedChannel === 'channel2' && (
                         <span className="absolute -top-1 -right-1 flex h-3 w-3">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
-                          <span className="relative inline-flex rounded-full h-3 w-3 bg-cyan-500"></span>
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
                         </span>
                       )}
                       <ShieldCheck
                         className={`w-6 h-6 transition-transform duration-300 ${
                           selectedChannel === 'channel2'
-                            ? 'text-cyan-300 scale-110 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)] animate-pulse'
-                            : 'text-cyan-400 group-hover:scale-110'
+                            ? 'text-emerald-300 scale-110 drop-shadow-[0_0_8px_rgba(16,185,129,0.8)] animate-pulse'
+                            : 'text-emerald-400 group-hover:scale-110'
                         }`}
                       />
                     </div>
@@ -442,8 +442,8 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
                       <div className="flex items-center gap-1.5">
                         <span className="text-sm sm:text-base font-black text-white block leading-tight">চ্যানেল ২</span>
                       </div>
-                      <span className="text-xs sm:text-sm text-cyan-300 font-bold flex items-center gap-1.5 mt-1">
-                        <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span>
+                      <span className="text-xs sm:text-sm text-emerald-300 font-bold flex items-center gap-1.5 mt-1">
+                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
                         WatchPay (অটো গেটওয়ে)
                       </span>
                     </div>
@@ -452,12 +452,12 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
                   <div
                     className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-all duration-300 ${
                       selectedChannel === 'channel2'
-                        ? 'border-[#18c4e6] bg-[#18c4e6] scale-110'
+                        ? 'border-emerald-400 bg-emerald-400 scale-110'
                         : 'border-slate-700 bg-slate-900/50'
                     }`}
                   >
                     {selectedChannel === 'channel2' ? (
-                      <Check className="w-3.5 h-3.5 text-[#051119] stroke-[3]" />
+                      <Check className="w-3.5 h-3.5 text-slate-950 stroke-[3]" />
                     ) : (
                       <span className="w-1.5 h-1.5 rounded-full bg-slate-600" />
                     )}
@@ -470,8 +470,8 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
             {selectedChannel ? (
               <div className="space-y-3 pt-1 animate-in fade-in slide-in-from-top-2 duration-300">
                 <div className="flex items-center justify-between">
-                  <span className="text-slate-200 text-sm sm:text-base font-extrabold flex items-center gap-2">
-                    <CreditCard className="w-4 h-4 text-[#18c4e6]" />
+                  <span className="text-slate-100 text-sm sm:text-base font-extrabold flex items-center gap-2">
+                    <CreditCard className="w-4 h-4 text-emerald-400" />
                     <span>{currentLang === 'bn' ? '২. পেমেন্ট মেথড নির্বাচন করুন' : '2. Select Payment Method'}</span>
                   </span>
                   <span className="text-xs sm:text-sm text-emerald-400 font-mono font-bold">
@@ -486,8 +486,8 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
                     onClick={() => setSelectedMethod('bKash')}
                     className={`rounded-2xl p-3.5 sm:p-4 flex flex-col justify-between cursor-pointer transition-all border-2 min-h-[110px] ${
                       selectedMethod === 'bKash'
-                        ? 'bg-[#081e2e] border-[#18c4e6] shadow-[0_0_18px_rgba(24,196,230,0.3)] scale-[1.02]'
-                        : 'bg-[#07141f] border-slate-800/90 hover:border-slate-700'
+                        ? 'bg-[#062c22] border-emerald-400 shadow-[0_0_18px_rgba(16,185,129,0.3)] scale-[1.02]'
+                        : 'bg-[#042018] border-emerald-500/25 hover:border-emerald-500/40'
                     }`}
                   >
                     <div className="flex items-center justify-between mb-2">
@@ -502,10 +502,10 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
                       </div>
                       <div
                         className={`w-4 h-4 sm:w-5 sm:h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${
-                          selectedMethod === 'bKash' ? 'border-[#18c4e6] bg-[#18c4e6]' : 'border-slate-600'
+                          selectedMethod === 'bKash' ? 'border-emerald-400 bg-emerald-400' : 'border-slate-600'
                         }`}
                       >
-                        {selectedMethod === 'bKash' && <Check className="w-3 h-3 text-[#051119] stroke-[3]" />}
+                        {selectedMethod === 'bKash' && <Check className="w-3 h-3 text-slate-950 stroke-[3]" />}
                       </div>
                     </div>
                     <div>
@@ -520,8 +520,8 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
                     onClick={() => setSelectedMethod('Nagad')}
                     className={`rounded-2xl p-3.5 sm:p-4 flex flex-col justify-between cursor-pointer transition-all border-2 min-h-[110px] ${
                       selectedMethod === 'Nagad'
-                        ? 'bg-[#081e2e] border-[#18c4e6] shadow-[0_0_18px_rgba(24,196,230,0.3)] scale-[1.02]'
-                        : 'bg-[#07141f] border-slate-800/90 hover:border-slate-700'
+                        ? 'bg-[#062c22] border-emerald-400 shadow-[0_0_18px_rgba(16,185,129,0.3)] scale-[1.02]'
+                        : 'bg-[#042018] border-emerald-500/25 hover:border-emerald-500/40'
                     }`}
                   >
                     <div className="flex items-center justify-between mb-2">
@@ -536,10 +536,10 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
                       </div>
                       <div
                         className={`w-4 h-4 sm:w-5 sm:h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${
-                          selectedMethod === 'Nagad' ? 'border-[#18c4e6] bg-[#18c4e6]' : 'border-slate-600'
+                          selectedMethod === 'Nagad' ? 'border-emerald-400 bg-emerald-400' : 'border-slate-600'
                         }`}
                       >
-                        {selectedMethod === 'Nagad' && <Check className="w-3 h-3 text-[#051119] stroke-[3]" />}
+                        {selectedMethod === 'Nagad' && <Check className="w-3 h-3 text-slate-950 stroke-[3]" />}
                       </div>
                     </div>
                     <div>
@@ -554,8 +554,8 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
                     onClick={() => setSelectedMethod('Rocket')}
                     className={`rounded-2xl p-3.5 sm:p-4 flex flex-col justify-between cursor-pointer transition-all border-2 min-h-[110px] ${
                       selectedMethod === 'Rocket'
-                        ? 'bg-[#081e2e] border-[#18c4e6] shadow-[0_0_18px_rgba(24,196,230,0.3)] scale-[1.02]'
-                        : 'bg-[#07141f] border-slate-800/90 hover:border-slate-700'
+                        ? 'bg-[#062c22] border-emerald-400 shadow-[0_0_18px_rgba(16,185,129,0.3)] scale-[1.02]'
+                        : 'bg-[#042018] border-emerald-500/25 hover:border-emerald-500/40'
                     }`}
                   >
                     <div className="flex items-center justify-between mb-2">
@@ -564,10 +564,10 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
                       </div>
                       <div
                         className={`w-4 h-4 sm:w-5 sm:h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${
-                          selectedMethod === 'Rocket' ? 'border-[#18c4e6] bg-[#18c4e6]' : 'border-slate-600'
+                          selectedMethod === 'Rocket' ? 'border-emerald-400 bg-emerald-400' : 'border-slate-600'
                         }`}
                       >
-                        {selectedMethod === 'Rocket' && <Check className="w-3 h-3 text-[#051119] stroke-[3]" />}
+                        {selectedMethod === 'Rocket' && <Check className="w-3 h-3 text-slate-950 stroke-[3]" />}
                       </div>
                     </div>
                     <div>
@@ -579,8 +579,8 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
               </div>
             ) : (
               /* Notice shown until a channel is selected */
-              <div className="p-4 sm:p-5 rounded-2xl bg-[#06121d] border border-dashed border-slate-700 text-center text-slate-300 text-xs sm:text-sm flex items-center justify-center gap-2.5">
-                <Layers className="w-5 h-5 text-[#18c4e6] shrink-0" />
+              <div className="p-4 sm:p-5 rounded-2xl bg-[#042018] border border-dashed border-emerald-500/30 text-center text-emerald-300/80 text-xs sm:text-sm flex items-center justify-center gap-2.5">
+                <Layers className="w-5 h-5 text-emerald-400 shrink-0" />
                 <span>
                   {currentLang === 'bn'
                     ? 'উপরে চ্যানেল ১ অথবা চ্যানেল ২ নির্বাচন করুন।'
@@ -596,11 +596,11 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
                 type="button"
                 disabled={isSubmitting || !selectedChannel}
                 onClick={handleRechargeSubmit}
-                className="w-full py-4.5 sm:py-5 rounded-2xl bg-gradient-to-r from-[#18c4e6] via-[#22d3ee] to-[#0ea5e9] hover:from-[#15b3d2] hover:to-[#0284c7] active:scale-[0.98] text-[#051119] font-black text-base sm:text-xl tracking-wide shadow-[0_8px_32px_rgba(24,196,230,0.45)] transition-all cursor-pointer flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full py-4.5 sm:py-5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 active:scale-[0.98] text-slate-950 font-black text-base sm:text-xl tracking-wide shadow-[0_8px_32px_rgba(16,185,129,0.35)] transition-all cursor-pointer flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isSubmitting ? (
                   <span className="flex items-center gap-3 text-base font-bold">
-                    <span className="w-5 h-5 border-3 border-slate-900 border-t-transparent rounded-full animate-spin" />
+                    <span className="w-5 h-5 border-3 border-slate-950 border-t-transparent rounded-full animate-spin" />
                     <span>Processing Payment...</span>
                   </span>
                 ) : !selectedChannel ? (
@@ -643,7 +643,7 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
             </div>
 
             {/* 5. RECHARGE TIPS (AT BOTTOM) */}
-            <div className="rounded-2xl bg-[#06101a] border border-slate-800/90 p-4 sm:p-5 space-y-2 text-slate-300 text-xs sm:text-sm leading-relaxed">
+            <div className="rounded-2xl bg-[#042018] border border-emerald-500/25 p-4 sm:p-5 space-y-2 text-slate-300 text-xs sm:text-sm leading-relaxed">
               <span className="text-white text-sm sm:text-base font-black block mb-1">
                 {currentLang === 'bn' ? 'রিচার্জের নিয়মাবলী:' : 'Recharge Guidelines:'}
               </span>
@@ -656,9 +656,9 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
         ) : (
           /* WITHDRAW FORM */
           <>
-            <div className="rounded-3xl bg-[#07141f] border border-slate-800/90 p-5 sm:p-6 space-y-4 shadow-xl">
+            <div className="rounded-3xl bg-[#062c22] border border-emerald-500/30 p-5 sm:p-6 space-y-4 shadow-xl">
               {/* Available Balance Strip */}
-              <div className="p-4 rounded-2xl bg-[#050e17] border border-slate-800 flex items-center justify-between">
+              <div className="p-4 rounded-2xl bg-[#042018] border border-emerald-500/20 flex items-center justify-between">
                 <span className="text-sm font-semibold text-slate-300">{currentLang === 'bn' ? 'বর্তমান ব্যালেন্স:' : 'Available Balance:'}</span>
                 <span className="text-base sm:text-lg font-mono font-black text-emerald-400">
                   ৳{currentBalance.toLocaleString('en-US', { minimumFractionDigits: 2 })}
@@ -670,7 +670,7 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
                 <span className="text-sm font-bold text-slate-200">
                   {selectedMethod} {currentLang === 'bn' ? 'ওয়ালেট একাউন্ট নম্বর:' : 'Account Number:'}
                 </span>
-                <div className="relative flex items-center bg-[#050e17] border-2 border-slate-700/80 rounded-2xl px-5 py-3.5 focus-within:border-[#18c4e6] transition-all">
+                <div className="relative flex items-center bg-[#031812] border-2 border-emerald-500/30 rounded-2xl px-5 py-3.5 focus-within:border-emerald-400 transition-all">
                   <input
                     id="wallet-withdraw-account-input"
                     type="text"
@@ -692,8 +692,8 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
                     {currentLang === 'bn' ? 'মিনিমাম ৫০০৳' : 'Min ৳500'}
                   </span>
                 </div>
-                <div className="relative flex items-center bg-[#050e17] border-2 border-slate-700/80 rounded-2xl px-5 py-3.5 focus-within:border-[#18c4e6] transition-all">
-                  <span className="text-[#18c4e6] text-xl font-black mr-2 select-none font-mono">৳</span>
+                <div className="relative flex items-center bg-[#031812] border-2 border-emerald-500/30 rounded-2xl px-5 py-3.5 focus-within:border-emerald-400 transition-all">
+                  <span className="text-emerald-400 text-xl font-black mr-2 select-none font-mono">৳</span>
                   <input
                     id="wallet-withdraw-amount-input"
                     type="number"
@@ -715,8 +715,8 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
                     onClick={() => setAmount(String(preset))}
                     className={`py-2.5 px-2 rounded-xl text-sm font-mono font-black transition-all cursor-pointer ${
                       Number(amount) === preset
-                        ? 'bg-[#18c4e6] text-[#051119] shadow-md shadow-[#18c4e6]/30'
-                        : 'bg-[#0b1b2a] hover:bg-[#102438] text-slate-200 border border-slate-700/80'
+                        ? 'bg-emerald-400 text-slate-950 shadow-md shadow-emerald-500/30'
+                        : 'bg-[#042018] hover:bg-[#072c21] text-emerald-100 border border-emerald-500/25'
                     }`}
                   >
                     ৳{preset}
@@ -731,7 +731,7 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
                 id="wallet-confirm-withdraw-btn"
                 type="button"
                 onClick={handleWithdrawSubmit}
-                className="w-full py-4.5 sm:py-5 rounded-2xl bg-gradient-to-r from-[#18c4e6] via-[#22d3ee] to-[#0ea5e9] hover:from-[#15b3d2] hover:to-[#0284c7] active:scale-[0.98] text-[#051119] font-black text-base sm:text-lg tracking-wide shadow-[0_6px_28px_rgba(24,196,230,0.4)] transition-all cursor-pointer flex items-center justify-center gap-2.5"
+                className="w-full py-4.5 sm:py-5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 active:scale-[0.98] text-slate-950 font-black text-base sm:text-lg tracking-wide shadow-[0_6px_28px_rgba(16,185,129,0.35)] transition-all cursor-pointer flex items-center justify-center gap-2.5"
               >
                 <ArrowUpFromLine className="w-5 h-5 stroke-[2.5]" />
                 <span>
@@ -743,7 +743,7 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
             </div>
 
             {/* Withdrawal Tips */}
-            <div className="rounded-2xl bg-[#06101a] border border-slate-800/90 p-4 sm:p-5 space-y-2 text-slate-300 text-xs sm:text-sm leading-relaxed">
+            <div className="rounded-2xl bg-[#042018] border border-emerald-500/25 p-4 sm:p-5 space-y-2 text-slate-300 text-xs sm:text-sm leading-relaxed">
               <span className="text-white text-sm sm:text-base font-black block mb-1">
                 {currentLang === 'bn' ? 'উইথড্রর নিয়মাবলী:' : 'Withdrawal Guidelines:'}
               </span>

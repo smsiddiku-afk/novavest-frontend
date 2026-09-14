@@ -8,6 +8,7 @@ import {
   HardDrive,
   RefreshCw,
   Sparkles,
+  ArrowLeft,
 } from 'lucide-react';
 import { Language } from '../types';
 
@@ -85,134 +86,178 @@ This file serves as the official mobile client installer.`;
 
   return (
     <div
-      id="app-download-modal-overlay"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200"
+      id="app-download-page"
+      className="fixed inset-0 z-50 overflow-y-auto bg-[#06483A] flex flex-col text-slate-100 animate-in fade-in duration-200 font-sans"
     >
-      <div
-        id="app-download-modal"
-        className="relative w-full max-w-sm sm:max-w-md bg-[#0e1628] border border-blue-500/30 rounded-[28px] p-6 shadow-[0_25px_60px_-15px_rgba(0,102,255,0.35)] text-white animate-in zoom-in-95 duration-200"
-      >
-        {/* Close button */}
-        <button
-          type="button"
-          onClick={onClose}
-          className="absolute top-4 right-4 w-8 h-8 rounded-full bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
-        >
-          <X className="w-4 h-4" />
-        </button>
+      {/* Sticky Header */}
+      <header className="sticky top-0 z-20 bg-[#062c22]/95 backdrop-blur-md border-b border-emerald-500/30 px-4 py-3.5 sm:px-6 sm:py-4 flex items-center justify-between shrink-0">
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-10 h-10 rounded-full bg-[#042018] hover:bg-[#07362a] text-emerald-300 hover:text-white flex items-center justify-center transition-all cursor-pointer active:scale-95 border border-emerald-500/30 shadow-sm"
+            aria-label="Back to Profile"
+          >
+            <ArrowLeft className="w-5 h-5" />
+          </button>
+          <div>
+            <h1 className="text-base sm:text-lg font-bold text-white tracking-wide flex items-center gap-2">
+              <Smartphone className="w-5 h-5 text-emerald-400" />
+              <span>{currentLang === 'bn' ? 'অ্যাপ্লিকেশন ডাউনলোড' : 'Download Mobile App'}</span>
+            </h1>
+            <p className="text-[11px] text-slate-300">
+              {currentLang === 'bn' ? 'অফিসিয়াল অ্যান্ড্রয়েড এপিকে প্যাকেজ' : 'Official Android APK Client'}
+            </p>
+          </div>
+        </div>
+        <span className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-bold font-mono">
+          v2.4.2
+        </span>
+      </header>
 
-        {/* Top Icon Badge */}
-        <div className="flex flex-col items-center text-center">
-          <div className="relative w-16 h-16 rounded-2xl bg-gradient-to-tr from-blue-600 to-cyan-400 p-0.5 shadow-lg shadow-blue-500/30 mb-3">
-            <div className="w-full h-full bg-[#0b1222] rounded-2xl flex items-center justify-center text-blue-400">
-              <Smartphone className="w-8 h-8 text-cyan-400" />
+      {/* Main Content */}
+      <main className="flex-1 w-full max-w-xl mx-auto px-4 py-6 sm:px-6 sm:py-8 space-y-6">
+        {/* Top Icon Badge Card */}
+        <div className="rounded-3xl bg-[#062c22] border border-emerald-500/30 p-6 sm:p-7 text-center shadow-xl space-y-3">
+          <div className="relative w-20 h-20 mx-auto rounded-3xl bg-gradient-to-tr from-emerald-600 to-teal-400 p-0.5 shadow-xl shadow-emerald-500/30">
+            <div className="w-full h-full bg-[#042018] rounded-3xl flex items-center justify-center text-emerald-400">
+              <Smartphone className="w-10 h-10 text-emerald-400" />
             </div>
-            <span className="absolute -top-1.5 -right-1.5 px-2 py-0.5 rounded-full bg-emerald-500 text-[10px] font-bold text-white shadow">
+            <span className="absolute -top-1.5 -right-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500 text-[11px] font-black text-slate-950 shadow">
               APK
             </span>
           </div>
 
-          <h3 className="text-lg font-bold tracking-tight text-white flex items-center gap-1.5">
-            {currentLang === 'bn' ? 'এআই এনার্জি মোবাইল অ্যাপ' : 'AI Energy Mobile App'}
-            <Sparkles className="w-4 h-4 text-cyan-400" />
-          </h3>
-          <p className="text-xs text-slate-400 mt-0.5">
-            {currentLang === 'bn' ? 'অ্যান্ড্রয়েড সংস্করণ ২.৪.২ (অফিসিয়াল এপিকে)' : 'Android Version 2.4.2 (Official APK)'}
+          <h2 className="text-lg sm:text-xl font-bold tracking-tight text-white flex items-center justify-center gap-2">
+            <span>{currentLang === 'bn' ? 'এআই এনার্জি মোবাইল অ্যাপ্লিকেশন' : 'AI Energy Mobile Application'}</span>
+            <Sparkles className="w-5 h-5 text-emerald-400" />
+          </h2>
+          <p className="text-xs text-slate-300 max-w-md mx-auto">
+            {currentLang === 'bn'
+              ? 'নিরবচ্ছিন্ন বিদ্যুৎ বিনিয়োগ ট্র্যাকিং, ইনস্ট্যান্ট উইথড্রয়াল এবং লাইভ পাওয়ার নোড মনিটরিং পান আপনার স্মার্টফোনে।'
+              : 'Seamless smart grid investment tracking, instant payouts, and real-time substation telemetry in the palm of your hand.'}
           </p>
         </div>
 
         {/* Download Status & Progress Bar */}
-        <div className="mt-4 p-3.5 rounded-2xl bg-[#131d33] border border-slate-700/60">
-          <div className="flex items-center justify-between text-xs mb-2">
-            <span className="text-slate-300 font-medium flex items-center gap-1.5">
+        <div className="rounded-3xl bg-[#062c22] border border-emerald-500/30 p-5 sm:p-6 shadow-xl space-y-4">
+          <div className="flex items-center justify-between text-xs sm:text-sm">
+            <span className="text-slate-200 font-medium flex items-center gap-2">
               {isCompleted ? (
                 <>
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                  <span className="text-emerald-400 font-semibold">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                  <span className="text-emerald-400 font-bold">
                     {currentLang === 'bn' ? 'ডাউনলোড সম্পন্ন হয়েছে!' : 'Download Complete!'}
                   </span>
                 </>
               ) : isDownloading ? (
                 <>
-                  <RefreshCw className="w-4 h-4 text-blue-400 animate-spin" />
-                  <span>{currentLang === 'bn' ? 'প্যাকেজ ডাউনলোড হচ্ছে...' : 'Downloading package...'}</span>
+                  <RefreshCw className="w-5 h-5 text-emerald-400 animate-spin" />
+                  <span className="text-white font-semibold">
+                    {currentLang === 'bn' ? 'প্যাকেজ ডাউনলোড হচ্ছে...' : 'Downloading package...'}
+                  </span>
                 </>
               ) : (
-                <span>{currentLang === 'bn' ? 'ডাউনলোডের জন্য প্রস্তুত' : 'Ready to download'}</span>
+                <span className="text-slate-300">{currentLang === 'bn' ? 'ডাউনলোডের জন্য প্রস্তুত' : 'Ready to download'}</span>
               )}
             </span>
-            <span className="font-bold text-blue-400">{downloadProgress}%</span>
+            <span className="font-mono font-bold text-emerald-400 text-sm">{downloadProgress}%</span>
           </div>
 
           {/* Progress bar line */}
-          <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden">
+          <div className="w-full h-3 rounded-full bg-[#031812] overflow-hidden p-0.5 border border-emerald-500/20">
             <div
-              className="h-full bg-gradient-to-r from-blue-500 via-cyan-400 to-emerald-400 transition-all duration-300 rounded-full"
+              className="h-full bg-gradient-to-r from-emerald-500 via-teal-400 to-emerald-400 transition-all duration-300 rounded-full"
               style={{ width: `${downloadProgress}%` }}
             />
           </div>
 
           {/* Specs */}
-          <div className="grid grid-cols-3 gap-2 mt-3 pt-2.5 border-t border-slate-800 text-[11px] text-center text-slate-400">
-            <div>
-              <span className="block text-slate-500">{currentLang === 'bn' ? 'আকার' : 'Size'}</span>
-              <span className="font-semibold text-slate-200">18.5 MB</span>
+          <div className="grid grid-cols-3 gap-2 pt-3 border-t border-emerald-500/20 text-xs text-center text-slate-400">
+            <div className="p-2.5 rounded-2xl bg-[#042018] border border-emerald-500/15">
+              <span className="block text-slate-400 text-[11px]">{currentLang === 'bn' ? 'আকার' : 'Size'}</span>
+              <span className="font-semibold text-slate-100 font-mono">18.5 MB</span>
             </div>
-            <div>
-              <span className="block text-slate-500">{currentLang === 'bn' ? 'সংস্করণ' : 'Version'}</span>
-              <span className="font-semibold text-slate-200">v2.4.2</span>
+            <div className="p-2.5 rounded-2xl bg-[#042018] border border-emerald-500/15">
+              <span className="block text-slate-400 text-[11px]">{currentLang === 'bn' ? 'সংস্করণ' : 'Version'}</span>
+              <span className="font-semibold text-slate-100 font-mono">v2.4.2</span>
             </div>
-            <div>
-              <span className="block text-slate-500">{currentLang === 'bn' ? 'নিরাপত্তা' : 'Security'}</span>
-              <span className="font-semibold text-emerald-400 flex items-center justify-center gap-0.5">
-                <ShieldCheck className="w-3 h-3" /> {currentLang === 'bn' ? 'যাচাইকৃত' : 'Verified'}
+            <div className="p-2.5 rounded-2xl bg-[#042018] border border-emerald-500/15">
+              <span className="block text-slate-400 text-[11px]">{currentLang === 'bn' ? 'নিরাপত্তা' : 'Security'}</span>
+              <span className="font-semibold text-emerald-400 flex items-center justify-center gap-1">
+                <ShieldCheck className="w-3.5 h-3.5" />
+                <span>{currentLang === 'bn' ? 'যাচাইকৃত' : 'Verified'}</span>
               </span>
             </div>
           </div>
         </div>
 
         {/* Quick Instructions */}
-        <div className="mt-3.5 p-3 rounded-xl bg-[#090f1e] border border-slate-800 text-xs text-slate-300 space-y-1">
-          <p className="font-semibold text-blue-300 flex items-center gap-1">
-            <HardDrive className="w-3.5 h-3.5" /> {currentLang === 'bn' ? 'কীভাবে ইনস্টল করবেন:' : 'How to install:'}
-          </p>
-          <ol className="list-decimal list-inside space-y-0.5 text-slate-400 pl-1 text-[11px]">
-            {currentLang === 'bn' ? (
-              <>
-                <li>ডাউনলোড করা <span className="text-white font-medium">NVT_v2.4.2.apk</span> ফাইলটি ওপেন করুন।</li>
-                <li>অনুরোধ করা হলে <span className="text-white font-medium">"Install from unknown sources"</span> সক্রিয় করুন।</li>
-                <li>ইনস্টলেশন সম্পূর্ণ করতে <span className="text-white font-medium">"ইনস্টল"</span> চাপুন।</li>
-              </>
-            ) : (
-              <>
-                <li>Open downloaded <span className="text-white font-medium">NVT_v2.4.2.apk</span>.</li>
-                <li>Enable <span className="text-white font-medium">"Install from unknown sources"</span> if prompted.</li>
-                <li>Tap <span className="text-white font-medium">"Install"</span> to complete installation.</li>
-              </>
-            )}
+        <div className="rounded-3xl bg-[#062c22] border border-emerald-500/30 p-5 sm:p-6 shadow-xl space-y-3">
+          <h3 className="font-bold text-white text-sm flex items-center gap-2">
+            <HardDrive className="w-4 h-4 text-emerald-400" />
+            <span>{currentLang === 'bn' ? 'কীভাবে মোবাইল অ্যাপ ইনস্টল করবেন:' : 'How to install on Android:'}</span>
+          </h3>
+          <ol className="space-y-2.5 text-xs text-slate-200">
+            <li className="flex items-start gap-2.5 p-3 rounded-2xl bg-[#042018] border border-emerald-500/20">
+              <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold flex items-center justify-center shrink-0 text-xs">
+                1
+              </span>
+              <span>
+                {currentLang === 'bn' ? (
+                  <>ডাউনলোড বাটনে ক্লিক করুন এবং <span className="text-white font-mono font-medium">NVT_v2.4.2.apk</span> ফাইলটি সেভ করুন।</>
+                ) : (
+                  <>Click the download button to save <span className="text-white font-mono font-medium">NVT_v2.4.2.apk</span>.</>
+                )}
+              </span>
+            </li>
+            <li className="flex items-start gap-2.5 p-3 rounded-2xl bg-[#042018] border border-emerald-500/20">
+              <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold flex items-center justify-center shrink-0 text-xs">
+                2
+              </span>
+              <span>
+                {currentLang === 'bn' ? (
+                  <>আপনার ফোনের সেটিংসে গিয়ে <span className="text-white font-medium">"Install from unknown sources"</span> সক্রিয় করুন।</>
+                ) : (
+                  <>Enable <span className="text-white font-medium">"Install from unknown sources"</span> in settings if prompted.</>
+                )}
+              </span>
+            </li>
+            <li className="flex items-start gap-2.5 p-3 rounded-2xl bg-[#042018] border border-emerald-500/20">
+              <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold flex items-center justify-center shrink-0 text-xs">
+                3
+              </span>
+              <span>
+                {currentLang === 'bn' ? (
+                  <>ফাইলটি ওপেন করে <span className="text-white font-medium">"ইনস্টল"</span> চাপুন এবং আপনার অ্যাকাউন্ট দিয়ে লগইন করুন।</>
+                ) : (
+                  <>Open the APK, tap <span className="text-white font-medium">"Install"</span>, and log in to your account.</>
+                )}
+              </span>
+            </li>
           </ol>
         </div>
 
         {/* Action Buttons */}
-        <div className="mt-4 space-y-2">
+        <div className="space-y-3 pt-2">
           <button
             type="button"
             onClick={startDownload}
-            className="w-full min-h-[46px] rounded-xl bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-lg shadow-blue-600/30 cursor-pointer active:scale-98 transition-all"
+            className="w-full py-4 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-sm flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/25 cursor-pointer active:scale-98 transition-all"
           >
-            <Download className="w-4 h-4" />
+            <Download className="w-5 h-5 text-slate-950" />
             <span>{currentLang === 'bn' ? 'পুনরায় ডাউনলোড করুন' : 'Download Again'}</span>
           </button>
 
           <button
             type="button"
             onClick={onClose}
-            className="w-full py-2 rounded-xl text-xs text-slate-400 hover:text-white font-medium transition-colors cursor-pointer"
+            className="w-full py-3 rounded-2xl bg-[#042018] hover:bg-[#072c21] text-emerald-200 border border-emerald-500/30 text-xs font-semibold transition-colors cursor-pointer"
           >
-            {currentLang === 'bn' ? 'বন্ধ করুন' : 'Close'}
+            {currentLang === 'bn' ? 'প্রোফাইলে ফিরে যান' : 'Return to Profile'}
           </button>
         </div>
-      </div>
+      </main>
     </div>
   );
 };

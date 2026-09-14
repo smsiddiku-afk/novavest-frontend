@@ -76,7 +76,7 @@ export const SecuritySettingsPage: React.FC<SecuritySettingsPageProps> = ({
   const getStrengthColor = () => {
     if (strengthScore <= 1) return 'bg-rose-500 text-rose-400';
     if (strengthScore <= 3) return 'bg-amber-500 text-amber-400';
-    if (strengthScore === 4) return 'bg-cyan-500 text-cyan-400';
+    if (strengthScore === 4) return 'bg-teal-500 text-teal-300';
     return 'bg-emerald-500 text-emerald-400';
   };
 
@@ -161,24 +161,24 @@ export const SecuritySettingsPage: React.FC<SecuritySettingsPageProps> = ({
       {/* Top Mobile App Bar Header */}
       <header
         id="security-settings-header"
-        className="sticky top-0 z-20 bg-[#08101E]/95 backdrop-blur-md border-b border-slate-800/80 px-4 py-3.5 sm:px-6 sm:py-4 flex items-center justify-between"
+        className="sticky top-0 z-20 bg-[#062c22]/95 backdrop-blur-md border-b border-emerald-500/30 px-4 py-3.5 sm:px-6 sm:py-4 flex items-center justify-between"
       >
         <div className="flex items-center gap-3">
           <button
             id="security-page-back-button"
             type="button"
             onClick={onClose}
-            className="w-10 h-10 rounded-full bg-[#101B2E] hover:bg-[#182844] text-slate-300 hover:text-white flex items-center justify-center transition-all cursor-pointer active:scale-95 border border-slate-700/60 shadow-sm"
+            className="w-10 h-10 rounded-full bg-[#042018] hover:bg-[#07362a] text-emerald-300 hover:text-white flex items-center justify-center transition-all cursor-pointer active:scale-95 border border-emerald-500/30 shadow-sm"
             aria-label="Back to Profile"
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
           <div>
             <h1 className="text-base sm:text-lg font-bold text-white tracking-wide flex items-center gap-2">
-              <Shield className="w-5 h-5 text-cyan-400" />
+              <Shield className="w-5 h-5 text-emerald-400" />
               <span>{isBn ? 'নিরাপত্তা সেটিংস' : 'Security Settings'}</span>
             </h1>
-            <p className="text-[11px] text-slate-400">
+            <p className="text-[11px] text-slate-300">
               {isBn ? 'লগইন পাসওয়ার্ড ও সুরক্ষা ব্যবস্থাপনা' : 'Login password & account protection'}
             </p>
           </div>
@@ -197,11 +197,11 @@ export const SecuritySettingsPage: React.FC<SecuritySettingsPageProps> = ({
         {/* Account Security Status Banner */}
         <div
           id="security-status-card"
-          className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#0C192E] to-[#0A1424] border border-cyan-500/20 p-4 sm:p-5 shadow-lg shadow-black/40"
+          className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#062c22] to-[#042018] border border-emerald-500/30 p-4 sm:p-5 shadow-lg shadow-black/40"
         >
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-center gap-3.5">
-              <div className="w-12 h-12 rounded-xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 shrink-0">
+              <div className="w-12 h-12 rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0">
                 <ShieldCheck className="w-6 h-6" />
               </div>
               <div>
@@ -209,11 +209,11 @@ export const SecuritySettingsPage: React.FC<SecuritySettingsPageProps> = ({
                   <h3 className="text-sm sm:text-base font-bold text-white">
                     {isBn ? 'অ্যাকাউন্ট নিরাপত্তা স্ট্যাটাস' : 'Account Security Level'}
                   </h3>
-                  <span className="px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 text-[10px] font-bold border border-emerald-500/30">
+                  <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-bold border border-emerald-500/30">
                     {isBn ? 'উচ্চ সুরক্ষিত' : 'HIGH'}
                   </span>
                 </div>
-                <p className="text-xs text-slate-400 mt-0.5 font-mono">
+                <p className="text-xs text-slate-300 mt-0.5 font-mono">
                   {userPhone ? `${isBn ? 'সংযুক্ত ফোন' : 'Linked Phone'}: ${userPhone}` : 'ID Protected'}
                 </p>
               </div>
@@ -225,7 +225,7 @@ export const SecuritySettingsPage: React.FC<SecuritySettingsPageProps> = ({
         {isSuccess && (
           <div
             id="password-change-success-banner"
-            className="p-4 rounded-2xl bg-emerald-950/40 border border-emerald-500/40 flex items-center gap-3 text-emerald-300 text-sm animate-in fade-in duration-200"
+            className="p-4 rounded-2xl bg-emerald-950/60 border border-emerald-500/50 flex items-center gap-3 text-emerald-300 text-sm animate-in fade-in duration-200"
           >
             <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
             <div>
@@ -246,19 +246,19 @@ export const SecuritySettingsPage: React.FC<SecuritySettingsPageProps> = ({
         {/* Login Password Change Form Card */}
         <section
           id="login-password-change-section"
-          className="rounded-3xl bg-[#091220] border border-slate-800/90 p-5 sm:p-7 shadow-xl space-y-6"
+          className="rounded-3xl bg-[#062c22] border border-emerald-500/25 p-5 sm:p-7 shadow-xl space-y-6"
         >
           {/* Section Header */}
-          <div className="border-b border-slate-800/80 pb-4">
+          <div className="border-b border-emerald-500/20 pb-4">
             <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-lg bg-blue-600/15 border border-blue-500/20 flex items-center justify-center text-blue-400">
+              <div className="w-8 h-8 rounded-lg bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center text-emerald-400">
                 <KeyRound className="w-4 h-4" />
               </div>
               <div>
                 <h2 className="text-base sm:text-lg font-bold text-white tracking-wide">
                   {isBn ? 'লগইন পাসওয়ার্ড পরিবর্তন' : 'Login Password Change'}
                 </h2>
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-slate-300">
                   {isBn
                     ? 'আপনার অ্যাকাউন্টের নিরাপত্তা বজায় রাখতে নিয়মিত পাসওয়ার্ড আপডেট করুন'
                     : 'Update your login credentials regularly to keep your account safe'}
@@ -274,7 +274,7 @@ export const SecuritySettingsPage: React.FC<SecuritySettingsPageProps> = ({
               <div className="flex items-center justify-between">
                 <label
                   htmlFor="old-password-input"
-                  className="block text-sm font-medium text-slate-300"
+                  className="block text-sm font-medium text-slate-200"
                 >
                   {isBn ? 'পুরনো পাসওয়ার্ড (Old Password)' : 'Old Password'}{' '}
                   <span className="text-rose-500 font-bold">*</span>
@@ -282,7 +282,7 @@ export const SecuritySettingsPage: React.FC<SecuritySettingsPageProps> = ({
               </div>
 
               <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
+                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-emerald-500/60">
                   <Lock className="w-4 h-4" />
                 </div>
                 <input
@@ -294,12 +294,12 @@ export const SecuritySettingsPage: React.FC<SecuritySettingsPageProps> = ({
                     if (errors.oldPassword) setErrors((prev) => ({ ...prev, oldPassword: undefined }));
                   }}
                   placeholder={isBn ? 'বর্তমান পাসওয়ার্ড লিখুন' : 'Enter current login password'}
-                  className={`w-full rounded-xl bg-[#0C1728] border ${
+                  className={`w-full rounded-xl bg-[#042018] border ${
                     errors.oldPassword
                       ? 'border-rose-500/80 focus:border-rose-500'
-                      : 'border-slate-800 focus:border-cyan-400'
-                  } pl-10 pr-11 py-3.5 text-white placeholder-slate-500 text-sm font-medium focus:outline-none focus:ring-1 ${
-                    errors.oldPassword ? 'focus:ring-rose-500' : 'focus:ring-cyan-400'
+                      : 'border-emerald-500/30 focus:border-emerald-400'
+                  } pl-10 pr-11 py-3.5 text-white placeholder-slate-400 text-sm font-medium focus:outline-none focus:ring-1 ${
+                    errors.oldPassword ? 'focus:ring-rose-500' : 'focus:ring-emerald-400'
                   } transition-all`}
                 />
                 <button
@@ -325,14 +325,14 @@ export const SecuritySettingsPage: React.FC<SecuritySettingsPageProps> = ({
             <div className="space-y-1.5">
               <label
                 htmlFor="new-password-input"
-                className="block text-sm font-medium text-slate-300"
+                className="block text-sm font-medium text-slate-200"
               >
                 {isBn ? 'নতুন পাসওয়ার্ড (New Password)' : 'New Password'}{' '}
                 <span className="text-rose-500 font-bold">*</span>
               </label>
 
               <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
+                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-emerald-500/60">
                   <KeyRound className="w-4 h-4" />
                 </div>
                 <input
@@ -348,12 +348,12 @@ export const SecuritySettingsPage: React.FC<SecuritySettingsPageProps> = ({
                       ? 'নতুন পাসওয়ার্ড দিন (কমপক্ষে ৬ অক্ষর)'
                       : 'Enter new password (min. 6 characters)'
                   }
-                  className={`w-full rounded-xl bg-[#0C1728] border ${
+                  className={`w-full rounded-xl bg-[#042018] border ${
                     errors.newPassword
                       ? 'border-rose-500/80 focus:border-rose-500'
-                      : 'border-slate-800 focus:border-cyan-400'
-                  } pl-10 pr-11 py-3.5 text-white placeholder-slate-500 text-sm font-medium focus:outline-none focus:ring-1 ${
-                    errors.newPassword ? 'focus:ring-rose-500' : 'focus:ring-cyan-400'
+                      : 'border-emerald-500/30 focus:border-emerald-400'
+                  } pl-10 pr-11 py-3.5 text-white placeholder-slate-400 text-sm font-medium focus:outline-none focus:ring-1 ${
+                    errors.newPassword ? 'focus:ring-rose-500' : 'focus:ring-emerald-400'
                   } transition-all`}
                 />
                 <button
@@ -371,7 +371,7 @@ export const SecuritySettingsPage: React.FC<SecuritySettingsPageProps> = ({
               {newPassword.length > 0 && (
                 <div className="pt-1.5 space-y-1">
                   <div className="flex items-center justify-between text-xs">
-                    <span className="text-slate-400">
+                    <span className="text-slate-300">
                       {isBn ? 'পাসওয়ার্ডের শক্তি:' : 'Password strength:'}
                     </span>
                     <span className={`font-bold ${getStrengthColor().split(' ')[1]}`}>
@@ -383,7 +383,7 @@ export const SecuritySettingsPage: React.FC<SecuritySettingsPageProps> = ({
                       <div
                         key={step}
                         className={`h-full rounded-full transition-all duration-300 ${
-                          strengthScore >= step ? getStrengthColor().split(' ')[0] : 'bg-slate-800'
+                          strengthScore >= step ? getStrengthColor().split(' ')[0] : 'bg-[#042018]'
                         }`}
                       />
                     ))}
@@ -403,14 +403,14 @@ export const SecuritySettingsPage: React.FC<SecuritySettingsPageProps> = ({
             <div className="space-y-1.5">
               <label
                 htmlFor="confirm-password-input"
-                className="block text-sm font-medium text-slate-300"
+                className="block text-sm font-medium text-slate-200"
               >
                 {isBn ? 'নতুন পাসওয়ার্ড নিশ্চিত করুন' : 'Confirm New Password'}{' '}
                 <span className="text-rose-500 font-bold">*</span>
               </label>
 
               <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
+                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-emerald-500/60">
                   <ShieldCheck className="w-4 h-4" />
                 </div>
                 <input
@@ -427,12 +427,12 @@ export const SecuritySettingsPage: React.FC<SecuritySettingsPageProps> = ({
                       ? 'নতুন পাসওয়ার্ড পুনরায় লিখুন'
                       : 'Re-enter your new password'
                   }
-                  className={`w-full rounded-xl bg-[#0C1728] border ${
+                  className={`w-full rounded-xl bg-[#042018] border ${
                     errors.confirmPassword
                       ? 'border-rose-500/80 focus:border-rose-500'
-                      : 'border-slate-800 focus:border-cyan-400'
-                  } pl-10 pr-11 py-3.5 text-white placeholder-slate-500 text-sm font-medium focus:outline-none focus:ring-1 ${
-                    errors.confirmPassword ? 'focus:ring-rose-500' : 'focus:ring-cyan-400'
+                      : 'border-emerald-500/30 focus:border-emerald-400'
+                  } pl-10 pr-11 py-3.5 text-white placeholder-slate-400 text-sm font-medium focus:outline-none focus:ring-1 ${
+                    errors.confirmPassword ? 'focus:ring-rose-500' : 'focus:ring-emerald-400'
                   } transition-all`}
                 />
                 <button
@@ -476,8 +476,8 @@ export const SecuritySettingsPage: React.FC<SecuritySettingsPageProps> = ({
             </div>
 
             {/* Security Checklist Pills */}
-            <div className="pt-2 p-3.5 rounded-2xl bg-[#0B1526] border border-slate-800/80 space-y-2 text-xs text-slate-400">
-              <span className="font-semibold text-slate-300 block">
+            <div className="pt-2 p-3.5 rounded-2xl bg-[#042018] border border-emerald-500/25 space-y-2 text-xs text-slate-300">
+              <span className="font-semibold text-emerald-300 block">
                 {isBn ? 'পাসওয়ার্ড সুরক্ষা নির্দেশিকা:' : 'Password Security Rules:'}
               </span>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -515,10 +515,10 @@ export const SecuritySettingsPage: React.FC<SecuritySettingsPageProps> = ({
                 id="update-password-submit-btn"
                 type="submit"
                 disabled={isSubmitting}
-                className="flex-1 rounded-2xl bg-gradient-to-r from-[#00A3FF] to-[#0066FF] hover:from-[#0092e6] hover:to-[#0055e6] text-white font-bold text-base py-3.5 px-6 flex items-center justify-center gap-2.5 shadow-[0_0_24px_rgba(0,140,255,0.4)] active:scale-[0.99] transition-all cursor-pointer"
+                className="flex-1 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 font-extrabold text-base py-3.5 px-6 flex items-center justify-center gap-2.5 shadow-lg shadow-emerald-500/25 active:scale-[0.99] transition-all cursor-pointer"
               >
                 {isSubmitting ? (
-                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  <div className="w-5 h-5 border-2 border-slate-900/30 border-t-slate-900 rounded-full animate-spin" />
                 ) : (
                   <>
                     <KeyRound className="w-5 h-5" />
@@ -532,7 +532,7 @@ export const SecuritySettingsPage: React.FC<SecuritySettingsPageProps> = ({
               <button
                 type="button"
                 onClick={onClose}
-                className="sm:w-32 rounded-2xl bg-[#101C30] hover:bg-[#162744] text-slate-300 hover:text-white font-bold text-sm py-3.5 px-5 transition-all border border-slate-800 cursor-pointer text-center"
+                className="sm:w-32 rounded-2xl bg-[#042018] hover:bg-[#07362a] text-emerald-200 hover:text-white font-bold text-sm py-3.5 px-5 transition-all border border-emerald-500/30 cursor-pointer text-center"
               >
                 {isBn ? 'বাতিল' : 'Cancel'}
               </button>
@@ -543,19 +543,19 @@ export const SecuritySettingsPage: React.FC<SecuritySettingsPageProps> = ({
         {/* Extra Security Options Card (2FA & Safety Note) */}
         <section
           id="secondary-security-settings-card"
-          className="rounded-3xl bg-[#091220] border border-slate-800/90 p-5 sm:p-6 space-y-4"
+          className="rounded-3xl bg-[#062c22] border border-emerald-500/25 p-5 sm:p-6 space-y-4"
         >
           <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
-            <Smartphone className="w-4 h-4 text-cyan-400" />
+            <Smartphone className="w-4 h-4 text-emerald-400" />
             <span>{isBn ? 'দ্বি-স্তর বিশিষ্ট নিরাপত্তা (২এফএ)' : 'Two-Factor Authentication'}</span>
           </h3>
 
-          <div className="p-4 rounded-2xl bg-[#0C1728] border border-slate-800 flex items-center justify-between">
+          <div className="p-4 rounded-2xl bg-[#042018] border border-emerald-500/20 flex items-center justify-between">
             <div className="space-y-0.5">
               <span className="text-sm font-bold text-white block">
                 {isBn ? 'গুগল অথেন্টিকেটর (Google Authenticator)' : 'Google Authenticator'}
               </span>
-              <span className="text-xs text-slate-400 block">
+              <span className="text-xs text-slate-300 block">
                 {isBn
                   ? 'উইথড্রয়াল ও সংবেদনশীল কাজের অতিরিক্ত নিরাপত্তা কোড'
                   : 'Extra verification code for withdrawals and sensitive actions'}
@@ -567,7 +567,7 @@ export const SecuritySettingsPage: React.FC<SecuritySettingsPageProps> = ({
                 onClose();
                 onOpen2FA?.();
               }}
-              className="px-3 py-1.5 rounded-xl bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-400/30 text-cyan-300 text-xs font-bold transition-all cursor-pointer whitespace-nowrap ml-3"
+              className="px-3 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 text-xs font-bold transition-all cursor-pointer whitespace-nowrap ml-3"
             >
               {isBn ? 'সেটআপ করুন' : 'Configure'}
             </button>

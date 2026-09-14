@@ -429,21 +429,67 @@ export const signInWithFirebase = async (
 ): Promise<{ success: boolean; user?: UserProfile; error?: string }> => {
   try {
     let resolvedEmail = emailOrPhone.trim();
+    let digits = '';
+    let last10 = '';
 
-    // If identifier is a phone number, search Firestore for corresponding email
+    // If identifier is a phone number, resolve or synthesize email
     if (!resolvedEmail.includes('@')) {
+      digits = normalizePhone(resolvedEmail);
+      last10 = digits.slice(-10);
+
       const foundEmail = await findEmailByPhone(resolvedEmail);
       if (foundEmail) {
         resolvedEmail = foundEmail;
       } else {
-        // Synthesize standard phone-backed email
-        const digits = normalizePhone(resolvedEmail);
         resolvedEmail = `${digits || 'user'}@novavest.local`;
       }
     }
 
-    const cred = await signInWithEmailAndPassword(auth, resolvedEmail, pass);
-    const firestoreUser = await getFirestoreUserProfile(cred.user.uid);
+    // Try signing in; if standard phone synth fails, try alternative candidate formats
+    let cred: any;
+    try {
+      cred = await signInWithEmailAndPassword(auth, resolvedEmail, pass);
+    } catch (firstErr: any) {
+      if (
+        !resolvedEmail.includes('@') ||
+        (digits && (firstErr?.code === 'auth/user-not-found' || firstErr?.code === 'auth/invalid-credential'))
+      ) {
+        const candidates = [
+          last10 ? `${last10}@novavest.local` : null,
+          last10 ? `880${last10}@novavest.local` : null,
+          last10 ? `0${last10}@novavest.local` : null,
+        ].filter(Boolean) as string[];
+
+        let success = false;
+        for (const candidate of candidates) {
+          if (candidate === resolvedEmail) continue;
+          try {
+            cred = await signInWithEmailAndPassword(auth, candidate, pass);
+            resolvedEmail = candidate;
+            success = true;
+            break;
+          } catch {
+            // try next candidate
+          }
+        }
+        if (!success) {
+          throw firstErr;
+        }
+      } else {
+        throw firstErr;
+      }
+    }
+
+    // Fast-resolve profile: give Firestore 1.5s max, otherwise return immediately & sync in background
+    let firestoreUser: UserProfile | null = null;
+    try {
+      firestoreUser = await Promise.race([
+        getFirestoreUserProfile(cred.user.uid),
+        new Promise<null>((res) => setTimeout(() => res(null), 1500)),
+      ]);
+    } catch {
+      // fallback
+    }
 
     let user: UserProfile;
     if (firestoreUser) {
@@ -452,19 +498,40 @@ export const signInWithFirebase = async (
         uid: cred.user.uid,
       };
     } else {
-      user = await createFirestoreUserProfile(cred.user.uid, {
+      user = {
+        uid: cred.user.uid,
         name: cred.user.displayName || (resolvedEmail.includes('@') ? resolvedEmail.split('@')[0] : 'NVT Member'),
         phone: resolvedEmail.endsWith('@novavest.local') ? emailOrPhone : '+880 1712-345678',
         email: cred.user.email || resolvedEmail,
+        memberId: `NVT${Math.floor(100000 + Math.random() * 900000)}`,
+        referralCode: Math.random().toString(36).substring(2, 8).toUpperCase(),
         walletBalance: 0.0,
-      });
+        memberSince: 'May 2024',
+        isVerified: true,
+        transactions: [],
+      };
+      // Background sync without blocking login response
+      createFirestoreUserProfile(cred.user.uid, {
+        name: user.name,
+        phone: user.phone || '+880 1712-345678',
+        email: user.email || resolvedEmail,
+        memberId: user.memberId,
+        referralCode: user.referralCode,
+        walletBalance: user.walletBalance,
+      }).catch(() => {});
     }
 
-    // Cache phone to email mapping
+    // Cache phone to email mapping in localStorage
     if (user.phone && user.email && typeof window !== 'undefined' && window.localStorage) {
       try {
         const norm = normalizePhone(user.phone);
-        if (norm) localStorage.setItem(`nvt_phone_email_${norm}`, user.email);
+        const norm10 = norm.slice(-10);
+        localStorage.setItem(`nvt_phone_email_${norm}`, user.email);
+        if (norm10) {
+          localStorage.setItem(`nvt_phone_email_${norm10}`, user.email);
+          localStorage.setItem(`nvt_phone_email_0${norm10}`, user.email);
+          localStorage.setItem(`nvt_phone_email_880${norm10}`, user.email);
+        }
       } catch {
         // ignore
       }
@@ -497,18 +564,24 @@ export const registerWithFirebase = async (
   lang: 'bn' | 'en' = 'bn'
 ): Promise<{ success: boolean; user?: UserProfile; error?: string }> => {
   let finalEmail = data.email?.trim();
+  const digits = normalizePhone(data.phone);
+  const last10 = digits.slice(-10);
+
   if (!finalEmail) {
-    const digits = normalizePhone(data.phone);
     finalEmail = `${digits || 'user_' + Date.now()}@novavest.local`;
   }
 
   const uplineCode = data.referralCode?.trim().toUpperCase() || undefined;
 
-  // Cache phone-to-email mapping locally so phone sign-in always works
-  const normPhone = normalizePhone(data.phone);
-  if (normPhone && typeof window !== 'undefined' && window.localStorage) {
+  // Cache phone-to-email mapping locally so phone sign-in always works instantly
+  if (typeof window !== 'undefined' && window.localStorage) {
     try {
-      localStorage.setItem(`nvt_phone_email_${normPhone}`, finalEmail);
+      if (digits) localStorage.setItem(`nvt_phone_email_${digits}`, finalEmail);
+      if (last10) {
+        localStorage.setItem(`nvt_phone_email_${last10}`, finalEmail);
+        localStorage.setItem(`nvt_phone_email_0${last10}`, finalEmail);
+        localStorage.setItem(`nvt_phone_email_880${last10}`, finalEmail);
+      }
     } catch {
       // ignore
     }
@@ -520,13 +593,10 @@ export const registerWithFirebase = async (
     try {
       cred = await createUserWithEmailAndPassword(auth, finalEmail, data.password);
     } catch (authErr: any) {
-      // Auto-recovery: If user was created in Firebase Auth in a previous step where
-      // Firestore setDoc failed, attempt to sign in with the provided password!
       if (authErr?.code === 'auth/email-already-in-use') {
         try {
           cred = await signInWithEmailAndPassword(auth, finalEmail, data.password);
         } catch {
-          // Password didn't match existing account -> throw original error
           throw authErr;
         }
       } else {
@@ -534,34 +604,52 @@ export const registerWithFirebase = async (
       }
     }
 
-    // 2. Set Firebase Auth Display Name
-    if (data.username && cred?.user) {
-      try {
-        await updateProfile(cred.user, { displayName: data.username.trim() });
-      } catch {
-        // ignore non-critical
-      }
-    }
+    // 2. Generate local user profile immediately for zero-lag response
+    const generatedMemberId = `NVT${Math.floor(100000 + Math.random() * 900000)}`;
+    const referralCode = generatedMemberId.replace(/[^A-Z0-9]/gi, '').slice(-6).toUpperCase();
 
-    // 3. Create or sync Firestore User Document with real zero initial wallet balance (0.0 BDT)
-    const newUser = await createFirestoreUserProfile(cred.user.uid, {
-      name: data.username.trim(),
+    const newUser: UserProfile = {
+      uid: cred.user.uid,
+      name: data.username.trim() || 'NVT Member',
       phone: data.phone.trim(),
       email: finalEmail,
+      memberId: generatedMemberId,
+      referralCode,
       referredBy: uplineCode,
       walletBalance: 0.0,
-    });
+      memberSince: new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+      isVerified: true,
+      transactions: [],
+    };
 
-    // 4. Register in referral network ledger so the inviter sees the new member immediately
+    // 3. Persist and register locally first
+    persistAuthUser(newUser);
+
     registerUserInReferralNetwork(
       newUser.uid,
       newUser.referralCode,
       uplineCode || newUser.referredBy,
       data.phone.trim(),
-      data.username.trim()
+      data.username.trim(),
+      newUser.memberId
     );
 
-    persistAuthUser(newUser);
+    // 4. Background Firestore persistence (non-blocking)
+    Promise.all([
+      createFirestoreUserProfile(cred.user.uid, {
+        name: data.username.trim(),
+        phone: data.phone.trim(),
+        email: finalEmail,
+        memberId: generatedMemberId,
+        referralCode,
+        referredBy: uplineCode,
+        walletBalance: 0.0,
+      }),
+      data.username ? updateProfile(cred.user, { displayName: data.username.trim() }) : Promise.resolve(),
+    ]).catch((err) => {
+      console.warn('[AuthService] Background user document creation notice:', err);
+    });
+
     attachFirestoreListener(newUser.uid!);
 
     return { success: true, user: newUser };

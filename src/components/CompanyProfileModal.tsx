@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
 import {
+  ArrowLeft,
   Building2,
   Zap,
   BatteryCharging,
@@ -281,53 +282,57 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
 
   return (
     <div
-      id="company-profile-modal-overlay"
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md animate-in fade-in overflow-y-auto"
+      id="company-profile-page-wrapper"
+      className="fixed inset-0 z-50 overflow-y-auto bg-[#06483A] flex flex-col text-slate-100 animate-in fade-in duration-200"
     >
-      <div className="w-full max-w-2xl max-h-[92vh] flex flex-col rounded-3xl bg-[#090e1c] border border-cyan-500/30 shadow-2xl shadow-cyan-950/50 overflow-hidden relative">
-        {/* Header Bar */}
-        <div className="flex items-center justify-between px-5 sm:px-6 py-4 border-b border-slate-800/80 bg-[#0c1426]/90 shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-cyan-500/15 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
+      {/* Sticky Header with ArrowLeft Back */}
+      <header
+        id="company-profile-header"
+        className="sticky top-0 z-20 bg-[#062c22]/95 backdrop-blur-md border-b border-emerald-500/30 px-4 py-3.5 sm:px-6 sm:py-4 flex items-center justify-between shrink-0"
+      >
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-10 h-10 rounded-full bg-[#042018] hover:bg-[#07362a] text-emerald-300 hover:text-white flex items-center justify-center transition-all cursor-pointer active:scale-95 border border-emerald-500/30 shadow-sm"
+            aria-label="Back"
+          >
+            <ArrowLeft className="w-5 h-5" />
+          </button>
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0">
               <Building2 className="w-5 h-5" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-base sm:text-lg font-bold text-white tracking-wide">
+                <h1 className="text-base sm:text-lg font-bold text-white tracking-wide">
                   Nova Terra Energy Ltd. (NVT)
-                </h2>
+                </h1>
                 <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
                   <CheckCircle2 className="w-3 h-3" />
                   <span>{isBn ? 'যাচাইকৃত' : 'Verified'}</span>
                 </span>
               </div>
-              <p className="text-[11px] text-slate-400">
+              <p className="text-[11px] text-slate-300">
                 {isBn
-                  ? 'নিবন্ধিত বিদ্যুৎ উৎপাদন ও গ্রিড টেলিমেট্রি অপারেটর'
+                  ? 'নিবন্ধিত বিদ্যুৎ উৎপাদন ও গ্রিড টেলিমেট্রি অবকাঠামো'
                   : 'Registered Clean Energy & Grid Telemetry Operator'}
               </p>
             </div>
           </div>
-
-          <button
-            type="button"
-            onClick={onClose}
-            className="w-8 h-8 rounded-full bg-slate-800/80 hover:bg-slate-700 flex items-center justify-center text-slate-400 hover:text-white transition-colors cursor-pointer"
-            aria-label="Close"
-          >
-            <X className="w-4 h-4" />
-          </button>
         </div>
+      </header>
 
-        {/* Modal Navigation Tabs */}
-        <div className="px-3 sm:px-5 py-2.5 bg-[#070b16] border-b border-slate-800 flex items-center gap-1.5 overflow-x-auto no-scrollbar shrink-0">
+      {/* Page Navigation Tabs */}
+      <div className="sticky top-[69px] z-10 px-4 sm:px-6 py-2.5 bg-[#031812]/95 backdrop-blur-md border-b border-emerald-500/20 flex items-center gap-2 overflow-x-auto no-scrollbar shrink-0">
+        <div className="max-w-2xl mx-auto w-full flex items-center gap-2">
           <button
             type="button"
             onClick={() => setActiveTab('overview')}
             className={`px-3 py-1.5 rounded-xl font-bold text-xs whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
               activeTab === 'overview'
-                ? 'bg-cyan-600 text-white shadow-md shadow-cyan-600/30'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30'
+                : 'text-emerald-200/70 hover:text-white hover:bg-emerald-500/10'
             }`}
           >
             <Building2 className="w-3.5 h-3.5" />
@@ -339,8 +344,8 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
             onClick={() => setActiveTab('howItWorks')}
             className={`px-3 py-1.5 rounded-xl font-bold text-xs whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
               activeTab === 'howItWorks'
-                ? 'bg-cyan-600 text-white shadow-md shadow-cyan-600/30'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30'
+                : 'text-emerald-200/70 hover:text-white hover:bg-emerald-500/10'
             }`}
           >
             <Zap className="w-3.5 h-3.5" />
@@ -352,8 +357,8 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
             onClick={() => setActiveTab('licenses')}
             className={`px-3 py-1.5 rounded-xl font-bold text-xs whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
               activeTab === 'licenses'
-                ? 'bg-amber-600 text-white shadow-md shadow-amber-600/30'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30'
+                : 'text-emerald-200/70 hover:text-white hover:bg-emerald-500/10'
             }`}
           >
             <Award className="w-3.5 h-3.5" />
@@ -365,8 +370,8 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
             onClick={() => setActiveTab('substations')}
             className={`px-3 py-1.5 rounded-xl font-bold text-xs whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
               activeTab === 'substations'
-                ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30'
+                : 'text-emerald-200/70 hover:text-white hover:bg-emerald-500/10'
             }`}
           >
             <Activity className="w-3.5 h-3.5" />
@@ -378,8 +383,8 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
             onClick={() => setActiveTab('leadership')}
             className={`px-3 py-1.5 rounded-xl font-bold text-xs whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
               activeTab === 'leadership'
-                ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30'
+                : 'text-emerald-200/70 hover:text-white hover:bg-emerald-500/10'
             }`}
           >
             <Users className="w-3.5 h-3.5" />
@@ -391,22 +396,24 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
             onClick={() => setActiveTab('video')}
             className={`px-3 py-1.5 rounded-xl font-bold text-xs whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
               activeTab === 'video'
-                ? 'bg-rose-600 text-white shadow-md shadow-rose-600/30'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30'
+                : 'text-emerald-200/70 hover:text-white hover:bg-emerald-500/10'
             }`}
           >
             <Play className="w-3.5 h-3.5" />
             <span>{isBn ? 'ভিডিও প্রেজেন্টেশন' : 'Explainer Video'}</span>
           </button>
         </div>
+      </div>
 
-        {/* Scrollable Body Content */}
-        <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-6 text-slate-200">
+      {/* Main Page Body */}
+      <main className="flex-1 w-full max-w-3xl mx-auto px-4 py-6 space-y-6 text-slate-200">
+        <div className="rounded-3xl bg-[#062c22] border border-emerald-500/30 shadow-xl p-5 sm:p-6 space-y-6">
           {/* TAB 1: OVERVIEW */}
           {activeTab === 'overview' && (
             <div className="space-y-5 animate-in fade-in">
               <div className="space-y-2">
-                <span className="text-[10px] font-mono uppercase tracking-widest text-cyan-400 font-bold">
+                <span className="text-[10px] font-mono uppercase tracking-widest text-emerald-400 font-bold">
                   {isBn ? 'প্রাতিষ্ঠানিক পরিচয়' : 'Corporate Identity & Scale'}
                 </span>
                 <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
@@ -417,7 +424,7 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
               </div>
 
               {/* Corporate Identity Data Grid */}
-              <div className="grid grid-cols-2 gap-3 p-4 rounded-2xl bg-[#0c1426] border border-slate-800 text-xs">
+              <div className="grid grid-cols-2 gap-3 p-4 rounded-2xl bg-[#042018] border border-emerald-500/25 text-xs">
                 <div>
                   <span className="text-slate-400 block text-[11px]">
                     {isBn ? 'কোম্পানি রেজিস্ট্রেশন নম্বর:' : 'Corporate Registration:'}
@@ -452,13 +459,13 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
                   <span className="text-slate-400 block text-[11px]">
                     {isBn ? 'মোট পরিকাঠামো সম্পদ:' : 'Infrastructure Assets:'}
                   </span>
-                  <span className="font-semibold text-cyan-400">৳ 4,850,000,000+</span>
+                  <span className="font-semibold text-emerald-400">৳ 4,850,000,000+</span>
                 </div>
               </div>
 
               {/* Mission Statement */}
-              <div className="p-4 rounded-2xl bg-cyan-950/20 border border-cyan-500/30 space-y-1.5">
-                <div className="flex items-center gap-2 text-cyan-300 font-bold text-xs">
+              <div className="p-4 rounded-2xl bg-emerald-950/30 border border-emerald-500/30 space-y-1.5">
+                <div className="flex items-center gap-2 text-emerald-300 font-bold text-xs">
                   <Sparkles className="w-4 h-4" />
                   <span>{isBn ? 'আমাদের লক্ষ্য ও ভিশন' : 'Our Mission & Vision'}</span>
                 </div>
@@ -475,7 +482,7 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
                   {isBn ? 'সক্রিয় প্রকল্পসমূহ' : 'Live Energy Assets'}
                 </h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="rounded-2xl bg-[#0c1426] border border-slate-800 overflow-hidden">
+                  <div className="rounded-2xl bg-[#042018] border border-emerald-500/25 overflow-hidden">
                     <img
                       src="https://images.unsplash.com/photo-1509391365360-2e959784a276?auto=format&fit=crop&w=600&q=80"
                       alt="Apex Solar Park"
@@ -483,7 +490,7 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
                       referrerPolicy="no-referrer"
                     />
                     <div className="p-3 space-y-1">
-                      <span className="text-[10px] text-amber-400 font-bold uppercase tracking-wider block">
+                      <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider block">
                         450 MW Apex Solar Park
                       </span>
                       <p className="text-[11px] text-slate-300">
@@ -492,7 +499,7 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
                     </div>
                   </div>
 
-                  <div className="rounded-2xl bg-[#0c1426] border border-slate-800 overflow-hidden">
+                  <div className="rounded-2xl bg-[#042018] border border-emerald-500/25 overflow-hidden">
                     <img
                       src="https://images.unsplash.com/photo-1473341304170-971dccb5ac1e?auto=format&fit=crop&w=600&q=80"
                       alt="132kV Substation"
@@ -500,7 +507,7 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
                       referrerPolicy="no-referrer"
                     />
                     <div className="p-3 space-y-1">
-                      <span className="text-[10px] text-cyan-400 font-bold uppercase tracking-wider block">
+                      <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider block">
                         132kV / 33kV Substation
                       </span>
                       <p className="text-[11px] text-slate-300">
@@ -517,7 +524,7 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
           {activeTab === 'howItWorks' && (
             <div className="space-y-6 animate-in fade-in">
               <div className="space-y-2">
-                <span className="text-[10px] font-mono uppercase tracking-widest text-cyan-400 font-bold">
+                <span className="text-[10px] font-mono uppercase tracking-widest text-emerald-400 font-bold">
                   {isBn ? 'বিদ্যুৎ গ্রিড আর্কিটেকচার' : 'Operational Architecture'}
                 </span>
                 <h3 className="text-base sm:text-lg font-extrabold text-white">
@@ -536,7 +543,7 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
                   <h4 className="text-xs font-bold text-white tracking-wide">
                     {isBn ? '২. আমাদের ৭-ধাপের কার্যপ্রণালী' : '2. OUR 7-STAGE PROCESS FLOW'}
                   </h4>
-                  <span className="text-[10px] font-mono text-cyan-400 bg-cyan-950/60 px-2 py-0.5 rounded-full border border-cyan-500/30">
+                  <span className="text-[10px] font-mono text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded-full border border-emerald-500/30">
                     Step {steps[activeStepIndex].num} / 07
                   </span>
                 </div>
@@ -551,13 +558,13 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
                         onClick={() => setActiveStepIndex(idx)}
                         className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-left border transition-all shrink-0 cursor-pointer ${
                           isSelected
-                            ? 'bg-cyan-500/20 border-cyan-400 text-white shadow-md shadow-cyan-500/20'
-                            : 'bg-[#0c1426] border-slate-800 text-slate-400 hover:text-slate-200'
+                            ? 'bg-emerald-500/20 border-emerald-400 text-white shadow-md shadow-emerald-500/20'
+                            : 'bg-[#042018] border-emerald-500/20 text-slate-300 hover:text-white'
                         }`}
                       >
                         <span
                           className={`w-5 h-5 rounded-md flex items-center justify-center text-[11px] font-bold ${
-                            isSelected ? 'bg-cyan-400 text-black' : 'bg-slate-800 text-cyan-300'
+                            isSelected ? 'bg-emerald-400 text-slate-950' : 'bg-[#031812] text-emerald-300'
                           }`}
                         >
                           {step.num}
@@ -569,18 +576,18 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
                 </div>
 
                 {/* Step Detail Card */}
-                <div className="p-4 rounded-2xl bg-[#0c1426] border border-cyan-500/40 space-y-3">
+                <div className="p-4 rounded-2xl bg-[#042018] border border-emerald-500/40 space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2.5">
-                      <div className="w-9 h-9 rounded-xl bg-cyan-500/20 border border-cyan-500/40 flex items-center justify-center text-cyan-300">
+                      <div className="w-9 h-9 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-300">
                         {React.createElement(steps[activeStepIndex].icon, { className: 'w-4 h-4' })}
                       </div>
                       <div>
                         <h5 className="text-sm font-bold text-white">{steps[activeStepIndex].title}</h5>
-                        <span className="text-[11px] text-slate-400">{steps[activeStepIndex].subtitle}</span>
+                        <span className="text-[11px] text-slate-300">{steps[activeStepIndex].subtitle}</span>
                       </div>
                     </div>
-                    <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded-lg bg-black/60 text-cyan-300 border border-cyan-500/30">
+                    <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded-lg bg-black/60 text-emerald-300 border border-emerald-500/30">
                       {steps[activeStepIndex].metric}
                     </span>
                   </div>
@@ -589,12 +596,12 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
                     {steps[activeStepIndex].desc}
                   </p>
 
-                  <div className="flex items-center justify-between pt-2 border-t border-slate-800/80">
+                  <div className="flex items-center justify-between pt-2 border-t border-emerald-500/20">
                     <button
                       type="button"
                       disabled={activeStepIndex === 0}
                       onClick={() => setActiveStepIndex((prev) => Math.max(0, prev - 1))}
-                      className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed text-xs text-white cursor-pointer"
+                      className="px-2.5 py-1 rounded-lg bg-[#031812] hover:bg-[#072c21] disabled:opacity-30 disabled:cursor-not-allowed text-xs text-emerald-200 cursor-pointer border border-emerald-500/20"
                     >
                       ← {isBn ? 'পূর্ববর্তী' : 'Prev'}
                     </button>
@@ -605,7 +612,7 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
                           type="button"
                           onClick={() => setActiveStepIndex(i)}
                           className={`h-1.5 rounded-full transition-all cursor-pointer ${
-                            activeStepIndex === i ? 'bg-cyan-400 w-4' : 'bg-slate-700 w-1.5'
+                            activeStepIndex === i ? 'bg-emerald-400 w-4' : 'bg-emerald-800 w-1.5'
                           }`}
                         />
                       ))}
@@ -614,7 +621,7 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
                       type="button"
                       disabled={activeStepIndex === steps.length - 1}
                       onClick={() => setActiveStepIndex((prev) => Math.min(steps.length - 1, prev + 1))}
-                      className="px-2.5 py-1 rounded-lg bg-cyan-600 hover:bg-cyan-500 disabled:opacity-30 disabled:cursor-not-allowed text-xs text-white font-bold cursor-pointer"
+                      className="px-2.5 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 disabled:opacity-30 disabled:cursor-not-allowed text-xs text-slate-950 font-bold cursor-pointer"
                     >
                       {isBn ? 'পরবর্তী' : 'Next'} →
                     </button>
@@ -623,8 +630,8 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
               </div>
 
               {/* Final Summary Banner */}
-              <div className="p-4 rounded-2xl bg-gradient-to-r from-[#0d1c3a] via-[#10244c] to-[#0d1c3a] border border-cyan-400/40 text-center space-y-1">
-                <div className="flex items-center justify-center gap-1.5 text-cyan-400 text-[11px] font-mono font-bold uppercase tracking-wider">
+              <div className="p-4 rounded-2xl bg-gradient-to-r from-[#07362a] via-[#094234] to-[#07362a] border border-emerald-400/40 text-center space-y-1">
+                <div className="flex items-center justify-center gap-1.5 text-emerald-300 text-[11px] font-mono font-bold uppercase tracking-wider">
                   <Sparkles className="w-3.5 h-3.5" />
                   <span>{isBn ? 'প্রাতিষ্ঠানিক নিশ্চয়তা' : 'OPERATIONAL COMMITMENT'}</span>
                 </div>
@@ -640,12 +647,12 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
             <div className="space-y-4 animate-in fade-in">
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
-                  <Award className="w-4 h-4 text-amber-400" />
+                  <Award className="w-4 h-4 text-emerald-400" />
                   <h3 className="text-sm sm:text-base font-bold text-white">
                     {isBn ? 'সরকারি লাইসেন্স ও অনুমোদন সনদপত্র' : 'Official Licences & Certifications'}
                   </h3>
                 </div>
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-slate-300">
                   {isBn
                     ? 'কোম্পানির সকল নিয়ন্ত্রক লাইসেন্স ও সনদপত্র শতভাগ যাচাইযোগ্য ও স্বচ্ছ।'
                     : 'All corporate permits, grid dispatch licenses, and ISO standards are verifiable.'}
@@ -656,12 +663,12 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
                 {officialLicenses.map((lic) => (
                   <div
                     key={lic.id}
-                    className="p-3.5 rounded-2xl bg-[#0c1426] border border-slate-800 hover:border-amber-500/40 transition-all space-y-2"
+                    className="p-3.5 rounded-2xl bg-[#042018] border border-emerald-500/25 hover:border-emerald-400/40 transition-all space-y-2"
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div>
                         <div className="flex items-center gap-2">
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
                             {lic.badge}
                           </span>
                           <span className="text-[10px] font-mono text-emerald-400 font-bold flex items-center gap-1">
@@ -670,28 +677,28 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
                           </span>
                         </div>
                         <h4 className="text-xs sm:text-sm font-bold text-white mt-1">{lic.title}</h4>
-                        <span className="text-[11px] text-slate-400">{lic.org}</span>
+                        <span className="text-[11px] text-slate-300">{lic.org}</span>
                       </div>
 
                       <div className="text-right shrink-0">
-                        <span className="text-xs font-mono font-bold text-cyan-300 block">{lic.code}</span>
+                        <span className="text-xs font-mono font-bold text-emerald-300 block">{lic.code}</span>
                         <span className="text-[10px] text-slate-400 block">{lic.validity}</span>
                       </div>
                     </div>
 
-                    <p className="text-[11px] text-slate-300 leading-relaxed bg-black/40 p-2 rounded-xl border border-slate-800/80">
+                    <p className="text-[11px] text-slate-200 leading-relaxed bg-black/40 p-2 rounded-xl border border-emerald-500/20">
                       {lic.details}
                     </p>
 
                     <div className="flex items-center justify-between pt-1 text-[10px] text-slate-400">
-                      <span className="font-mono text-slate-500 truncate max-w-[180px] sm:max-w-[280px]">
+                      <span className="font-mono text-slate-400 truncate max-w-[180px] sm:max-w-[280px]">
                         {lic.issuerSeal}
                       </span>
 
                       <button
                         type="button"
                         onClick={() => handleCopyHash(lic.hash)}
-                        className="flex items-center gap-1 font-mono text-cyan-400 hover:text-cyan-300 cursor-pointer bg-cyan-950/40 px-2 py-0.5 rounded border border-cyan-500/30"
+                        className="flex items-center gap-1 font-mono text-emerald-300 hover:text-white cursor-pointer bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-500/30"
                       >
                         {copiedHash === lic.hash ? (
                           <>
@@ -710,8 +717,8 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
                 ))}
               </div>
 
-              <div className="p-3 rounded-2xl bg-amber-950/20 border border-amber-500/30 text-center space-y-1">
-                <span className="text-xs font-bold text-amber-300 flex items-center justify-center gap-1.5">
+              <div className="p-3 rounded-2xl bg-emerald-950/30 border border-emerald-500/30 text-center space-y-1">
+                <span className="text-xs font-bold text-emerald-300 flex items-center justify-center gap-1.5">
                   <ShieldCheck className="w-4 h-4" />
                   {isBn ? 'আইনগত নিশ্চয়তা' : 'Statutory Compliance Guarantee'}
                 </span>
@@ -729,12 +736,12 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
             <div className="space-y-4 animate-in fade-in">
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
-                  <Activity className="w-4 h-4 text-cyan-400" />
+                  <Activity className="w-4 h-4 text-emerald-400" />
                   <h3 className="text-sm sm:text-base font-bold text-white">
                     {isBn ? 'গ্রিড সাবস্টেশন নেটওয়ার্ক' : 'Grid Substation Network'}
                   </h3>
                 </div>
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-slate-300">
                   {isBn
                     ? '১৪টি রিয়েল-টাইম অটোমেটেড পাওয়ার নোড ও সুইচইয়ার্ড'
                     : '14 Automated Power Nodes connected to regional grids'}
@@ -745,27 +752,27 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
                 {substations.map((sub, idx) => (
                   <div
                     key={idx}
-                    className="p-3 rounded-2xl bg-[#0c1426] border border-slate-800 flex items-center justify-between"
+                    className="p-3 rounded-2xl bg-[#042018] border border-emerald-500/25 flex items-center justify-between"
                   >
                     <div>
                       <span className="font-bold text-white text-xs sm:text-sm block">{sub.name}</span>
                       <div className="flex items-center gap-2 mt-0.5">
-                        <span className="text-[10px] text-slate-400 font-mono">{sub.voltage}</span>
+                        <span className="text-[10px] text-slate-300 font-mono">{sub.voltage}</span>
                         <span className="text-[10px] text-emerald-400 flex items-center gap-1">
                           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                           {sub.status}
                         </span>
                       </div>
                     </div>
-                    <span className="font-mono font-bold text-cyan-400 bg-cyan-950/40 px-2.5 py-1 rounded-lg border border-cyan-800/40 text-xs">
+                    <span className="font-mono font-bold text-emerald-400 bg-emerald-950/50 px-2.5 py-1 rounded-lg border border-emerald-500/30 text-xs">
                       {sub.load}
                     </span>
                   </div>
                 ))}
               </div>
 
-              <div className="p-3 rounded-2xl bg-cyan-950/20 border border-cyan-500/30 text-xs space-y-1 text-slate-300">
-                <span className="font-bold text-cyan-300 block">
+              <div className="p-3 rounded-2xl bg-emerald-950/30 border border-emerald-500/30 text-xs space-y-1 text-slate-300">
+                <span className="font-bold text-emerald-300 block">
                   {isBn ? 'স্বয়ংক্রিয় স্কাডা সমন্বয়' : 'Automated SCADA Synchronization'}
                 </span>
                 <p className="text-[11px] text-slate-300 leading-relaxed">
@@ -782,12 +789,12 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
             <div className="space-y-5 animate-in fade-in">
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
-                  <Users className="w-4 h-4 text-indigo-400" />
+                  <Users className="w-4 h-4 text-emerald-400" />
                   <h3 className="text-sm sm:text-base font-bold text-white">
                     {isBn ? 'প্রধান প্রকৌশলী দল ও গভর্ন্যান্স' : 'Executive Engineering Team & Governance'}
                   </h3>
                 </div>
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-slate-300">
                   {isBn ? 'এআই পাওয়ার ম্যানেজমেন্ট ও উচ্চ ভোল্টেজ নিরাপত্তা বিশেষজ্ঞ' : 'Specialists in AI Smart Grid & High-Voltage Systems'}
                 </p>
               </div>
@@ -795,39 +802,39 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
               {/* Engineering Team */}
               <div className="space-y-2.5">
                 {engineers.map((eng, idx) => (
-                  <div key={idx} className="p-3 rounded-2xl bg-[#0c1426] border border-slate-800 space-y-1">
+                  <div key={idx} className="p-3 rounded-2xl bg-[#042018] border border-emerald-500/25 space-y-1">
                     <div className="flex items-center justify-between">
                       <span className="font-bold text-white text-xs sm:text-sm">{eng.name}</span>
-                      <span className="text-[10px] font-mono text-cyan-400">{eng.experience}</span>
+                      <span className="text-[10px] font-mono text-emerald-400">{eng.experience}</span>
                     </div>
-                    <span className="text-indigo-300 text-[11px] block">{eng.role}</span>
+                    <span className="text-emerald-300 text-[11px] block">{eng.role}</span>
                     <span className="text-slate-400 text-[10px] block">{eng.org}</span>
                   </div>
                 ))}
               </div>
 
               {/* Operational Guidelines SOP */}
-              <div className="space-y-2.5 pt-2 border-t border-slate-800">
+              <div className="space-y-2.5 pt-2 border-t border-emerald-500/20">
                 <h4 className="text-xs font-bold text-white uppercase tracking-wider">
                   {isBn ? 'পরিচালন ও নিরাপত্তা নীতিমালা (SOP)' : 'Safety & Operational Guidelines'}
                 </h4>
 
-                <div className="p-3 rounded-xl bg-slate-900 border border-slate-800 space-y-1">
+                <div className="p-3 rounded-xl bg-[#031812] border border-emerald-500/20 space-y-1">
                   <h5 className="font-bold text-white text-xs">
                     {isBn ? '১. সাবস্টেশন নিরাপত্তা প্রোটোকল' : '1. High-Voltage Substation Protocol'}
                   </h5>
-                  <p className="text-[11px] text-slate-400">
+                  <p className="text-[11px] text-slate-300/80">
                     {isBn
                       ? '১৩২কেভি সুইচইয়ার্ডে প্রবেশের জন্য ক্লাস ৪ আর্ক-ফ্ল্যাশ পিপিই ও বায়োমেট্রিক আইডি বাধ্যতামূলক।'
                       : 'Personnel entering switchyards must wear certified Class 4 arc-flash PPE and biometric RFID access.'}
                   </p>
                 </div>
 
-                <div className="p-3 rounded-xl bg-slate-900 border border-slate-800 space-y-1">
+                <div className="p-3 rounded-xl bg-[#031812] border border-emerald-500/20 space-y-1">
                   <h5 className="font-bold text-white text-xs">
                     {isBn ? '২. ডেটা ইন্টিগ্রিটি ও স্কাডা লগিং' : '2. Data Integrity & SCADA Logging'}
                   </h5>
-                  <p className="text-[11px] text-slate-400">
+                  <p className="text-[11px] text-slate-300/80">
                     {isBn
                       ? 'মেগাওয়াট উৎপাদন ও ফ্রিকোয়েন্সি তথ্য অপরিবর্তনীয়ভাবে সংরক্ষণ করা হয়।'
                       : 'Megawatt generation telemetry and frequency logs are recorded immutably.'}
@@ -843,12 +850,12 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
               <div className="flex items-center justify-between">
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
-                    <Play className="w-4 h-4 text-rose-400" />
+                    <Play className="w-4 h-4 text-emerald-400" />
                     <h3 className="text-sm sm:text-base font-bold text-white">
                       {isBn ? 'প্রাতিষ্ঠানিক এক্সপ্লেইনার ভিডিও' : 'Official Explainer Video'}
                     </h3>
                   </div>
-                  <p className="text-xs text-slate-400">
+                  <p className="text-xs text-slate-300">
                     {isBn
                       ? 'নোভাভেস্ট বিদ্যুৎ উৎপাদন ও গ্রিড সংযোগের সম্পূর্ণ পরিচিতি'
                       : 'Comprehensive visual tour of our grid infrastructure and plant generation'}
@@ -871,8 +878,8 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
                       }}
                       className={`px-2.5 py-1 rounded-lg text-[11px] font-bold whitespace-nowrap transition-all cursor-pointer border ${
                         selectedClipIndex === idx
-                          ? 'bg-cyan-500 text-slate-950 border-cyan-400 shadow-sm'
-                          : 'bg-[#0f172a] text-slate-300 border-slate-800 hover:bg-slate-800'
+                          ? 'bg-emerald-500 text-slate-950 border-emerald-400 shadow-sm'
+                          : 'bg-[#042018] text-slate-300 border-emerald-500/25 hover:bg-[#072c21]'
                       }`}
                     >
                       {clip.title}
@@ -882,13 +889,15 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
               </div>
 
               {/* Video Player (Local MP4 - strictly manual playback, no YouTube) */}
-              <div className="relative aspect-video w-full rounded-2xl overflow-hidden bg-black border border-slate-800 shadow-xl group">
+              <div className="relative aspect-video w-full rounded-2xl overflow-hidden bg-black border border-emerald-500/30 shadow-xl group">
                 <video
                   ref={videoRef}
+                  key={videoClips[selectedClipIndex].videoSrc}
                   src={videoClips[selectedClipIndex].videoSrc}
                   className="w-full h-full object-contain"
                   playsInline
                   controls
+                  preload="auto"
                   onPlay={() => setIsPlayingLocal(true)}
                   onPause={() => setIsPlayingLocal(false)}
                   onEnded={() => setIsPlayingLocal(false)}
@@ -904,7 +913,7 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
                         setIsPlayingLocal(true);
                       }
                     }}
-                    className="absolute inset-0 m-auto w-14 h-14 rounded-full bg-cyan-500/90 hover:bg-cyan-400 text-slate-950 flex items-center justify-center shadow-2xl shadow-cyan-500/50 hover:scale-105 active:scale-95 transition-all cursor-pointer z-20 pointer-events-auto"
+                    className="absolute inset-0 m-auto w-14 h-14 rounded-full bg-emerald-500/90 hover:bg-emerald-400 text-slate-950 flex items-center justify-center shadow-2xl shadow-emerald-500/50 hover:scale-105 active:scale-95 transition-all cursor-pointer z-20 pointer-events-auto"
                     aria-label="Play video"
                   >
                     <Play className="w-6 h-6 fill-current ml-0.5" />
@@ -914,21 +923,21 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
             </div>
           )}
         </div>
+      </main>
 
-        {/* Modal Footer */}
-        <div className="px-5 py-3 border-t border-slate-800/80 bg-[#070c18] flex items-center justify-between shrink-0">
-          <span className="text-[11px] text-slate-500 font-mono">
-            Nova Terra Energy (NVT) Ltd. • 2026
-          </span>
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-semibold text-xs transition-colors cursor-pointer"
-          >
-            {isBn ? 'বন্ধ করুন' : 'Close'}
-          </button>
-        </div>
-      </div>
+      {/* Page Footer */}
+      <footer className="px-4 sm:px-6 py-4 border-t border-emerald-500/20 bg-[#042018] flex items-center justify-between shrink-0">
+        <span className="text-[11px] text-emerald-400/80 font-mono">
+          Nova Terra Energy (NVT) Ltd. • 2026
+        </span>
+        <button
+          type="button"
+          onClick={onClose}
+          className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs transition-colors cursor-pointer"
+        >
+          {isBn ? 'প্রোফাইলে ফিরে যান' : 'Back to Profile'}
+        </button>
+      </footer>
     </div>
   );
 };

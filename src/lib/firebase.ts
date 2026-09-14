@@ -91,15 +91,15 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
   throw new Error(JSON.stringify(errInfo));
 }
 
-// Test connection on startup
-export async function testFirestoreConnection() {
-  try {
-    await getDocFromServer(doc(db, 'test', 'connection'));
-  } catch (error) {
-    if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.warn('Firebase client is offline or network is limited. Operating with local cache.');
+// Non-blocking background connectivity test (does not block UI or auth initialization)
+export function testFirestoreConnection() {
+  setTimeout(async () => {
+    try {
+      await getDoc(doc(db, 'test', 'connection'));
+    } catch {
+      // ignore
     }
-  }
+  }, 3000);
 }
 
 testFirestoreConnection();
@@ -242,23 +242,56 @@ export const findEmailByPhone = async (rawPhone: string): Promise<string | null>
   const normalized = normalizePhone(rawPhone);
   if (!normalized) return null;
 
-  // Check localStorage client cache first
+  const last10 = normalized.length >= 10 ? normalized.slice(-10) : normalized;
+
+  // 1. Check multi-variant localStorage client cache first (instant 0ms)
   try {
     if (typeof window !== 'undefined' && window.localStorage) {
-      const cached = localStorage.getItem(`nvt_phone_email_${normalized}`);
-      if (cached) return cached;
+      const keysToTry = [
+        `nvt_phone_email_${normalized}`,
+        `nvt_phone_email_${last10}`,
+        `nvt_phone_email_0${last10}`,
+        `nvt_phone_email_880${last10}`,
+      ];
+      for (const key of keysToTry) {
+        const cached = localStorage.getItem(key);
+        if (cached) return cached;
+      }
+
+      // Also check local referral accounts table
+      const rawAccounts = localStorage.getItem('novaterra_referral_accounts_v3');
+      if (rawAccounts) {
+        const accounts = JSON.parse(rawAccounts);
+        for (const acc of Object.values(accounts) as any[]) {
+          if (acc.phone && normalizePhone(acc.phone).slice(-10) === last10) {
+            if (acc.email) return acc.email;
+          }
+        }
+      }
     }
   } catch {
     // ignore
   }
 
+  // 2. Fast timeout-bounded Firestore lookup (capped at 1800ms to avoid blocking UI)
   try {
     const usersRef = collection(db, 'users');
     const q = query(usersRef, where('phoneNormalized', '==', normalized));
-    const snap = await getDocs(q);
-    if (!snap.empty) {
-      const docData = snap.docs[0].data();
-      return docData.email || null;
+    
+    const queryPromise = getDocs(q);
+    const timeoutPromise = new Promise<null>((res) => setTimeout(() => res(null), 1800));
+    
+    const result: any = await Promise.race([queryPromise, timeoutPromise]);
+    if (result && !result.empty) {
+      const docData = result.docs[0].data();
+      const foundEmail = docData.email || null;
+      if (foundEmail && typeof window !== 'undefined') {
+        try {
+          localStorage.setItem(`nvt_phone_email_${normalized}`, foundEmail);
+          localStorage.setItem(`nvt_phone_email_${last10}`, foundEmail);
+        } catch {}
+      }
+      return foundEmail;
     }
     return null;
   } catch (err) {

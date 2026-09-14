@@ -195,90 +195,97 @@ export const AddWalletPaymentModal: React.FC<AddWalletPaymentModalProps> = ({
 
   return (
     <div
-      id="add-wallet-screen-overlay"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) {
-          onClose();
-        }
-      }}
-      className="fixed inset-0 z-50 overflow-y-auto overscroll-contain bg-[#070D18]/90 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 text-slate-100 animate-in fade-in"
+      id="add-wallet-page-wrapper"
+      className="fixed inset-0 z-50 overflow-y-auto bg-[#06483A] flex flex-col text-slate-100 animate-in fade-in duration-200"
     >
-      {/* Mobile Frame Container */}
-      <div
-        id="add-wallet-mobile-container"
-        onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-md bg-[#08101E] border border-slate-800/90 rounded-[32px] shadow-[0_25px_60px_rgba(0,0,0,0.85)] overflow-hidden flex flex-col my-auto max-h-[96vh] relative overscroll-contain"
+      {/* Top Header */}
+      <header
+        id="add-wallet-header"
+        className="sticky top-0 z-20 bg-[#062c22]/95 backdrop-blur-md border-b border-emerald-500/30 px-4 py-3.5 sm:px-6 sm:py-4 flex items-center justify-between"
       >
-        {/* Soft Background Radial Cyan Glow */}
-        <div
-          className="absolute top-10 left-1/2 -translate-x-1/2 w-72 h-72 rounded-full pointer-events-none opacity-20 blur-3xl"
-          style={{ background: 'radial-gradient(circle, #00d2ff 0%, transparent 70%)' }}
-        />
-
-        {/* Top Header */}
-        <header
-          id="add-wallet-header"
-          className="relative z-10 px-5 py-4 flex items-center justify-between border-b border-slate-800/60"
-        >
+        <div className="flex items-center gap-3">
           <button
             id="add-wallet-back-btn"
             type="button"
             onClick={() => {
-              if (viewMode === 'card' && wallets.length > 0) {
-                onClose();
+              if (viewMode === 'form' && wallets.length > 0) {
+                setViewMode('card');
               } else {
                 onClose();
               }
             }}
-            className="w-10 h-10 rounded-full bg-[#101B2E] hover:bg-[#182844] text-slate-300 hover:text-white flex items-center justify-center transition-all cursor-pointer active:scale-95 border border-slate-700/60 shadow-sm"
+            className="w-10 h-10 rounded-full bg-[#042018] hover:bg-[#07362a] text-emerald-300 hover:text-white flex items-center justify-center transition-all cursor-pointer active:scale-95 border border-emerald-500/30 shadow-sm"
             aria-label="Back"
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
 
-          <h1 className="text-lg font-bold text-white tracking-wide">
-            {viewMode === 'card' ? (isBn ? 'ওয়ালেট বিবরণ' : 'My Wallet') : (isBn ? 'ওয়ালেট যুক্ত করুন' : 'Add Wallet')}
-          </h1>
+          <div>
+            <h1 className="text-base sm:text-lg font-bold text-white tracking-wide flex items-center gap-2">
+              <CreditCard className="w-5 h-5 text-emerald-400" />
+              <span>{viewMode === 'card' ? (isBn ? 'সংযুক্ত ওয়ালেট তালিকা' : 'Bound Wallets') : (isBn ? 'পেমেন্ট মেথড (ওয়ালেট যুক্ত)' : 'Add Payment Wallet')}</span>
+            </h1>
+            <p className="text-[11px] text-slate-300">
+              {isBn ? 'বিকাশ, নগদ ও ব্যাংক অ্যাকাউন্ট প্রত্যাহার ব্যবস্থাপনা' : 'bKash, Nagad & Bank withdrawal setup'}
+            </p>
+          </div>
+        </div>
 
-          {/* Right Action: If in card view, allow switching to Add New form */}
-          {viewMode === 'card' ? (
-            <button
-              type="button"
-              onClick={() => {
-                setSelectedMethod('');
-                setWalletNumber('');
-                setViewMode('form');
-              }}
-              className="px-2.5 py-1 rounded-full bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-400/30 text-cyan-300 text-xs font-bold flex items-center gap-1 transition-all cursor-pointer"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>{isBn ? 'যুক্ত' : 'New'}</span>
-            </button>
-          ) : (
-            <div className="w-10" />
-          )}
-        </header>
+        {/* Right Action: If in card view, allow switching to Add New form */}
+        {viewMode === 'card' ? (
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedMethod('');
+              setWalletNumber('');
+              setViewMode('form');
+            }}
+            className="px-3 py-1.5 rounded-full bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>{isBn ? 'নতুন ওয়ালেট' : 'Add New'}</span>
+          </button>
+        ) : wallets.length > 0 ? (
+          <button
+            type="button"
+            onClick={() => setViewMode('card')}
+            className="px-3 py-1.5 rounded-full bg-[#042018] hover:bg-[#07362a] border border-emerald-500/30 text-emerald-300 text-xs font-semibold transition-colors"
+          >
+            {isBn ? 'তালিকা দেখুন' : 'View List'}
+          </button>
+        ) : (
+          <div className="w-10" />
+        )}
+      </header>
 
-        {/* Body Content */}
-        <div className="relative z-10 p-5 overflow-y-auto space-y-5 scrollbar-thin">
-          {/* ========================================================= */}
-          {/* VIEW 1: ADD WALLET FORM (Screenshot 1 Exact Match)         */}
-          {/* ========================================================= */}
-          {viewMode === 'form' && (
+      {/* Main Content Body */}
+      <main className="flex-1 w-full max-w-xl mx-auto px-4 py-6 sm:px-6 sm:py-8 space-y-6">
+        <div className="relative rounded-3xl bg-[#062c22] border border-emerald-500/30 shadow-xl p-5 sm:p-6 space-y-5">
+          {/* Soft Background Radial Emerald Glow */}
+          <div
+            className="absolute top-10 left-1/2 -translate-x-1/2 w-72 h-72 rounded-full pointer-events-none opacity-20 blur-3xl"
+            style={{ background: 'radial-gradient(circle, #10b981 0%, transparent 70%)' }}
+          />
+
+          <div className="relative z-10 space-y-5">
+            {/* ========================================================= */}
+            {/* VIEW 1: ADD WALLET FORM (Screenshot 1 Exact Match)         */}
+            {/* ========================================================= */}
+            {viewMode === 'form' && (
             <form id="add-wallet-form" onSubmit={handleAddWalletSubmit} className="space-y-4">
               {/* Field 1: Wallet Type */}
               <div className="space-y-2">
-                <label className="block text-sm font-medium text-slate-300">
+                <label className="block text-sm font-medium text-slate-200">
                   {isBn ? 'ওয়ালেটের ধরন' : 'Wallet Type'}
                 </label>
 
                 <div
                   id="wallet-type-select-card"
                   onClick={() => setIsPickerOpen(true)}
-                  className="w-full rounded-2xl border-2 border-[#00d2ff] bg-[#071322]/90 p-5 flex flex-col items-center justify-center gap-2 cursor-pointer shadow-[0_0_22px_rgba(0,210,255,0.22)] hover:border-cyan-300 transition-all active:scale-[0.99]"
+                  className="w-full rounded-2xl border-2 border-emerald-500 bg-[#042018] p-5 flex flex-col items-center justify-center gap-2 cursor-pointer shadow-[0_0_22px_rgba(16,185,129,0.22)] hover:border-emerald-400 transition-all active:scale-[0.99]"
                 >
-                  <CreditCard className="w-8 h-8 text-[#00d2ff]" />
-                  <span className="text-sm font-bold text-[#00d2ff] tracking-wide">
+                  <CreditCard className="w-8 h-8 text-emerald-400" />
+                  <span className="text-sm font-bold text-emerald-400 tracking-wide">
                     {selectedMethod
                       ? selectedMethod
                       : isBn
@@ -290,7 +297,7 @@ export const AddWalletPaymentModal: React.FC<AddWalletPaymentModalProps> = ({
 
               {/* Field 2: Wallet Name * */}
               <div className="space-y-1.5">
-                <label className="block text-sm font-medium text-slate-300">
+                <label className="block text-sm font-medium text-slate-200">
                   {isBn ? 'ওয়ালেটের নাম' : 'Wallet Name'}{' '}
                   <span className="text-rose-500 font-bold">*</span>
                 </label>
@@ -298,7 +305,7 @@ export const AddWalletPaymentModal: React.FC<AddWalletPaymentModalProps> = ({
                 <div
                   id="wallet-name-select-box"
                   onClick={() => setIsPickerOpen(true)}
-                  className="w-full rounded-xl border-2 border-[#00d2ff] bg-[#071322]/90 px-4 py-3.5 flex items-center justify-between text-white cursor-pointer shadow-[0_0_18px_rgba(0,210,255,0.18)] hover:border-cyan-300 transition-all active:scale-[0.99]"
+                  className="w-full rounded-xl border-2 border-emerald-500/80 bg-[#042018] px-4 py-3.5 flex items-center justify-between text-white cursor-pointer shadow-[0_0_18px_rgba(16,185,129,0.18)] hover:border-emerald-400 transition-all active:scale-[0.99]"
                 >
                   {selectedMethod ? (
                     <div className="flex items-center gap-2.5">
@@ -311,7 +318,7 @@ export const AddWalletPaymentModal: React.FC<AddWalletPaymentModalProps> = ({
                           ন
                         </div>
                       ) : (
-                        <Building2 className="w-5 h-5 text-cyan-400" />
+                        <Building2 className="w-5 h-5 text-emerald-400" />
                       )}
                       <span className="text-sm font-bold text-white">{selectedMethod}</span>
                     </div>
@@ -321,7 +328,7 @@ export const AddWalletPaymentModal: React.FC<AddWalletPaymentModalProps> = ({
                     </span>
                   )}
 
-                  <span className="text-xs font-semibold text-cyan-400">
+                  <span className="text-xs font-semibold text-emerald-400">
                     {isBn ? 'পরিবর্তন' : 'Choose'}
                   </span>
                 </div>
@@ -329,7 +336,7 @@ export const AddWalletPaymentModal: React.FC<AddWalletPaymentModalProps> = ({
 
               {/* Field 3: Account Name * */}
               <div className="space-y-1.5">
-                <label className="block text-sm font-medium text-slate-300">
+                <label className="block text-sm font-medium text-slate-200">
                   {isBn ? 'অ্যাকাউন্টের নাম' : 'Account Name'}{' '}
                   <span className="text-rose-500 font-bold">*</span>
                 </label>
@@ -340,13 +347,13 @@ export const AddWalletPaymentModal: React.FC<AddWalletPaymentModalProps> = ({
                   onChange={(e) => setAccountName(e.target.value)}
                   placeholder={isBn ? 'অ্যাকাউন্টধারীর নাম লিখুন' : 'Enter account holder name'}
                   required
-                  className="w-full rounded-xl bg-[#091424] border border-slate-800 px-4 py-3.5 text-white placeholder-slate-500 text-sm font-medium focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 transition-all"
+                  className="w-full rounded-xl bg-[#042018] border border-emerald-500/30 px-4 py-3.5 text-white placeholder-slate-400 text-sm font-medium focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400 transition-all"
                 />
               </div>
 
               {/* Field 4: Wallet Number * */}
               <div className="space-y-1.5">
-                <label className="block text-sm font-medium text-slate-300">
+                <label className="block text-sm font-medium text-slate-200">
                   {isBn ? 'ওয়ালেট নম্বর' : 'Wallet Number'}{' '}
                   <span className="text-rose-500 font-bold">*</span>
                 </label>
@@ -357,9 +364,9 @@ export const AddWalletPaymentModal: React.FC<AddWalletPaymentModalProps> = ({
                   onChange={(e) => setWalletNumber(e.target.value)}
                   placeholder="Wallet number  (10-11 digits)"
                   required
-                  className="w-full rounded-xl bg-[#091424] border border-slate-800 px-4 py-3.5 text-white placeholder-slate-500 text-sm font-mono tracking-wider focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 transition-all"
+                  className="w-full rounded-xl bg-[#042018] border border-emerald-500/30 px-4 py-3.5 text-white placeholder-slate-400 text-sm font-mono tracking-wider focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400 transition-all"
                 />
-                <p className="text-xs text-slate-400 pl-1">
+                <p className="text-xs text-slate-300 pl-1">
                   {isBn
                     ? '১০ ডিজিট (০ দিয়ে শুরু হবে না) অথবা ১১ ডিজিট (০ দিয়ে শুরু হবে)'
                     : '10 digits (cannot start with 0) or 11 digits (must start with 0)'}
@@ -367,7 +374,7 @@ export const AddWalletPaymentModal: React.FC<AddWalletPaymentModalProps> = ({
               </div>
 
               {/* Field 5: Set as Default Wallet */}
-              <div className="rounded-xl bg-[#091424] border border-slate-800 px-4 py-3.5 flex items-center justify-between">
+              <div className="rounded-xl bg-[#042018] border border-emerald-500/30 px-4 py-3.5 flex items-center justify-between">
                 <span className="text-sm font-medium text-white">
                   {isBn ? 'ডিফল্ট ওয়ালেট হিসেবে নির্ধারণ করুন' : 'Set as Default Wallet'}
                 </span>
@@ -377,7 +384,7 @@ export const AddWalletPaymentModal: React.FC<AddWalletPaymentModalProps> = ({
                   aria-checked={isDefault}
                   onClick={() => setIsDefault(!isDefault)}
                   className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer focus:outline-none ${
-                    isDefault ? 'bg-[#00d2ff]' : 'bg-slate-700'
+                    isDefault ? 'bg-emerald-500' : 'bg-slate-700'
                   }`}
                 >
                   <span
@@ -393,10 +400,10 @@ export const AddWalletPaymentModal: React.FC<AddWalletPaymentModalProps> = ({
                 id="add-wallet-submit-btn"
                 type="submit"
                 disabled={isSubmitting}
-                className="w-full rounded-2xl bg-gradient-to-r from-[#00A3FF] to-[#0066FF] hover:from-[#0092e6] hover:to-[#0055e6] text-white font-bold text-base py-4 flex items-center justify-center gap-2.5 shadow-[0_0_28px_rgba(0,140,255,0.45)] active:scale-[0.99] transition-all cursor-pointer mt-3"
+                className="w-full rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 font-extrabold text-base py-4 flex items-center justify-center gap-2.5 shadow-lg shadow-emerald-500/30 active:scale-[0.99] transition-all cursor-pointer mt-3"
               >
                 {isSubmitting ? (
-                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  <div className="w-5 h-5 border-2 border-slate-950/30 border-t-slate-950 rounded-full animate-spin" />
                 ) : (
                   <>
                     <CreditCard className="w-5 h-5" />
@@ -411,7 +418,7 @@ export const AddWalletPaymentModal: React.FC<AddWalletPaymentModalProps> = ({
                   <button
                     type="button"
                     onClick={() => setViewMode('card')}
-                    className="text-xs text-cyan-400 hover:text-cyan-300 font-semibold cursor-pointer underline underline-offset-4"
+                    className="text-xs text-emerald-400 hover:text-emerald-300 font-semibold cursor-pointer underline underline-offset-4"
                   >
                     {isBn ? 'পূর্বের সংরক্ষিত কার্ড দেখুন' : 'View Saved Bound Cards'}
                   </button>
@@ -539,7 +546,7 @@ export const AddWalletPaymentModal: React.FC<AddWalletPaymentModalProps> = ({
               </div>
 
               {/* Saved Wallet List Item (matching screenshot 2 bottom row) */}
-              <div className="p-3.5 rounded-2xl bg-[#0F1B30] border border-slate-800 flex items-center justify-between text-xs shadow-sm">
+              <div className="p-3.5 rounded-2xl bg-[#042018] border border-emerald-500/25 flex items-center justify-between text-xs shadow-sm">
                 <div className="flex items-center gap-3">
                   {/* Pink 'b' or Orange 'n' Icon */}
                   <div
@@ -548,7 +555,7 @@ export const AddWalletPaymentModal: React.FC<AddWalletPaymentModalProps> = ({
                         ? 'bg-[#E2136E]'
                         : activeCard.name === 'Nagad'
                         ? 'bg-[#F7941D]'
-                        : 'bg-cyan-600'
+                        : 'bg-emerald-600'
                     }`}
                   >
                     {activeCard.name === 'bKash' ? 'b' : activeCard.name === 'Nagad' ? 'ন' : 'B'}
@@ -558,12 +565,12 @@ export const AddWalletPaymentModal: React.FC<AddWalletPaymentModalProps> = ({
                     <div className="flex items-center gap-2">
                       <span className="font-bold text-white text-sm">{activeCard.name}</span>
                       {activeCard.isDefault && (
-                        <span className="text-[10px] text-emerald-400 font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20">
+                        <span className="text-[10px] text-emerald-400 font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/30">
                           Default
                         </span>
                       )}
                     </div>
-                    <span className="text-xs text-slate-400 font-mono">
+                    <span className="text-xs text-slate-300 font-mono">
                       {maskRowNumber(activeCard.accountNumber)}
                     </span>
                   </div>
@@ -586,7 +593,7 @@ export const AddWalletPaymentModal: React.FC<AddWalletPaymentModalProps> = ({
                   id="wallet-card-done-btn"
                   type="button"
                   onClick={onClose}
-                  className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 text-sm font-extrabold flex items-center justify-center gap-2 shadow-lg shadow-emerald-950/40 transition-all cursor-pointer active:scale-[0.99]"
+                  className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 text-sm font-extrabold flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/30 transition-all cursor-pointer active:scale-[0.99]"
                 >
                   <Check className="w-4 h-4 stroke-[3]" />
                   <span>{isBn ? 'সম্পন্ন হয়েছে (ঠিক আছে)' : 'Done / Return'}</span>
@@ -599,7 +606,7 @@ export const AddWalletPaymentModal: React.FC<AddWalletPaymentModalProps> = ({
                     setWalletNumber('');
                     setViewMode('form');
                   }}
-                  className="w-full py-2.5 px-4 rounded-xl bg-[#101F38] hover:bg-[#162A4D] border border-slate-700/70 text-slate-300 hover:text-white text-xs font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer"
+                  className="w-full py-2.5 px-4 rounded-xl bg-[#042018] hover:bg-[#07362a] border border-emerald-500/30 text-emerald-300 hover:text-white text-xs font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer"
                 >
                   <Plus className="w-4 h-4" />
                   <span>{isBn ? 'নতুন ওয়ালেট যুক্ত / বাইন্ড করুন' : 'Add Another Wallet'}</span>
@@ -611,39 +618,41 @@ export const AddWalletPaymentModal: React.FC<AddWalletPaymentModalProps> = ({
           {/* Fallback if in card view but no cards exist */}
           {viewMode === 'card' && !activeCard && (
             <div className="text-center py-8 space-y-3">
-              <p className="text-sm text-slate-400">
+              <p className="text-sm text-slate-300">
                 {isBn ? 'কোন ওয়ালেট সংরক্ষিত নেই।' : 'No bound wallet found.'}
               </p>
               <button
                 type="button"
                 onClick={() => setViewMode('form')}
-                className="px-5 py-2.5 rounded-xl bg-cyan-500 text-slate-900 font-bold text-xs cursor-pointer"
+                className="px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs cursor-pointer"
               >
                 {isBn ? 'ওয়ালেট বাইন্ড করুন' : 'Bind Wallet'}
               </button>
             </div>
           )}
+          </div>
         </div>
+      </main>
 
-        {/* ========================================================= */}
-        {/* MODAL: WALLET SELECTION PICKER (নগদ / বিকাশ / ব্যাংক)      */}
-        {/* ========================================================= */}
-        {isPickerOpen && (
+      {/* ========================================================= */}
+      {/* MODAL: WALLET SELECTION PICKER (নগদ / বিকাশ / ব্যাংক)      */}
+      {/* ========================================================= */}
+      {isPickerOpen && (
           <div className="absolute inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-3 animate-in fade-in">
-            <div className="w-full max-w-sm bg-[#0C1628] border border-slate-700 rounded-3xl p-5 text-white space-y-4 shadow-2xl">
-              <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+            <div className="w-full max-w-sm bg-[#062c22] border border-emerald-500/30 rounded-3xl p-5 text-white space-y-4 shadow-2xl">
+              <div className="flex items-center justify-between pb-2 border-b border-emerald-500/20">
                 <div>
                   <h3 className="text-base font-bold text-white">
                     {isBn ? 'ওয়ালেট নির্বাচন করুন' : 'Select Wallet'}
                   </h3>
-                  <p className="text-xs text-slate-400">
+                  <p className="text-xs text-slate-300">
                     {isBn ? 'বিকাশ বা নগদ সিলেক্ট করুন' : 'Choose bKash, Nagad or Bank'}
                   </p>
                 </div>
                 <button
                   type="button"
                   onClick={() => setIsPickerOpen(false)}
-                  className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-slate-400 hover:text-white transition-colors cursor-pointer"
+                  className="w-8 h-8 rounded-full bg-[#042018] border border-emerald-500/25 flex items-center justify-center text-slate-300 hover:text-white transition-colors cursor-pointer"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -657,8 +666,8 @@ export const AddWalletPaymentModal: React.FC<AddWalletPaymentModalProps> = ({
                   onClick={() => handleSelectMethod('bKash')}
                   className={`p-3.5 rounded-2xl border transition-all cursor-pointer flex items-center justify-between ${
                     selectedMethod === 'bKash'
-                      ? 'bg-pink-950/30 border-pink-500 shadow-[0_0_15px_rgba(226,19,110,0.3)] ring-1 ring-pink-500'
-                      : 'bg-[#101D34] border-slate-800 hover:border-slate-700 hover:bg-[#152542]'
+                      ? 'bg-pink-950/40 border-pink-500 shadow-[0_0_15px_rgba(226,19,110,0.3)] ring-1 ring-pink-500'
+                      : 'bg-[#042018] border-emerald-500/20 hover:border-emerald-500/40 hover:bg-[#07362a]'
                   }`}
                 >
                   <div className="flex items-center gap-3">
@@ -688,8 +697,8 @@ export const AddWalletPaymentModal: React.FC<AddWalletPaymentModalProps> = ({
                   onClick={() => handleSelectMethod('Nagad')}
                   className={`p-3.5 rounded-2xl border transition-all cursor-pointer flex items-center justify-between ${
                     selectedMethod === 'Nagad'
-                      ? 'bg-orange-950/30 border-orange-500 shadow-[0_0_15px_rgba(249,115,22,0.3)] ring-1 ring-orange-500'
-                      : 'bg-[#101D34] border-slate-800 hover:border-slate-700 hover:bg-[#152542]'
+                      ? 'bg-orange-950/40 border-orange-500 shadow-[0_0_15px_rgba(249,115,22,0.3)] ring-1 ring-orange-500'
+                      : 'bg-[#042018] border-emerald-500/20 hover:border-emerald-500/40 hover:bg-[#07362a]'
                   }`}
                 >
                   <div className="flex items-center gap-3">
@@ -717,24 +726,24 @@ export const AddWalletPaymentModal: React.FC<AddWalletPaymentModalProps> = ({
                   onClick={() => handleSelectMethod('Bank Transfer')}
                   className={`p-3.5 rounded-2xl border transition-all cursor-pointer flex items-center justify-between ${
                     selectedMethod === 'Bank Transfer'
-                      ? 'bg-cyan-950/30 border-cyan-400 shadow-[0_0_15px_rgba(6,182,212,0.3)] ring-1 ring-cyan-400'
-                      : 'bg-[#101D34] border-slate-800 hover:border-slate-700 hover:bg-[#152542]'
+                      ? 'bg-emerald-950/50 border-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.3)] ring-1 ring-emerald-400'
+                      : 'bg-[#042018] border-emerald-500/20 hover:border-emerald-500/40 hover:bg-[#07362a]'
                   }`}
                 >
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-slate-800 border border-cyan-500/30 flex items-center justify-center text-cyan-400 shadow-sm">
+                    <div className="w-10 h-10 rounded-xl bg-[#07362a] border border-emerald-500/30 flex items-center justify-center text-emerald-400 shadow-sm">
                       <Building2 className="w-5 h-5" />
                     </div>
                     <div>
                       <span className="text-sm font-bold text-white block">
                         Bank Transfer (ব্যাংক অ্যাকাউন্ট)
                       </span>
-                      <span className="text-[11px] text-cyan-300">BEFTN / NPSB</span>
+                      <span className="text-[11px] text-emerald-300">BEFTN / NPSB</span>
                     </div>
                   </div>
 
                   {selectedMethod === 'Bank Transfer' && (
-                    <div className="w-6 h-6 rounded-full bg-cyan-400 text-slate-950 flex items-center justify-center">
+                    <div className="w-6 h-6 rounded-full bg-emerald-400 text-slate-950 flex items-center justify-center">
                       <Check className="w-3.5 h-3.5 stroke-[3]" />
                     </div>
                   )}
@@ -743,7 +752,6 @@ export const AddWalletPaymentModal: React.FC<AddWalletPaymentModalProps> = ({
             </div>
           </div>
         )}
-      </div>
     </div>
   );
 };

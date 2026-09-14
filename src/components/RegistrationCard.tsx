@@ -111,6 +111,7 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
     // Generate random 6-digit verification code
     const generatedCode = Math.floor(100000 + Math.random() * 900000).toString();
     setSentOtpCode(generatedCode);
+    setEmailVerificationCode(generatedCode);
     setSendCooldown(60);
     setCodeNotification({
       code: generatedCode,
@@ -267,17 +268,17 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
   return (
     <div
       id="registration-card"
-      className="w-full max-w-[460px] mx-auto bg-[#11192e]/95 backdrop-blur-2xl rounded-[22px] sm:rounded-[26px] p-4 sm:p-6 shadow-[0_20px_50px_-12px_rgba(0,0,0,0.6),0_0_30px_rgba(37,99,235,0.12)] border border-slate-700/60 transition-all duration-300"
+      className="w-full max-w-[460px] mx-auto bg-[#062a1f]/95 backdrop-blur-2xl rounded-[22px] sm:rounded-[26px] p-4 sm:p-6 shadow-[0_20px_50px_-12px_rgba(0,0,0,0.7),0_0_30px_rgba(16,185,129,0.14)] border border-emerald-500/30 transition-all duration-300"
     >
       {/* Top Bar: Tabs & Language Pill */}
-      <div className="flex items-center justify-between pb-2 sm:pb-3 mb-1.5 sm:mb-2 border-b border-slate-700/60">
+      <div className="flex items-center justify-between pb-2 sm:pb-3 mb-1.5 sm:mb-2 border-b border-emerald-500/20">
         {/* Left: Sign In / Sign Up Tabs */}
         <div className="flex items-center gap-5 sm:gap-7">
           <button
             type="button"
             id="tab-sign-in"
             onClick={onSwitchToLogin}
-            className="relative pb-1 text-base sm:text-lg font-medium text-slate-400 hover:text-slate-200 transition-colors"
+            className="relative pb-1 text-base sm:text-lg font-medium text-emerald-100/60 hover:text-emerald-200 transition-colors"
           >
             {t.signIn}
           </button>
@@ -285,11 +286,11 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
           <button
             type="button"
             id="tab-sign-up"
-            className="relative pb-1 text-base sm:text-lg font-bold text-blue-500 transition-colors"
+            className="relative pb-1 text-base sm:text-lg font-bold text-emerald-400 transition-colors"
           >
             {t.signUp}
-            {/* Active vibrant blue underline bar */}
-            <span className="absolute bottom-0 left-0 right-0 h-1 bg-blue-500 rounded-full shadow-[0_0_10px_rgba(59,130,246,0.8)]" />
+            {/* Active vibrant emerald underline bar */}
+            <span className="absolute bottom-0 left-0 right-0 h-1 bg-emerald-400 rounded-full shadow-[0_0_12px_rgba(52,211,153,0.8)]" />
           </button>
         </div>
 
@@ -298,9 +299,9 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
           type="button"
           id="lang-toggle-btn"
           onClick={handleLangToggle}
-          className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-800/80 hover:bg-slate-800 text-slate-300 text-xs font-medium border border-slate-700/80 transition-all shadow-sm active:scale-95"
+          className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#041c14] hover:bg-[#06241b] text-emerald-300 text-xs font-medium border border-emerald-500/30 transition-all shadow-sm active:scale-95"
         >
-          <Globe className="w-3.5 h-3.5 text-slate-400" />
+          <Globe className="w-3.5 h-3.5 text-emerald-400" />
           <span>{t.langLabel}</span>
         </button>
       </div>
@@ -308,7 +309,7 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
       {/* Main Registration Form */}
       <form onSubmit={handleSubmit} className="space-y-2 sm:space-y-2.5 pt-0.5" noValidate>
         {generalError && (
-          <div className="p-2.5 rounded-xl bg-rose-950/40 border border-rose-600/40 text-rose-300 text-xs sm:text-sm flex items-start gap-2 animate-in fade-in">
+          <div className="p-2.5 rounded-xl bg-rose-950/50 border border-rose-500/40 text-rose-300 text-xs sm:text-sm flex items-start gap-2 animate-in fade-in">
             <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
             <span>{generalError}</span>
           </div>
@@ -317,27 +318,27 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
         {/* 1. Phone Input Room */}
         <div>
           <div
-            className={`relative flex items-center min-h-[44px] sm:min-h-[48px] px-3.5 sm:px-4 rounded-xl sm:rounded-2xl bg-[#152037] border transition-all duration-200 ${
+            className={`relative flex items-center min-h-[44px] sm:min-h-[48px] px-3.5 sm:px-4 rounded-xl sm:rounded-2xl bg-[#031c15]/90 border transition-all duration-200 ${
               errors.phone
                 ? 'border-rose-500 bg-rose-950/20'
-                : 'border-slate-700/70 hover:border-slate-600 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20'
+                : 'border-emerald-500/30 hover:border-emerald-500/50 focus-within:border-emerald-400 focus-within:ring-2 focus-within:ring-emerald-400/20'
             }`}
           >
             {/* Country code prefix with phone icon */}
             <div className="relative flex items-center gap-2 pr-3 shrink-0">
-              <Phone className="w-5 h-5 text-slate-400" />
+              <Phone className="w-5 h-5 text-emerald-400" />
               <button
                 type="button"
                 onClick={() => setShowCountryDropdown(!showCountryDropdown)}
-                className="flex items-center gap-1 text-sm sm:text-base font-semibold text-slate-200 hover:text-blue-400"
+                className="flex items-center gap-1 text-sm sm:text-base font-semibold text-emerald-200 hover:text-emerald-100"
               >
                 <span>{countryCode}</span>
-                <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                <ChevronDown className="w-3.5 h-3.5 text-emerald-400/80" />
               </button>
 
               {/* Country Code Dropdown */}
               {showCountryDropdown && (
-                <div className="absolute top-12 left-0 z-30 w-36 bg-[#11192e] rounded-xl shadow-2xl border border-slate-700 py-1 text-sm font-medium">
+                <div className="absolute top-12 left-0 z-30 w-36 bg-[#062a1f] rounded-xl shadow-2xl border border-emerald-500/40 py-1 text-sm font-medium">
                   {['+880', '+91', '+1', '+44', '+971', '+966', '+60'].map((code) => (
                     <button
                       key={code}
@@ -346,10 +347,10 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
                         setCountryCode(code);
                         setShowCountryDropdown(false);
                       }}
-                      className="w-full text-left px-3 py-2 hover:bg-slate-800 text-slate-200 flex items-center justify-between"
+                      className="w-full text-left px-3 py-2 hover:bg-[#08382a] text-emerald-100 flex items-center justify-between"
                     >
                       <span>{code}</span>
-                      {countryCode === code && <CheckCircle2 className="w-3.5 h-3.5 text-blue-400" />}
+                      {countryCode === code && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />}
                     </button>
                   ))}
                 </div>
@@ -357,7 +358,7 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
             </div>
 
             {/* Subtle vertical divider */}
-            <div className="h-6 w-px bg-slate-700/70 mr-3 shrink-0" />
+            <div className="h-6 w-px bg-emerald-500/20 mr-3 shrink-0" />
 
             {/* Phone input */}
             <input
@@ -369,7 +370,7 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
                 if (errors.phone) setErrors((prev) => ({ ...prev, phone: undefined }));
               }}
               placeholder={t.phonePlaceholder}
-              className="w-full h-full bg-transparent text-sm sm:text-base text-white placeholder-slate-400 font-medium focus:outline-none"
+              className="w-full h-full bg-transparent text-sm sm:text-base text-white placeholder:text-emerald-200/40 font-medium focus:outline-none"
             />
           </div>
           {errors.phone && (
@@ -382,13 +383,13 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
         {/* 2. Nickname / Username Room */}
         <div>
           <div
-            className={`relative flex items-center min-h-[48px] sm:min-h-[54px] px-3.5 sm:px-4 rounded-xl sm:rounded-2xl bg-[#152037] border transition-all duration-200 ${
+            className={`relative flex items-center min-h-[48px] sm:min-h-[54px] px-3.5 sm:px-4 rounded-xl sm:rounded-2xl bg-[#031c15]/90 border transition-all duration-200 ${
               errors.username
                 ? 'border-rose-500 bg-rose-950/20'
-                : 'border-slate-700/70 hover:border-slate-600 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20'
+                : 'border-emerald-500/30 hover:border-emerald-500/50 focus-within:border-emerald-400 focus-within:ring-2 focus-within:ring-emerald-400/20'
             }`}
           >
-            <User className="w-5 h-5 text-slate-400 mr-3 shrink-0" />
+            <User className="w-5 h-5 text-emerald-400 mr-3 shrink-0" />
             <input
               id="username-input"
               type="text"
@@ -398,7 +399,7 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
                 if (errors.username) setErrors((prev) => ({ ...prev, username: undefined }));
               }}
               placeholder={t.nicknamePlaceholder}
-              className="w-full h-full bg-transparent text-sm sm:text-base text-white placeholder-slate-400 font-medium focus:outline-none"
+              className="w-full h-full bg-transparent text-sm sm:text-base text-white placeholder:text-emerald-200/40 font-medium focus:outline-none"
             />
           </div>
           {errors.username && (
@@ -411,13 +412,13 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
         {/* 3. Create Password Room */}
         <div>
           <div
-            className={`relative flex items-center min-h-[48px] sm:min-h-[54px] px-3.5 sm:px-4 rounded-xl sm:rounded-2xl bg-[#152037] border transition-all duration-200 ${
+            className={`relative flex items-center min-h-[48px] sm:min-h-[54px] px-3.5 sm:px-4 rounded-xl sm:rounded-2xl bg-[#031c15]/90 border transition-all duration-200 ${
               errors.password
                 ? 'border-rose-500 bg-rose-950/20'
-                : 'border-slate-700/70 hover:border-slate-600 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20'
+                : 'border-emerald-500/30 hover:border-emerald-500/50 focus-within:border-emerald-400 focus-within:ring-2 focus-within:ring-emerald-400/20'
             }`}
           >
-            <Lock className="w-5 h-5 text-slate-400 mr-3 shrink-0" />
+            <Lock className="w-5 h-5 text-emerald-400 mr-3 shrink-0" />
             <input
               id="password-input"
               type={showPassword ? 'text' : 'password'}
@@ -427,12 +428,12 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
                 if (errors.password) setErrors((prev) => ({ ...prev, password: undefined }));
               }}
               placeholder={t.passwordPlaceholder}
-              className="w-full h-full bg-transparent text-sm sm:text-base text-white placeholder-slate-400 font-medium focus:outline-none pr-8"
+              className="w-full h-full bg-transparent text-sm sm:text-base text-white placeholder:text-emerald-200/40 font-medium focus:outline-none pr-8"
             />
             <button
               type="button"
               onClick={() => setShowPassword(!showPassword)}
-              className="text-slate-400 hover:text-slate-200 p-1 transition-colors"
+              className="text-emerald-400/80 hover:text-emerald-300 p-1 transition-colors"
             >
               {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
             </button>
@@ -447,13 +448,13 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
         {/* 4. Confirm Password Room */}
         <div>
           <div
-            className={`relative flex items-center min-h-[48px] sm:min-h-[54px] px-3.5 sm:px-4 rounded-xl sm:rounded-2xl bg-[#152037] border transition-all duration-200 ${
+            className={`relative flex items-center min-h-[48px] sm:min-h-[54px] px-3.5 sm:px-4 rounded-xl sm:rounded-2xl bg-[#031c15]/90 border transition-all duration-200 ${
               errors.confirmPassword
                 ? 'border-rose-500 bg-rose-950/20'
-                : 'border-slate-700/70 hover:border-slate-600 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20'
+                : 'border-emerald-500/30 hover:border-emerald-500/50 focus-within:border-emerald-400 focus-within:ring-2 focus-within:ring-emerald-400/20'
             }`}
           >
-            <Shield className="w-5 h-5 text-slate-400 mr-3 shrink-0" />
+            <Shield className="w-5 h-5 text-emerald-400 mr-3 shrink-0" />
             <input
               id="confirm-password-input"
               type={showConfirmPassword ? 'text' : 'password'}
@@ -464,12 +465,12 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
                   setErrors((prev) => ({ ...prev, confirmPassword: undefined }));
               }}
               placeholder={t.confirmPasswordPlaceholder}
-              className="w-full h-full bg-transparent text-sm sm:text-base text-white placeholder-slate-400 font-medium focus:outline-none pr-8"
+              className="w-full h-full bg-transparent text-sm sm:text-base text-white placeholder:text-emerald-200/40 font-medium focus:outline-none pr-8"
             />
             <button
               type="button"
               onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-              className="text-slate-400 hover:text-slate-200 p-1 transition-colors"
+              className="text-emerald-400/80 hover:text-emerald-300 p-1 transition-colors"
             >
               {showConfirmPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
             </button>
@@ -484,14 +485,14 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
         {/* 5. Email Room with "সেন্ড" (Send) button */}
         <div>
           <div
-            className={`relative flex items-center justify-between min-h-[48px] sm:min-h-[54px] px-3.5 sm:px-4 rounded-xl sm:rounded-2xl bg-[#152037] border transition-all duration-200 ${
+            className={`relative flex items-center justify-between min-h-[48px] sm:min-h-[54px] px-3.5 sm:px-4 rounded-xl sm:rounded-2xl bg-[#031c15]/90 border transition-all duration-200 ${
               errors.email
                 ? 'border-rose-500 bg-rose-950/20'
-                : 'border-slate-700/70 hover:border-slate-600 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20'
+                : 'border-emerald-500/30 hover:border-emerald-500/50 focus-within:border-emerald-400 focus-within:ring-2 focus-within:ring-emerald-400/20'
             }`}
           >
             <div className="flex items-center flex-1 mr-2">
-              <Mail className="w-5 h-5 text-slate-400 mr-3 shrink-0" />
+              <Mail className="w-5 h-5 text-emerald-400 mr-3 shrink-0" />
               <input
                 id="email-input"
                 type="email"
@@ -501,7 +502,7 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
                   if (errors.email) setErrors((prev) => ({ ...prev, email: undefined }));
                 }}
                 placeholder={t.emailPlaceholder}
-                className="w-full h-full bg-transparent text-sm sm:text-base text-white placeholder-slate-400 font-medium focus:outline-none"
+                className="w-full h-full bg-transparent text-sm sm:text-base text-white placeholder:text-emerald-200/40 font-medium focus:outline-none"
               />
             </div>
 
@@ -511,10 +512,10 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
               type="button"
               onClick={handleSendEmailCode}
               disabled={sendCooldown > 0}
-              className={`shrink-0 px-4 sm:px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-1.5 transition-all shadow-sm active:scale-95 cursor-pointer ${
+              className={`shrink-0 px-4 sm:px-5 py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-1.5 transition-all shadow-sm active:scale-95 cursor-pointer ${
                 sendCooldown > 0
-                  ? 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700'
-                  : 'bg-blue-600 hover:bg-blue-500 text-white shadow-blue-600/20'
+                  ? 'bg-[#06241b] text-emerald-400/50 cursor-not-allowed border border-emerald-500/20'
+                  : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-emerald-600/30'
               }`}
             >
               <Send className="w-3.5 h-3.5" />
@@ -531,12 +532,12 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
 
           {/* Email OTP sent banner with quick tap-to-fill */}
           {codeNotification && (
-            <div className="mt-2 p-3 rounded-xl bg-blue-950/40 border border-blue-800/60 text-slate-300 text-xs flex items-center justify-between gap-2 animate-in fade-in slide-in-from-top-1 duration-200">
+            <div className="mt-2 p-3 rounded-xl bg-emerald-950/60 border border-emerald-500/40 text-emerald-200 text-xs flex items-center justify-between gap-2 animate-in fade-in slide-in-from-top-1 duration-200">
               <div className="flex items-center gap-2 overflow-hidden">
-                <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse shrink-0" />
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
                 <span className="truncate">
                   {lang === 'bn' ? 'ইমেলে কোড পাঠানো হয়েছে:' : 'Verification code sent:'}{' '}
-                  <strong className="font-mono text-sm text-blue-400 font-bold tracking-wider">
+                  <strong className="font-mono text-sm text-emerald-300 font-bold tracking-wider">
                     {codeNotification.code}
                   </strong>
                 </span>
@@ -545,7 +546,7 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
               <button
                 type="button"
                 onClick={handleAutoFillCode}
-                className="shrink-0 px-2.5 py-1 rounded-lg bg-blue-600/20 border border-blue-500/40 hover:bg-blue-600/30 text-blue-300 font-semibold flex items-center gap-1 text-[11px] shadow-xs active:scale-95 cursor-pointer"
+                className="shrink-0 px-2.5 py-1 rounded-lg bg-emerald-500/20 border border-emerald-500/40 hover:bg-emerald-500/30 text-emerald-200 font-semibold flex items-center gap-1 text-[11px] shadow-xs active:scale-95 cursor-pointer"
               >
                 {isCopied ? (
                   <>
@@ -554,7 +555,7 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
                   </>
                 ) : (
                   <>
-                    <Copy className="w-3 h-3" />
+                    <Copy className="w-3 h-3 text-emerald-400" />
                     <span>{lang === 'bn' ? 'কোড বসান' : 'Paste'}</span>
                   </>
                 )}
@@ -566,16 +567,16 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
         {/* 6. Email Verification Code Room */}
         <div>
           <div
-            className={`relative flex items-center justify-between min-h-[48px] sm:min-h-[54px] px-3.5 sm:px-4 rounded-xl sm:rounded-2xl bg-[#152037] border transition-all duration-200 ${
+            className={`relative flex items-center justify-between min-h-[48px] sm:min-h-[54px] px-3.5 sm:px-4 rounded-xl sm:rounded-2xl bg-[#031c15]/90 border transition-all duration-200 ${
               errors.verificationCode
                 ? 'border-rose-500 bg-rose-950/20'
                 : isCodeCorrect
-                ? 'border-emerald-500 bg-emerald-950/15'
-                : 'border-slate-700/70 hover:border-slate-600 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20'
+                ? 'border-emerald-500 bg-emerald-950/40'
+                : 'border-emerald-500/30 hover:border-emerald-500/50 focus-within:border-emerald-400 focus-within:ring-2 focus-within:ring-emerald-400/20'
             }`}
           >
             <div className="flex items-center flex-1 mr-2">
-              <KeyRound className="w-5 h-5 text-slate-400 mr-3 shrink-0" />
+              <KeyRound className="w-5 h-5 text-emerald-400 mr-3 shrink-0" />
               <input
                 id="email-verification-code-input"
                 type="text"
@@ -588,12 +589,12 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
                   }
                 }}
                 placeholder={t.emailCodePlaceholder}
-                className="w-full h-full bg-transparent text-sm sm:text-base text-white placeholder-slate-400 font-medium tracking-wider focus:outline-none"
+                className="w-full h-full bg-transparent text-sm sm:text-base text-white placeholder:text-emerald-200/40 font-medium tracking-wider focus:outline-none"
               />
             </div>
 
             {isCodeCorrect && (
-              <span className="shrink-0 flex items-center gap-1 text-xs font-semibold text-emerald-400 bg-emerald-950/50 px-2.5 py-1 rounded-lg border border-emerald-800/60">
+              <span className="shrink-0 flex items-center gap-1 text-xs font-semibold text-emerald-400 bg-emerald-950/60 px-2.5 py-1 rounded-lg border border-emerald-500/40">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400" />
                 <span>{lang === 'bn' ? 'সঠিক' : 'Verified'}</span>
               </span>
@@ -608,30 +609,30 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
 
         {/* 7. Referral Code Room */}
         <div>
-          <div className="relative flex items-center min-h-[48px] sm:min-h-[54px] px-3.5 sm:px-4 rounded-xl sm:rounded-2xl bg-[#152037] border border-slate-700/70 hover:border-slate-600 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20 transition-all duration-200">
-            <UserPlus className="w-5 h-5 text-slate-400 mr-3 shrink-0" />
+          <div className="relative flex items-center min-h-[48px] sm:min-h-[54px] px-3.5 sm:px-4 rounded-xl sm:rounded-2xl bg-[#031c15]/90 border border-emerald-500/30 hover:border-emerald-500/50 focus-within:border-emerald-400 focus-within:ring-2 focus-within:ring-emerald-400/20 transition-all duration-200">
+            <UserPlus className="w-5 h-5 text-emerald-400 mr-3 shrink-0" />
             <input
               id="referral-code-input"
               type="text"
               value={referralCode}
               onChange={(e) => setReferralCode(e.target.value.toUpperCase())}
               placeholder="Referral Code"
-              className="w-full h-full bg-transparent text-sm sm:text-base text-white placeholder-slate-400 font-semibold tracking-wider focus:outline-none"
+              className="w-full h-full bg-transparent text-sm sm:text-base text-white placeholder:text-emerald-200/40 font-semibold tracking-wider focus:outline-none"
             />
           </div>
         </div>
 
-        {/* Big Bright Blue Submit Button: "নিবন্ধন করুন" */}
+        {/* Glowing Emerald Action Button: "নিবন্ধন করুন" */}
         <div className="pt-1 sm:pt-1.5">
           <button
             id="register-submit-btn"
             type="submit"
             disabled={isSubmitting}
-            className="w-full min-h-[48px] sm:min-h-[52px] flex items-center justify-center rounded-xl sm:rounded-2xl bg-blue-600 hover:bg-blue-500 active:scale-[0.99] text-white text-base sm:text-lg font-bold shadow-lg shadow-blue-600/30 transition-all duration-200 cursor-pointer disabled:opacity-75"
+            className="w-full min-h-[48px] sm:min-h-[52px] flex items-center justify-center rounded-xl sm:rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 active:scale-[0.99] text-slate-950 text-base sm:text-lg font-bold shadow-lg shadow-emerald-500/30 transition-all duration-200 cursor-pointer disabled:opacity-75"
           >
             {isSubmitting ? (
               <div className="flex items-center gap-2">
-                <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                <span className="w-5 h-5 border-2 border-slate-950/30 border-t-slate-950 rounded-full animate-spin" />
                 <span>{lang === 'bn' ? 'অপেক্ষা করুন...' : 'Processing...'}</span>
               </div>
             ) : (

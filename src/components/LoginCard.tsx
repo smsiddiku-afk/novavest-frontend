@@ -81,7 +81,17 @@ export const LoginCard: React.FC<LoginCardProps> = ({
 
     setIsSubmitting(true);
     try {
-      const identifier = loginMode === 'phone' ? `${countryCode} ${phone}` : email.trim();
+      let identifier = email.trim();
+      if (loginMode === 'phone') {
+        const cleanPhone = phone.trim().replace(/\s+/g, '');
+        // If user typed leading 0 with +880, normalize cleanly
+        if (countryCode === '+880' && cleanPhone.startsWith('0')) {
+          identifier = `+880 ${cleanPhone.replace(/^0+/, '')}`;
+        } else {
+          identifier = `${countryCode} ${cleanPhone}`;
+        }
+      }
+
       const result = await signInWithFirebase(identifier, password, lang);
 
       setIsSubmitting(false);
@@ -116,25 +126,25 @@ export const LoginCard: React.FC<LoginCardProps> = ({
   return (
     <div
       id="login-card"
-      className="w-full max-w-[460px] mx-auto bg-[#11192e]/95 backdrop-blur-2xl rounded-[22px] sm:rounded-[26px] p-3.5 sm:p-5 shadow-[0_20px_50px_-12px_rgba(0,0,0,0.6),0_0_30px_rgba(37,99,235,0.12)] border border-slate-700/60 transition-all duration-300"
+      className="w-full max-w-[460px] mx-auto bg-[#062a1f]/95 backdrop-blur-2xl rounded-[22px] sm:rounded-[26px] p-3.5 sm:p-5 shadow-[0_20px_50px_-12px_rgba(0,0,0,0.7),0_0_30px_rgba(16,185,129,0.14)] border border-emerald-500/30 transition-all duration-300"
     >
       {/* Top Bar: Tabs & Language Pill */}
-      <div className="flex items-center justify-between pb-2 sm:pb-3 mb-1.5 sm:mb-2 border-b border-slate-700/60">
+      <div className="flex items-center justify-between pb-2 sm:pb-3 mb-1.5 sm:mb-2 border-b border-emerald-500/20">
         <div className="flex items-center gap-5 sm:gap-7">
           <button
             type="button"
             id="tab-sign-in"
-            className="relative pb-1 text-base sm:text-lg font-bold text-blue-500 transition-colors"
+            className="relative pb-1 text-base sm:text-lg font-bold text-emerald-400 transition-colors"
           >
             {t.signIn}
-            <span className="absolute bottom-0 left-0 right-0 h-1 bg-blue-500 rounded-full shadow-[0_0_10px_rgba(59,130,246,0.8)]" />
+            <span className="absolute bottom-0 left-0 right-0 h-1 bg-emerald-400 rounded-full shadow-[0_0_12px_rgba(52,211,153,0.8)]" />
           </button>
 
           <button
             type="button"
             id="tab-sign-up"
             onClick={onSwitchToRegister}
-            className="relative pb-1 text-base sm:text-lg font-medium text-slate-400 hover:text-slate-200 transition-colors"
+            className="relative pb-1 text-base sm:text-lg font-medium text-emerald-100/60 hover:text-emerald-200 transition-colors"
           >
             {t.signUp}
           </button>
@@ -144,15 +154,15 @@ export const LoginCard: React.FC<LoginCardProps> = ({
           type="button"
           id="lang-toggle-btn"
           onClick={handleLangToggle}
-          className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-800/80 hover:bg-slate-800 text-slate-300 text-xs font-medium border border-slate-700/80 transition-all shadow-sm active:scale-95"
+          className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#041c14] hover:bg-[#06241b] text-emerald-300 text-xs font-medium border border-emerald-500/30 transition-all shadow-sm active:scale-95"
         >
-          <Globe className="w-3.5 h-3.5 text-slate-400" />
+          <Globe className="w-3.5 h-3.5 text-emerald-400" />
           <span>{t.langLabel}</span>
         </button>
       </div>
 
       {/* Login Mode Toggle: Phone vs Email */}
-      <div className="flex items-center p-1 mb-3 rounded-xl bg-slate-900/80 border border-slate-800">
+      <div className="flex items-center p-1 mb-3 rounded-xl bg-[#031812] border border-emerald-500/20">
         <button
           type="button"
           onClick={() => {
@@ -161,8 +171,8 @@ export const LoginCard: React.FC<LoginCardProps> = ({
           }}
           className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs sm:text-sm font-semibold transition-all ${
             loginMode === 'phone'
-              ? 'bg-blue-600 text-white shadow-sm'
-              : 'text-slate-400 hover:text-slate-200'
+              ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-sm shadow-emerald-500/30'
+              : 'text-emerald-100/60 hover:text-emerald-100'
           }`}
         >
           <Phone className="w-3.5 h-3.5" />
@@ -176,8 +186,8 @@ export const LoginCard: React.FC<LoginCardProps> = ({
           }}
           className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs sm:text-sm font-semibold transition-all ${
             loginMode === 'email'
-              ? 'bg-blue-600 text-white shadow-sm'
-              : 'text-slate-400 hover:text-slate-200'
+              ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-sm shadow-emerald-500/30'
+              : 'text-emerald-100/60 hover:text-emerald-100'
           }`}
         >
           <Mail className="w-3.5 h-3.5" />
@@ -185,39 +195,39 @@ export const LoginCard: React.FC<LoginCardProps> = ({
         </button>
       </div>
 
-      {/* Main Login Form with Extra-Large Rooms */}
+      {/* Main Login Form */}
       <form onSubmit={handleSubmit} className="space-y-3 pt-1" noValidate>
         {/* Error message banner */}
         {generalError && (
-          <div className="p-3 rounded-xl bg-rose-950/40 border border-rose-600/40 text-rose-300 text-xs sm:text-sm flex items-start gap-2 animate-in fade-in">
+          <div className="p-3 rounded-xl bg-rose-950/50 border border-rose-500/40 text-rose-300 text-xs sm:text-sm flex items-start gap-2 animate-in fade-in">
             <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
             <span>{generalError}</span>
           </div>
         )}
 
-        {/* 1. Phone or Email Input Room */}
+        {/* 1. Phone or Email Input */}
         {loginMode === 'phone' ? (
           <div>
             <div
-              className={`relative flex items-center min-h-[48px] sm:min-h-[54px] px-3.5 sm:px-4 rounded-xl sm:rounded-2xl bg-[#152037] border transition-all duration-200 ${
+              className={`relative flex items-center min-h-[48px] sm:min-h-[54px] px-3.5 sm:px-4 rounded-xl sm:rounded-2xl bg-[#031c15]/90 border transition-all duration-200 ${
                 errors.phone
                   ? 'border-rose-500 bg-rose-950/20'
-                  : 'border-slate-700/70 hover:border-slate-600 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20'
+                  : 'border-emerald-500/30 hover:border-emerald-500/50 focus-within:border-emerald-400 focus-within:ring-2 focus-within:ring-emerald-400/20'
               }`}
             >
               <div className="relative flex items-center gap-2 pr-3 shrink-0">
-                <Phone className="w-5 h-5 text-slate-400" />
+                <Phone className="w-5 h-5 text-emerald-400" />
                 <button
                   type="button"
                   onClick={() => setShowCountryDropdown(!showCountryDropdown)}
-                  className="flex items-center gap-1 text-sm sm:text-base font-semibold text-slate-200 hover:text-blue-400"
+                  className="flex items-center gap-1 text-sm sm:text-base font-semibold text-emerald-200 hover:text-emerald-100"
                 >
                   <span>{countryCode}</span>
-                  <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                  <ChevronDown className="w-3.5 h-3.5 text-emerald-400/80" />
                 </button>
 
                 {showCountryDropdown && (
-                  <div className="absolute top-12 left-0 z-30 w-36 bg-[#11192e] rounded-xl shadow-2xl border border-slate-700 py-1 text-sm font-medium">
+                  <div className="absolute top-12 left-0 z-30 w-36 bg-[#062a1f] rounded-xl shadow-2xl border border-emerald-500/40 py-1 text-sm font-medium">
                     {['+880', '+91', '+1', '+44', '+971', '+966', '+60'].map((code) => (
                       <button
                         key={code}
@@ -226,17 +236,17 @@ export const LoginCard: React.FC<LoginCardProps> = ({
                           setCountryCode(code);
                           setShowCountryDropdown(false);
                         }}
-                        className="w-full text-left px-3 py-2 hover:bg-slate-800 text-slate-200 flex items-center justify-between"
+                        className="w-full text-left px-3 py-2 hover:bg-[#08382a] text-emerald-100 flex items-center justify-between"
                       >
                         <span>{code}</span>
-                        {countryCode === code && <CheckCircle2 className="w-3.5 h-3.5 text-blue-400" />}
+                        {countryCode === code && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />}
                       </button>
                     ))}
                   </div>
                 )}
               </div>
 
-              <div className="h-6 w-px bg-slate-700/70 mr-3 shrink-0" />
+              <div className="h-6 w-px bg-emerald-500/20 mr-3 shrink-0" />
 
               <input
                 id="phone-input"
@@ -247,7 +257,7 @@ export const LoginCard: React.FC<LoginCardProps> = ({
                   if (errors.phone) setErrors((prev) => ({ ...prev, phone: undefined }));
                 }}
                 placeholder={t.phonePlaceholder}
-                className="w-full h-full bg-transparent text-sm sm:text-base text-white placeholder-slate-400 font-medium focus:outline-none"
+                className="w-full h-full bg-transparent text-sm sm:text-base text-white placeholder:text-emerald-200/40 font-medium focus:outline-none"
               />
             </div>
             {errors.phone && (
@@ -259,13 +269,13 @@ export const LoginCard: React.FC<LoginCardProps> = ({
         ) : (
           <div>
             <div
-              className={`relative flex items-center min-h-[48px] sm:min-h-[54px] px-3.5 sm:px-4 rounded-xl sm:rounded-2xl bg-[#152037] border transition-all duration-200 ${
+              className={`relative flex items-center min-h-[48px] sm:min-h-[54px] px-3.5 sm:px-4 rounded-xl sm:rounded-2xl bg-[#031c15]/90 border transition-all duration-200 ${
                 errors.email
                   ? 'border-rose-500 bg-rose-950/20'
-                  : 'border-slate-700/70 hover:border-slate-600 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20'
+                  : 'border-emerald-500/30 hover:border-emerald-500/50 focus-within:border-emerald-400 focus-within:ring-2 focus-within:ring-emerald-400/20'
               }`}
             >
-              <Mail className="w-5 h-5 text-slate-400 mr-3 shrink-0" />
+              <Mail className="w-5 h-5 text-emerald-400 mr-3 shrink-0" />
               <input
                 id="email-input"
                 type="email"
@@ -275,7 +285,7 @@ export const LoginCard: React.FC<LoginCardProps> = ({
                   if (errors.email) setErrors((prev) => ({ ...prev, email: undefined }));
                 }}
                 placeholder={t.emailPlaceholder}
-                className="w-full h-full bg-transparent text-sm sm:text-base text-white placeholder-slate-400 font-medium focus:outline-none"
+                className="w-full h-full bg-transparent text-sm sm:text-base text-white placeholder:text-emerald-200/40 font-medium focus:outline-none"
               />
             </div>
             {errors.email && (
@@ -289,13 +299,13 @@ export const LoginCard: React.FC<LoginCardProps> = ({
         {/* 2. Password Room */}
         <div>
           <div
-            className={`relative flex items-center min-h-[48px] sm:min-h-[54px] px-3.5 sm:px-4 rounded-xl sm:rounded-2xl bg-[#152037] border transition-all duration-200 ${
+            className={`relative flex items-center min-h-[48px] sm:min-h-[54px] px-3.5 sm:px-4 rounded-xl sm:rounded-2xl bg-[#031c15]/90 border transition-all duration-200 ${
               errors.password
                 ? 'border-rose-500 bg-rose-950/20'
-                : 'border-slate-700/70 hover:border-slate-600 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20'
+                : 'border-emerald-500/30 hover:border-emerald-500/50 focus-within:border-emerald-400 focus-within:ring-2 focus-within:ring-emerald-400/20'
             }`}
           >
-            <Lock className="w-5 h-5 text-slate-400 mr-3 shrink-0" />
+            <Lock className="w-5 h-5 text-emerald-400 mr-3 shrink-0" />
             <input
               id="password-input"
               type={showPassword ? 'text' : 'password'}
@@ -305,12 +315,12 @@ export const LoginCard: React.FC<LoginCardProps> = ({
                 if (errors.password) setErrors((prev) => ({ ...prev, password: undefined }));
               }}
               placeholder={t.passwordPlaceholder}
-              className="w-full h-full bg-transparent text-sm sm:text-base text-white placeholder-slate-400 font-medium focus:outline-none pr-8"
+              className="w-full h-full bg-transparent text-sm sm:text-base text-white placeholder:text-emerald-200/40 font-medium focus:outline-none pr-8"
             />
             <button
               type="button"
               onClick={() => setShowPassword(!showPassword)}
-              className="text-slate-400 hover:text-slate-200 p-1 transition-colors"
+              className="text-emerald-400/80 hover:text-emerald-300 p-1 transition-colors"
             >
               {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
             </button>
@@ -326,23 +336,23 @@ export const LoginCard: React.FC<LoginCardProps> = ({
         <div className="flex justify-end pt-0.5">
           <button
             type="button"
-            className="text-xs sm:text-sm text-blue-400 hover:text-blue-300 font-medium transition-colors"
+            className="text-xs sm:text-sm text-emerald-400 hover:text-emerald-300 font-medium transition-colors"
           >
             {t.forgotPassword}
           </button>
         </div>
 
-        {/* Big Bright Blue Submit Button */}
+        {/* Glowing Emerald Action Button */}
         <div className="pt-1 sm:pt-1.5">
           <button
             id="login-submit-btn"
             type="submit"
             disabled={isSubmitting}
-            className="w-full min-h-[48px] sm:min-h-[52px] flex items-center justify-center rounded-xl sm:rounded-2xl bg-blue-600 hover:bg-blue-500 active:scale-[0.99] text-white text-base sm:text-lg font-bold shadow-lg shadow-blue-600/30 transition-all duration-200 cursor-pointer disabled:opacity-75"
+            className="w-full min-h-[48px] sm:min-h-[52px] flex items-center justify-center rounded-xl sm:rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 active:scale-[0.99] text-slate-950 text-base sm:text-lg font-bold shadow-lg shadow-emerald-500/30 transition-all duration-200 cursor-pointer disabled:opacity-75"
           >
             {isSubmitting ? (
               <div className="flex items-center gap-2">
-                <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                <span className="w-5 h-5 border-2 border-slate-950/30 border-t-slate-950 rounded-full animate-spin" />
                 <span>{lang === 'bn' ? 'যাচাই করা হচ্ছে...' : 'Authenticating...'}</span>
               </div>
             ) : (

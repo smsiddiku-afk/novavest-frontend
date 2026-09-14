@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   ChevronLeft,
   X,
@@ -74,9 +74,19 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
   // Copy states
   const [copiedCode, setCopiedCode] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [refreshTick, setRefreshTick] = useState(0);
+
+  useEffect(() => {
+    const handleUpdate = () => setRefreshTick((t) => t + 1);
+    window.addEventListener('referral_rewards_updated', handleUpdate);
+    return () => window.removeEventListener('referral_rewards_updated', handleUpdate);
+  }, []);
 
   // Real referral network data for this user
-  const teamTree = useMemo(() => getReferralTreeForUser(userCode, userMemberId), [userCode, userMemberId]);
+  const teamTree = useMemo(
+    () => getReferralTreeForUser(userCode, userMemberId),
+    [userCode, userMemberId, refreshTick]
+  );
   const realMembers: ReferralMember[] = useMemo(() => {
     return (teamTree.members || []).map((m) => ({
       id: m.id,
@@ -143,6 +153,12 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
     setAvailableRewards(0);
     try {
       localStorage.setItem('referral_cash_rewards', '0');
+      if (userCode) {
+        localStorage.setItem(`referral_cash_rewards_${userCode.trim().toUpperCase()}`, '0');
+      }
+      if (userMemberId) {
+        localStorage.setItem(`referral_cash_rewards_${userMemberId.trim().toUpperCase()}`, '0');
+      }
     } catch {
       // ignore
     }
@@ -569,8 +585,11 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
                 <span className="text-[11px] font-medium text-slate-400 block mb-1">
                   {currentLang === 'bn' ? 'রেফারেল সংখ্যা' : 'Referral Count'}
                 </span>
-                <span className="text-xl sm:text-2xl font-black text-cyan-300 font-mono tracking-tight">
+                <span className="text-xl sm:text-2xl font-black text-emerald-400 font-mono tracking-tight">
                   {teamTree.totalTeamCount}
+                </span>
+                <span className="text-[10px] text-emerald-400/90 font-medium">
+                  {currentLang === 'bn' ? `সক্রিয়: ${teamTree.totalActiveCount}` : `Active: ${teamTree.totalActiveCount}`}
                 </span>
               </div>
 
@@ -976,10 +995,13 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
 
               <div className="text-right">
                 <span className="text-xs text-slate-400 block mb-0.5">
-                  {currentLang === 'bn' ? 'মোট সদস্য' : 'Total Team Size'}
+                  {currentLang === 'bn' ? 'মোট সদস্য' : 'Total Members'}
                 </span>
                 <span className="text-xl sm:text-2xl font-black text-cyan-300 font-mono">
-                  {realMembers.length} {currentLang === 'bn' ? 'জন' : 'Members'}
+                  {realMembers.length} {currentLang === 'bn' ? 'জন' : ''}
+                </span>
+                <span className="text-[11px] text-emerald-400 block font-medium">
+                  {currentLang === 'bn' ? 'সক্রিয়:' : 'Active:'} {teamTree.totalActiveCount}
                 </span>
               </div>
             </div>
@@ -1061,9 +1083,15 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
                           <span className="font-mono font-bold text-white text-xs sm:text-sm">
                             {member.phone}
                           </span>
-                          <span className="px-1.5 py-0.2 rounded-md bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[9px] font-semibold">
-                            {currentLang === 'bn' ? 'সক্রিয়' : 'Active'}
-                          </span>
+                          {member.status === 'active' && member.investAmount > 0 ? (
+                            <span className="px-1.5 py-0.5 rounded-md bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[9px] font-semibold">
+                              {currentLang === 'bn' ? 'সক্রিয়' : 'Active'}
+                            </span>
+                          ) : (
+                            <span className="px-1.5 py-0.5 rounded-md bg-amber-500/15 text-amber-400 border border-amber-500/30 text-[9px] font-semibold">
+                              {currentLang === 'bn' ? 'রিচার্জ বাকি' : 'Pending Recharge'}
+                            </span>
+                          )}
                         </div>
                         <span className="text-[10px] text-slate-400 block mt-0.5">
                           {member.date} • {currentLang === 'bn' ? 'বিনিয়োগ:' : 'Invest:'} ৳
@@ -1073,9 +1101,15 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
                     </div>
 
                     <div className="text-right">
-                      <span className="text-xs sm:text-sm font-bold text-amber-400 font-mono block">
-                        +৳{member.commissionEarned.toFixed(2)}
-                      </span>
+                      {member.commissionEarned > 0 ? (
+                        <span className="text-xs sm:text-sm font-bold text-amber-400 font-mono block">
+                          +৳{member.commissionEarned.toFixed(2)}
+                        </span>
+                      ) : (
+                        <span className="text-xs sm:text-sm font-bold text-slate-500 font-mono block">
+                          ৳0.00
+                        </span>
+                      )}
                       <span className="text-[10px] text-slate-400">
                         {member.level === 1 ? '7% ' : member.level === 2 ? '3% ' : '1% '}
                         {currentLang === 'bn' ? 'কমিশন' : 'Bonus'}

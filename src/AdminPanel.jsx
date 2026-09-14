@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getFirestore, collection, getDocs, doc, updateDoc, setDoc, getDoc, query, orderBy, increment } from "firebase/firestore";
 import { updateFirestoreDepositStatus } from "./lib/firebase";
+import { distributeReferralDepositCommissions } from "./utils/referralService";
 
 const firebaseConfig = {
   authDomain: "novavest-a711c.firebaseapp.com",
@@ -164,6 +165,16 @@ export default function AdminPanel() {
           isApprove ? "completed" : "cancelled",
           Number(amount)
         );
+
+        if (isApprove) {
+          try {
+            const targetUser = users.find((u) => u.id === userId || u.uid === userId);
+            const userRefCode = targetUser?.referralCode || targetUser?.memberId || targetUser?.phone || userId;
+            distributeReferralDepositCommissions(userRefCode, Number(amount));
+          } catch (commErr) {
+            console.warn("Commission distribution notice:", commErr);
+          }
+        }
       }
 
       // Also notify backend server so any live polling updates instantly

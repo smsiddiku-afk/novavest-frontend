@@ -3,6 +3,13 @@ import { initializeApp, getApps, getApp } from "firebase/app";
 import { getFirestore, collection, getDocs, doc, updateDoc, setDoc, getDoc, query, orderBy, increment } from "firebase/firestore";
 import { updateFirestoreDepositStatus } from "./lib/firebase";
 import { distributeReferralDepositCommissions } from "./utils/referralService";
+import {
+  getLivePackages,
+  updatePackageInFirestore,
+  deletePackageFromFirestore,
+  resetPackagesToDefault,
+  DEFAULT_INVESTMENT_PACKAGES
+} from "./utils/packageService";
 
 const firebaseConfig = {
   authDomain: "novavest-a711c.firebaseapp.com",
@@ -22,12 +29,37 @@ export default function AdminPanel() {
   const [passwordInput, setPasswordInput] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
 
-  // অ্যাক্টিভ ট্যাব স্টেট ('deposits' | 'withdrawals' | 'balance' | 'support' | 'users')
+  // অ্যাক্টিভ ট্যাব স্টেট ('deposits' | 'withdrawals' | 'investments' | 'balance' | 'support' | 'users')
   const [activeTab, setActiveTab] = useState("deposits");
 
   const [users, setUsers] = useState([]);
   const [withdrawals, setWithdrawals] = useState([]);
   const [deposits, setDeposits] = useState([]);
+  const [packages, setPackages] = useState([]);
+  const [editingPackage, setEditingPackage] = useState(null);
+  const [isCreatingNew, setIsCreatingNew] = useState(false);
+  const [packageSaving, setPackageSaving] = useState(false);
+  const [packageFormData, setPackageFormData] = useState({
+    id: "",
+    nameEn: "",
+    nameBn: "",
+    category: "solar",
+    badgeCategoryEn: "Solar Energy",
+    badgeCategoryBn: "সোলার এনার্জি",
+    badgeIconType: "sun",
+    taglineEn: "",
+    taglineBn: "",
+    image: "/images/apex-helios-solar.jpg",
+    minInvestmentBdt: 1200,
+    minInvestmentUsd: 10,
+    durationDays: 30,
+    dailyReturnPercent: 1.5,
+    totalReturnPercent: 45,
+    requiredVipLevel: 0,
+    maxPurchaseLimit: 0,
+    isActive: true,
+    order: 1,
+  });
   const [loading, setLoading] = useState(false);
   
   const [selectedUser, setSelectedUser] = useState("");
@@ -99,11 +131,159 @@ export default function AdminPanel() {
         setTelegramLink(data.telegram || "");
       }
 
+      // ইনভেস্ট প্যাকেজ লোড
+      try {
+        const pkgList = await getLivePackages();
+        setPackages(pkgList);
+      } catch (pkgErr) {
+        console.warn("প্যাকেজ লোডে সমস্যা:", pkgErr);
+      }
+
     } catch (error) {
       console.error("ডেটা লোড সমস্যা:", error);
       setStatusMsg("Firestore থেকে ডেটা আনতে সমস্যা হয়েছে।");
     }
     setLoading(false);
+  };
+
+  // ইনভেস্ট প্যাকেজ হ্যান্ডলারস
+  const handleOpenCreatePackage = () => {
+    setEditingPackage(null);
+    setPackageFormData({
+      id: `plan-${Date.now().toString().slice(-6)}`,
+      nameEn: "",
+      nameBn: "",
+      category: "solar",
+      badgeCategoryEn: "Solar Energy",
+      badgeCategoryBn: "সোলার এনার্জি",
+      badgeIconType: "sun",
+      taglineEn: "Stable returns | Clean Energy",
+      taglineBn: "স্থির রিটার্ন | ক্লিন এনার্জি",
+      image: "/images/apex-helios-solar.jpg",
+      minInvestmentBdt: 1200,
+      minInvestmentUsd: 10,
+      durationDays: 30,
+      dailyReturnPercent: 1.5,
+      totalReturnPercent: 45,
+      requiredVipLevel: 0,
+      maxPurchaseLimit: 0,
+      isActive: true,
+      order: packages.length + 1,
+    });
+    setIsCreatingNew(true);
+  };
+
+  const handleOpenEditPackage = (pkg) => {
+    setIsCreatingNew(false);
+    setEditingPackage(pkg);
+    const bdt = Number(pkg.minInvestmentBdt || pkg.minInvestment || 1200);
+    const daily = Number(pkg.dailyReturnPercent || 1.5);
+    const days = Number(pkg.durationDays || 30);
+    setPackageFormData({
+      id: pkg.id || `plan-${Date.now()}`,
+      nameEn: pkg.nameEn || "",
+      nameBn: pkg.nameBn || "",
+      category: pkg.category || "solar",
+      badgeCategoryEn: pkg.badgeCategoryEn || "Solar Energy",
+      badgeCategoryBn: pkg.badgeCategoryBn || "সোলার এনার্জি",
+      badgeIconType: pkg.badgeIconType || "sun",
+      taglineEn: pkg.taglineEn || "",
+      taglineBn: pkg.taglineBn || "",
+      image: pkg.image || "/images/apex-helios-solar.jpg",
+      minInvestmentBdt: bdt,
+      minInvestmentUsd: Number(pkg.minInvestmentUsd || Math.round(bdt / 120)),
+      durationDays: days,
+      dailyReturnPercent: daily,
+      totalReturnPercent: Number(pkg.totalReturnPercent || Math.round(daily * days)),
+      requiredVipLevel: Number(pkg.requiredVipLevel || 0),
+      maxPurchaseLimit: Number(pkg.maxPurchaseLimit || 0),
+      isActive: pkg.isActive !== false,
+      order: Number(pkg.order || 1),
+    });
+  };
+
+  const handleSavePackage = async (e) => {
+    e.preventDefault();
+    if (!packageFormData.nameEn.trim()) {
+      alert("প্যাকেজের ইংরেজি নাম অবশ্যই দিতে হবে!");
+      return;
+    }
+    setPackageSaving(true);
+    try {
+      const bdt = Number(packageFormData.minInvestmentBdt) || 1200;
+      const days = Number(packageFormData.durationDays) || 30;
+      const daily = Number(packageFormData.dailyReturnPercent) || 1.5;
+      const total = Number(packageFormData.totalReturnPercent) || Math.round(daily * days);
+
+      const pkgToSave = {
+        ...packageFormData,
+        id: packageFormData.id.trim() || `plan-${Date.now()}`,
+        minInvestmentBdt: bdt,
+        minInvestment: bdt,
+        minInvestmentUsd: Number(packageFormData.minInvestmentUsd) || Math.round(bdt / 120),
+        durationDays: days,
+        dailyReturnPercent: daily,
+        totalReturnPercent: total,
+        requiredVipLevel: Number(packageFormData.requiredVipLevel) || 0,
+        maxPurchaseLimit: Number(packageFormData.maxPurchaseLimit) || 0,
+        isActive: packageFormData.isActive !== false,
+      };
+
+      const success = await updatePackageInFirestore(pkgToSave);
+      if (success) {
+        setStatusMsg("✅ ইনভেস্ট প্যাকেজ সফলভাবে সেভ ও লাইভ আপডেট হয়েছে!");
+        setIsCreatingNew(false);
+        setEditingPackage(null);
+        const updated = await getLivePackages();
+        setPackages(updated);
+      } else {
+        setStatusMsg("❌ প্যাকেজ সেভ করা যায়নি।");
+      }
+    } catch (err) {
+      console.error("প্যাকেজ সেভ এরর:", err);
+      setStatusMsg("❌ সমস্যা: " + err.message);
+    }
+    setPackageSaving(false);
+  };
+
+  const handleDeletePackage = async (pkgId, pkgName) => {
+    if (!window.confirm(`আপনি কি নিশ্চিত যে "${pkgName}" প্যাকেজটি স্থায়ীভাবে মুছে ফেলতে চান?`)) return;
+    try {
+      const ok = await deletePackageFromFirestore(pkgId);
+      if (ok) {
+        setStatusMsg("✅ ইনভেস্ট প্যাকেজ সফলভাবে মুছে ফেলা হয়েছে!");
+        const updated = await getLivePackages();
+        setPackages(updated);
+      } else {
+        setStatusMsg("❌ প্যাকেজ মুছতে ব্যর্থ হয়েছে।");
+      }
+    } catch (err) {
+      setStatusMsg("❌ এরর: " + err.message);
+    }
+  };
+
+  const handleResetPackages = async () => {
+    if (!window.confirm("ডিফল্ট ৬টি ইনভেস্টমেন্ট প্যাকেজ রিস্টোর করতে চান? এটি পূর্বের কাস্টম প্যাকেজগুলোর উপর মূল ৬টি প্ল্যান লোড করবে।")) return;
+    try {
+      await resetPackagesToDefault();
+      const updated = await getLivePackages();
+      setPackages(updated);
+      setStatusMsg("✅ ডিফল্ট ৬টি ইনভেস্ট প্যাকেজ সফলভাবে রিস্টোর হয়েছে!");
+    } catch (err) {
+      setStatusMsg("❌ রিস্টোর এরর: " + err.message);
+    }
+  };
+
+  const handleTogglePackageStatus = async (pkg) => {
+    try {
+      const updated = { ...pkg, isActive: !pkg.isActive };
+      await updatePackageInFirestore(updated);
+      const list = await getLivePackages();
+      setPackages(list);
+      setStatusMsg(`প্যাকেজ "${pkg.nameEn}" এখন ${updated.isActive ? 'সক্রিয় (Active)' : 'নিষ্ক্রিয় (Inactive)'}`);
+    } catch (err) {
+      setStatusMsg("❌ স্ট্যাটাস পরিবর্তন এরর: " + err.message);
+    }
   };
 
   const handleSaveSupport = async (e) => {
@@ -276,6 +456,7 @@ export default function AdminPanel() {
       <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginBottom: "20px" }}>
         <button onClick={() => setActiveTab("deposits")} style={{ padding: "10px 18px", borderRadius: "6px", border: "none", cursor: "pointer", fontWeight: "bold", background: activeTab === "deposits" ? "#00d2ff" : "#161d2f", color: activeTab === "deposits" ? "#000" : "#fff" }}>📥 ডিপোজিট ({deposits.filter(d => !d.status || d.status === "Pending").length})</button>
         <button onClick={() => setActiveTab("withdrawals")} style={{ padding: "10px 18px", borderRadius: "6px", border: "none", cursor: "pointer", fontWeight: "bold", background: activeTab === "withdrawals" ? "#00d2ff" : "#161d2f", color: activeTab === "withdrawals" ? "#000" : "#fff" }}>💸 উইথড্র ({withdrawals.filter(w => !w.status || w.status === "Pending").length})</button>
+        <button onClick={() => setActiveTab("investments")} style={{ padding: "10px 18px", borderRadius: "6px", border: "none", cursor: "pointer", fontWeight: "bold", background: activeTab === "investments" ? "#00d2ff" : "#161d2f", color: activeTab === "investments" ? "#000" : "#fff" }}>⚡ ইনভেস্ট প্যাকেজ ({packages.length})</button>
         <button onClick={() => setActiveTab("balance")} style={{ padding: "10px 18px", borderRadius: "6px", border: "none", cursor: "pointer", fontWeight: "bold", background: activeTab === "balance" ? "#00d2ff" : "#161d2f", color: activeTab === "balance" ? "#000" : "#fff" }}>💰 ব্যালেন্স কন্ট্রোল</button>
         <button onClick={() => setActiveTab("support")} style={{ padding: "10px 18px", borderRadius: "6px", border: "none", cursor: "pointer", fontWeight: "bold", background: activeTab === "support" ? "#00d2ff" : "#161d2f", color: activeTab === "support" ? "#000" : "#fff" }}>📢 সাপোর্ট লিংক</button>
         <button onClick={() => setActiveTab("users")} style={{ padding: "10px 18px", borderRadius: "6px", border: "none", cursor: "pointer", fontWeight: "bold", background: activeTab === "users" ? "#00d2ff" : "#161d2f", color: activeTab === "users" ? "#000" : "#fff" }}>👥 ইউজার ও নেটওয়ার্ক</button>
@@ -388,7 +569,548 @@ export default function AdminPanel() {
           </div>
         )}
 
-        {/* ৩. ব্যালেন্স কন্ট্রোল ট্যাব */}
+        {/* ৩. ইনভেস্ট প্যাকেজ ম্যানেজমেন্ট ট্যাব */}
+        {activeTab === "investments" && (
+          <div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px", marginBottom: "15px" }}>
+              <div>
+                <h3 style={{ margin: "0 0 4px 0", color: "#00d2ff" }}>⚡ Investment Packages Control</h3>
+                <p style={{ margin: 0, fontSize: "13px", color: "#94a3b8" }}>
+                  এখানে যেকোনো ইনভেস্টমেন্ট প্যাকেজ এডিট, নতুন তৈরি বা ডিলিট করতে পারবেন। ইউজারের Invest পেজে তাৎক্ষণিক লাইভ আপডেট হবে।
+                </p>
+              </div>
+              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                <button
+                  onClick={handleOpenCreatePackage}
+                  style={{ backgroundColor: "#22c55e", color: "#fff", border: "none", padding: "8px 14px", borderRadius: "6px", cursor: "pointer", fontWeight: "bold", fontSize: "13px" }}
+                >
+                  ➕ নতুন প্যাকেজ যোগ করুন
+                </button>
+                <button
+                  onClick={handleResetPackages}
+                  style={{ backgroundColor: "#ca8a04", color: "#fff", border: "none", padding: "8px 14px", borderRadius: "6px", cursor: "pointer", fontWeight: "bold", fontSize: "13px" }}
+                >
+                  🔄 ডিফল্ট ৬টি প্যাকেজ রিস্টোর
+                </button>
+                <button
+                  onClick={fetchAllData}
+                  style={{ backgroundColor: "#2e3856", color: "#fff", border: "none", padding: "8px 14px", borderRadius: "6px", cursor: "pointer", fontSize: "13px" }}
+                >
+                  🔄 রিফ্রেশ
+                </button>
+              </div>
+            </div>
+
+            {/* Quick Metrics Bar */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "12px", marginBottom: "20px" }}>
+              <div style={{ background: "#0f172a", padding: "12px", borderRadius: "8px", border: "1px solid #1e293b" }}>
+                <div style={{ fontSize: "12px", color: "#94a3b8" }}>মোট প্যাকেজ</div>
+                <div style={{ fontSize: "20px", fontWeight: "bold", color: "#00d2ff" }}>{packages.length} টি</div>
+              </div>
+              <div style={{ background: "#0f172a", padding: "12px", borderRadius: "8px", border: "1px solid #1e293b" }}>
+                <div style={{ fontSize: "12px", color: "#94a3b8" }}>সক্রিয় প্যাকেজ</div>
+                <div style={{ fontSize: "20px", fontWeight: "bold", color: "#22c55e" }}>
+                  {packages.filter(p => p.isActive !== false).length} টি
+                </div>
+              </div>
+              <div style={{ background: "#0f172a", padding: "12px", borderRadius: "8px", border: "1px solid #1e293b" }}>
+                <div style={{ fontSize: "12px", color: "#94a3b8" }}>সর্বনিম্ন ইনভেস্ট</div>
+                <div style={{ fontSize: "20px", fontWeight: "bold", color: "#facc15" }}>
+                  ৳ {packages.length > 0 ? Math.min(...packages.map(p => Number(p.minInvestmentBdt || p.minInvestment || 1200))) : 0}
+                </div>
+              </div>
+              <div style={{ background: "#0f172a", padding: "12px", borderRadius: "8px", border: "1px solid #1e293b" }}>
+                <div style={{ fontSize: "12px", color: "#94a3b8" }}>সর্বোচ্চ ইনভেস্ট</div>
+                <div style={{ fontSize: "20px", fontWeight: "bold", color: "#38bdf8" }}>
+                  ৳ {packages.length > 0 ? Math.max(...packages.map(p => Number(p.minInvestmentBdt || p.minInvestment || 1200))) : 0}
+                </div>
+              </div>
+            </div>
+
+            {/* ফর্ম: নতুন তৈরি অথবা এডিট */}
+            {(isCreatingNew || editingPackage) && (
+              <div style={{ background: "#0f172a", padding: "20px", borderRadius: "10px", border: "2px solid #00d2ff", marginBottom: "25px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", borderBottom: "1px solid #1e293b", paddingBottom: "10px" }}>
+                  <h4 style={{ margin: 0, color: "#00d2ff", fontSize: "16px" }}>
+                    {editingPackage ? `✏️ প্যাকেজ এডিট: ${editingPackage.nameEn}` : "➕ নতুন ইনভেস্টমেন্ট প্যাকেজ তৈরি করুন"}
+                  </h4>
+                  <button
+                    onClick={() => { setIsCreatingNew(false); setEditingPackage(null); }}
+                    style={{ background: "transparent", border: "none", color: "#94a3b8", cursor: "pointer", fontSize: "18px" }}
+                  >
+                    ✖
+                  </button>
+                </div>
+
+                <form onSubmit={handleSavePackage}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "14px" }}>
+                    
+                    <div>
+                      <label style={{ display: "block", marginBottom: "4px", fontSize: "13px", color: "#cbd5e1" }}>প্যাকেজ আইডি (Unique ID):</label>
+                      <input
+                        type="text"
+                        value={packageFormData.id}
+                        disabled={!!editingPackage}
+                        onChange={(e) => setPackageFormData({ ...packageFormData, id: e.target.value })}
+                        placeholder="e.g. ultra-solar-plan"
+                        style={{ width: "100%", padding: "9px", borderRadius: "6px", border: "1px solid #334155", background: editingPackage ? "#1e293b" : "#020617", color: "#fff", boxSizing: "border-box" }}
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label style={{ display: "block", marginBottom: "4px", fontSize: "13px", color: "#cbd5e1" }}>নাম (English):</label>
+                      <input
+                        type="text"
+                        value={packageFormData.nameEn}
+                        onChange={(e) => setPackageFormData({ ...packageFormData, nameEn: e.target.value })}
+                        placeholder="e.g. Mega Solar Array"
+                        style={{ width: "100%", padding: "9px", borderRadius: "6px", border: "1px solid #334155", background: "#020617", color: "#fff", boxSizing: "border-box" }}
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label style={{ display: "block", marginBottom: "4px", fontSize: "13px", color: "#cbd5e1" }}>নাম (বাংলা):</label>
+                      <input
+                        type="text"
+                        value={packageFormData.nameBn}
+                        onChange={(e) => setPackageFormData({ ...packageFormData, nameBn: e.target.value })}
+                        placeholder="উদা: মেগা সোলার অ্যারে"
+                        style={{ width: "100%", padding: "9px", borderRadius: "6px", border: "1px solid #334155", background: "#020617", color: "#fff", boxSizing: "border-box" }}
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label style={{ display: "block", marginBottom: "4px", fontSize: "13px", color: "#cbd5e1" }}>ক্যাটাগরি:</label>
+                      <select
+                        value={packageFormData.category}
+                        onChange={(e) => {
+                          const cat = e.target.value;
+                          let badgeEn = "Solar Energy";
+                          let badgeBn = "সোলার এনার্জি";
+                          let icon = "sun";
+                          if (cat === "wind") { badgeEn = "Wind Energy"; badgeBn = "উইন্ড এনার্জি"; icon = "wind"; }
+                          else if (cat === "hydro") { badgeEn = "Hydro Energy"; badgeBn = "হাইড্রো এনার্জি"; icon = "droplet"; }
+                          else if (cat === "combo") { badgeEn = "Hybrid Energy"; badgeBn = "হাইব্রিড এনার্জি"; icon = "crown"; }
+                          setPackageFormData({
+                            ...packageFormData,
+                            category: cat,
+                            badgeCategoryEn: badgeEn,
+                            badgeCategoryBn: badgeBn,
+                            badgeIconType: icon,
+                          });
+                        }}
+                        style={{ width: "100%", padding: "9px", borderRadius: "6px", border: "1px solid #334155", background: "#020617", color: "#fff" }}
+                      >
+                        <option value="solar">☀️ Solar (সোলার)</option>
+                        <option value="wind">💨 Wind (উইন্ড)</option>
+                        <option value="hydro">💧 Hydro (হাইড্রো)</option>
+                        <option value="combo">👑 Combo / VIP (কম্বো)</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label style={{ display: "block", marginBottom: "4px", fontSize: "13px", color: "#cbd5e1" }}>ব্যাজ ক্যাটাগরি (English):</label>
+                      <input
+                        type="text"
+                        value={packageFormData.badgeCategoryEn}
+                        onChange={(e) => setPackageFormData({ ...packageFormData, badgeCategoryEn: e.target.value })}
+                        placeholder="e.g. Solar Energy"
+                        style={{ width: "100%", padding: "9px", borderRadius: "6px", border: "1px solid #334155", background: "#020617", color: "#fff", boxSizing: "border-box" }}
+                      />
+                    </div>
+
+                    <div>
+                      <label style={{ display: "block", marginBottom: "4px", fontSize: "13px", color: "#cbd5e1" }}>ব্যাজ ক্যাটাগরি (বাংলা):</label>
+                      <input
+                        type="text"
+                        value={packageFormData.badgeCategoryBn}
+                        onChange={(e) => setPackageFormData({ ...packageFormData, badgeCategoryBn: e.target.value })}
+                        placeholder="e.g. সোলার এনার্জি"
+                        style={{ width: "100%", padding: "9px", borderRadius: "6px", border: "1px solid #334155", background: "#020617", color: "#fff", boxSizing: "border-box" }}
+                      />
+                    </div>
+
+                    <div>
+                      <label style={{ display: "block", marginBottom: "4px", fontSize: "13px", color: "#cbd5e1" }}>আইকন টাইপ:</label>
+                      <select
+                        value={packageFormData.badgeIconType}
+                        onChange={(e) => setPackageFormData({ ...packageFormData, badgeIconType: e.target.value })}
+                        style={{ width: "100%", padding: "9px", borderRadius: "6px", border: "1px solid #334155", background: "#020617", color: "#fff" }}
+                      >
+                        <option value="sun">☀️ Sun (সূর্য)</option>
+                        <option value="wind">💨 Wind (বায়ুপ্রবাহ)</option>
+                        <option value="droplet">💧 Droplet (জলবিন্দু)</option>
+                        <option value="crown">👑 Crown (মুকুট)</option>
+                        <option value="gem">💎 Gem (রত্ন)</option>
+                        <option value="star">⭐ Star (তারা)</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label style={{ display: "block", marginBottom: "4px", fontSize: "13px", color: "#cbd5e1" }}>ইনভেস্ট পরিমাণ (টাকা / BDT):</label>
+                      <input
+                        type="number"
+                        value={packageFormData.minInvestmentBdt}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          setPackageFormData({
+                            ...packageFormData,
+                            minInvestmentBdt: val,
+                            minInvestmentUsd: Math.round(val / 120),
+                          });
+                        }}
+                        placeholder="উদা: 1200"
+                        style={{ width: "100%", padding: "9px", borderRadius: "6px", border: "1px solid #334155", background: "#020617", color: "#22c55e", fontWeight: "bold", boxSizing: "border-box" }}
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label style={{ display: "block", marginBottom: "4px", fontSize: "13px", color: "#cbd5e1" }}>সমমান USD ($):</label>
+                      <input
+                        type="number"
+                        value={packageFormData.minInvestmentUsd}
+                        onChange={(e) => setPackageFormData({ ...packageFormData, minInvestmentUsd: Number(e.target.value) })}
+                        placeholder="উদা: 10"
+                        style={{ width: "100%", padding: "9px", borderRadius: "6px", border: "1px solid #334155", background: "#020617", color: "#fff", boxSizing: "border-box" }}
+                      />
+                    </div>
+
+                    <div>
+                      <label style={{ display: "block", marginBottom: "4px", fontSize: "13px", color: "#cbd5e1" }}>দৈনিক রিটার্ন (% Daily Return):</label>
+                      <input
+                        type="number"
+                        step="0.05"
+                        value={packageFormData.dailyReturnPercent}
+                        onChange={(e) => {
+                          const daily = Number(e.target.value);
+                          const days = Number(packageFormData.durationDays || 30);
+                          setPackageFormData({
+                            ...packageFormData,
+                            dailyReturnPercent: daily,
+                            totalReturnPercent: Math.round(daily * days * 10) / 10,
+                          });
+                        }}
+                        placeholder="উদা: 2.5"
+                        style={{ width: "100%", padding: "9px", borderRadius: "6px", border: "1px solid #334155", background: "#020617", color: "#facc15", fontWeight: "bold", boxSizing: "border-box" }}
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label style={{ display: "block", marginBottom: "4px", fontSize: "13px", color: "#cbd5e1" }}>মেয়াদকাল (দিন / Duration Days):</label>
+                      <input
+                        type="number"
+                        value={packageFormData.durationDays}
+                        onChange={(e) => {
+                          const days = Number(e.target.value);
+                          const daily = Number(packageFormData.dailyReturnPercent || 1.5);
+                          setPackageFormData({
+                            ...packageFormData,
+                            durationDays: days,
+                            totalReturnPercent: Math.round(daily * days * 10) / 10,
+                          });
+                        }}
+                        placeholder="উদা: 30"
+                        style={{ width: "100%", padding: "9px", borderRadius: "6px", border: "1px solid #334155", background: "#020617", color: "#fff", boxSizing: "border-box" }}
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label style={{ display: "block", marginBottom: "4px", fontSize: "13px", color: "#cbd5e1" }}>মোট রিটার্ন (% Total Return):</label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        value={packageFormData.totalReturnPercent}
+                        onChange={(e) => setPackageFormData({ ...packageFormData, totalReturnPercent: Number(e.target.value) })}
+                        placeholder="উদা: 75"
+                        style={{ width: "100%", padding: "9px", borderRadius: "6px", border: "1px solid #334155", background: "#020617", color: "#38bdf8", fontWeight: "bold", boxSizing: "border-box" }}
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label style={{ display: "block", marginBottom: "4px", fontSize: "13px", color: "#cbd5e1" }}>প্রয়োজনীয় VIP লেভেল:</label>
+                      <select
+                        value={packageFormData.requiredVipLevel}
+                        onChange={(e) => setPackageFormData({ ...packageFormData, requiredVipLevel: Number(e.target.value) })}
+                        style={{ width: "100%", padding: "9px", borderRadius: "6px", border: "1px solid #334155", background: "#020617", color: "#fff" }}
+                      >
+                        <option value={0}>VIP 0 (সকল ইউজারের জন্য উন্মুক্ত)</option>
+                        <option value={1}>VIP 1 প্রয়োজন (VIP 1 Required)</option>
+                        <option value={2}>VIP 2 প্রয়োজন (VIP 2 Required)</option>
+                        <option value={3}>VIP 3 প্রয়োজন (VIP 3 Required)</option>
+                        <option value={4}>VIP 4 প্রয়োজন (VIP 4 Required)</option>
+                        <option value={5}>VIP 5 প্রয়োজন (VIP 5 Required)</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label style={{ display: "block", marginBottom: "4px", fontSize: "13px", color: "#cbd5e1" }}>সর্বোচ্চ ক্রয় সীমা (Purchase Limit):</label>
+                      <select
+                        value={packageFormData.maxPurchaseLimit}
+                        onChange={(e) => setPackageFormData({ ...packageFormData, maxPurchaseLimit: Number(e.target.value) })}
+                        style={{ width: "100%", padding: "9px", borderRadius: "6px", border: "1px solid #334155", background: "#020617", color: "#fff" }}
+                      >
+                        <option value={0}>আনলিমিটেড (কোনো সীমা নেই)</option>
+                        <option value={1}>সর্বোচ্চ ১ বার (Limit 0/1)</option>
+                        <option value={2}>সর্বোচ্চ ২ বার (Limit 0/2)</option>
+                        <option value={3}>সর্বোচ্চ ৩ বার</option>
+                        <option value={5}>সর্বোচ্চ ৫ বার</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label style={{ display: "block", marginBottom: "4px", fontSize: "13px", color: "#cbd5e1" }}>ট্যাগলাইন (English):</label>
+                      <input
+                        type="text"
+                        value={packageFormData.taglineEn}
+                        onChange={(e) => setPackageFormData({ ...packageFormData, taglineEn: e.target.value })}
+                        placeholder="e.g. Stable returns | 100% Renewable"
+                        style={{ width: "100%", padding: "9px", borderRadius: "6px", border: "1px solid #334155", background: "#020617", color: "#fff", boxSizing: "border-box" }}
+                      />
+                    </div>
+
+                    <div>
+                      <label style={{ display: "block", marginBottom: "4px", fontSize: "13px", color: "#cbd5e1" }}>ট্যাগলাইন (বাংলা):</label>
+                      <input
+                        type="text"
+                        value={packageFormData.taglineBn}
+                        onChange={(e) => setPackageFormData({ ...packageFormData, taglineBn: e.target.value })}
+                        placeholder="e.g. স্থির রিটার্ন | ক্লিন এনার্জি"
+                        style={{ width: "100%", padding: "9px", borderRadius: "6px", border: "1px solid #334155", background: "#020617", color: "#fff", boxSizing: "border-box" }}
+                      />
+                    </div>
+
+                  </div>
+
+                  {/* ইমেজ সিলেক্টর ও প্রিসেট বাটন */}
+                  <div style={{ marginTop: "14px" }}>
+                    <label style={{ display: "block", marginBottom: "4px", fontSize: "13px", color: "#cbd5e1" }}>প্রজেক্ট ছবি URL:</label>
+                    <div style={{ display: "flex", gap: "10px", alignItems: "center", marginBottom: "8px" }}>
+                      <input
+                        type="text"
+                        value={packageFormData.image}
+                        onChange={(e) => setPackageFormData({ ...packageFormData, image: e.target.value })}
+                        placeholder="/images/apex-helios-solar.jpg বা ইমেজ লিংক"
+                        style={{ flex: 1, padding: "9px", borderRadius: "6px", border: "1px solid #334155", background: "#020617", color: "#fff", boxSizing: "border-box" }}
+                      />
+                      {packageFormData.image && (
+                        <img
+                          src={packageFormData.image}
+                          alt="preview"
+                          style={{ width: "40px", height: "40px", objectFit: "cover", borderRadius: "6px", border: "1px solid #334155" }}
+                          onError={(e) => { e.target.style.display = 'none'; }}
+                        />
+                      )}
+                    </div>
+
+                    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
+                      <span style={{ fontSize: "12px", color: "#94a3b8" }}>ছবি প্রিসেট ক্লিক করুন:</span>
+                      <button
+                        type="button"
+                        onClick={() => setPackageFormData({ ...packageFormData, image: "/images/apex-helios-solar.jpg" })}
+                        style={{ padding: "4px 8px", background: "#1e293b", border: "1px solid #334155", color: "#e2e8f0", borderRadius: "4px", fontSize: "11px", cursor: "pointer" }}
+                      >
+                        ☀️ Helios Solar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPackageFormData({ ...packageFormData, image: "/images/novawind-facility.jpg" })}
+                        style={{ padding: "4px 8px", background: "#1e293b", border: "1px solid #334155", color: "#e2e8f0", borderRadius: "4px", fontSize: "11px", cursor: "pointer" }}
+                      >
+                        💨 NovaWind
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPackageFormData({ ...packageFormData, image: "https://images.unsplash.com/photo-1574943320219-553eb213f72d?auto=format&fit=crop&w=800&q=80" })}
+                        style={{ padding: "4px 8px", background: "#1e293b", border: "1px solid #334155", color: "#e2e8f0", borderRadius: "4px", fontSize: "11px", cursor: "pointer" }}
+                      >
+                        💧 Hydro Plant
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPackageFormData({ ...packageFormData, image: "/images/smart_turbine_plant_1788466039952.jpg" })}
+                        style={{ padding: "4px 8px", background: "#1e293b", border: "1px solid #334155", color: "#e2e8f0", borderRadius: "4px", fontSize: "11px", cursor: "pointer" }}
+                      >
+                        ⚙️ Turbine
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPackageFormData({ ...packageFormData, image: "/images/solar_ai_substation_1788465992131.jpg" })}
+                        style={{ padding: "4px 8px", background: "#1e293b", border: "1px solid #334155", color: "#e2e8f0", borderRadius: "4px", fontSize: "11px", cursor: "pointer" }}
+                      >
+                        ⚡ Substation
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPackageFormData({ ...packageFormData, image: "/images/vanguard-bess-storage.jpg" })}
+                        style={{ padding: "4px 8px", background: "#1e293b", border: "1px solid #334155", color: "#e2e8f0", borderRadius: "4px", fontSize: "11px", cursor: "pointer" }}
+                      >
+                        🔋 Vanguard BESS
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* প্যাকেজ স্ট্যাটাস অ্যাক্টিভ/ইনঅ্যাক্টিভ */}
+                  <div style={{ marginTop: "14px", display: "flex", alignItems: "center", gap: "8px" }}>
+                    <input
+                      type="checkbox"
+                      id="packageActiveCheckbox"
+                      checked={packageFormData.isActive !== false}
+                      onChange={(e) => setPackageFormData({ ...packageFormData, isActive: e.target.checked })}
+                      style={{ width: "18px", height: "18px", cursor: "pointer" }}
+                    />
+                    <label htmlFor="packageActiveCheckbox" style={{ fontSize: "14px", cursor: "pointer", color: packageFormData.isActive !== false ? "#4ade80" : "#f87171" }}>
+                      {packageFormData.isActive !== false ? "✅ সক্রিয় (ইউজারের Invest পেজে প্রদর্শিত হবে)" : "❌ নিষ্ক্রিয় (লুকিয়ে রাখা হয়েছে)"}
+                    </label>
+                  </div>
+
+                  {/* লাইভ লাভ ক্যালকুলেশন প্রিভিউ */}
+                  <div style={{ marginTop: "15px", padding: "12px", background: "#1e293b", borderRadius: "8px", border: "1px solid #334155", fontSize: "13px" }}>
+                    <span style={{ color: "#38bdf8", fontWeight: "bold" }}>💡 প্রফিট প্রিভিউ: </span>
+                    ৳ {packageFormData.minInvestmentBdt} বিনিয়োগে দৈনিক লাভ ৳ {Math.round((Number(packageFormData.minInvestmentBdt) * Number(packageFormData.dailyReturnPercent)) / 100)} টাকা | 
+                    মোট {packageFormData.durationDays} দিনে লাভ ৳ {Math.round((Number(packageFormData.minInvestmentBdt) * Number(packageFormData.totalReturnPercent)) / 100)} টাকা 
+                    (মোট রিটার্ন: ৳ {Math.round(Number(packageFormData.minInvestmentBdt) + (Number(packageFormData.minInvestmentBdt) * Number(packageFormData.totalReturnPercent)) / 100)})
+                  </div>
+
+                  {/* সাবমিট বাটন */}
+                  <div style={{ display: "flex", gap: "10px", marginTop: "18px" }}>
+                    <button
+                      type="submit"
+                      disabled={packageSaving}
+                      style={{ padding: "10px 24px", background: "#00d2ff", color: "#000", border: "none", borderRadius: "6px", fontWeight: "bold", cursor: "pointer", fontSize: "14px" }}
+                    >
+                      {packageSaving ? "সংরক্ষণ হচ্ছে..." : "💾 প্যাকেজ সেভ করুন"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setIsCreatingNew(false); setEditingPackage(null); }}
+                      style={{ padding: "10px 18px", background: "#334155", color: "#fff", border: "none", borderRadius: "6px", cursor: "pointer", fontSize: "14px" }}
+                    >
+                      বাতিল
+                    </button>
+                  </div>
+                </form>
+              </div>
+            )}
+
+            {/* প্যাকেজ তালিকা টেবিল */}
+            {packages.length === 0 ? (
+              <div style={{ textAlign: "center", padding: "40px", background: "#0f172a", borderRadius: "8px", border: "1px solid #1e293b" }}>
+                <p style={{ color: "#94a3b8", marginBottom: "15px" }}>কোনো ইনভেস্টমেন্ট প্যাকেজ পাওয়া যায়নি।</p>
+                <button
+                  onClick={handleResetPackages}
+                  style={{ backgroundColor: "#00d2ff", color: "#000", border: "none", padding: "10px 18px", borderRadius: "6px", cursor: "pointer", fontWeight: "bold" }}
+                >
+                  🔄 ডিফল্ট ৬টি প্যাকেজ লোড করুন
+                </button>
+              </div>
+            ) : (
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "13px" }}>
+                  <thead>
+                    <tr style={{ borderBottom: "1px solid #2e3856", color: "#94a3b8", background: "#0f172a" }}>
+                      <th style={{ padding: "10px" }}>ছবি</th>
+                      <th style={{ padding: "10px" }}>প্যাকেজ নাম & ক্যাটাগরি</th>
+                      <th style={{ padding: "10px" }}>মূল্য (BDT/USD)</th>
+                      <th style={{ padding: "10px" }}>দৈনিক মুনাফা & মেয়াদ</th>
+                      <th style={{ padding: "10px" }}>মোট লাভ</th>
+                      <th style={{ padding: "10px" }}>VIP / লিমিট</th>
+                      <th style={{ padding: "10px" }}>অবস্থা</th>
+                      <th style={{ padding: "10px", textAlign: "center" }}>অ্যাকশন</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {packages.map((pkg) => {
+                      const bdt = Number(pkg.minInvestmentBdt || pkg.minInvestment || 1200);
+                      const daily = Number(pkg.dailyReturnPercent || 1.5);
+                      const days = Number(pkg.durationDays || 30);
+                      const total = Number(pkg.totalReturnPercent || Math.round(daily * days));
+                      const isActive = pkg.isActive !== false;
+
+                      return (
+                        <tr key={pkg.id} style={{ borderBottom: "1px solid #1e293b", opacity: isActive ? 1 : 0.65 }}>
+                          <td style={{ padding: "10px" }}>
+                            <img
+                              src={pkg.image || "/images/apex-helios-solar.jpg"}
+                              alt={pkg.nameEn}
+                              style={{ width: "48px", height: "48px", objectFit: "cover", borderRadius: "6px", border: "1px solid #334155" }}
+                              onError={(e) => { e.target.src = "/images/apex-helios-solar.jpg"; }}
+                            />
+                          </td>
+                          <td style={{ padding: "10px" }}>
+                            <div style={{ fontWeight: "bold", color: "#fff" }}>{pkg.nameEn}</div>
+                            <div style={{ fontSize: "12px", color: "#94a3b8" }}>{pkg.nameBn}</div>
+                            <span style={{ display: "inline-block", fontSize: "11px", padding: "2px 6px", borderRadius: "4px", background: "#1e293b", color: "#38bdf8", marginTop: "3px" }}>
+                              {pkg.badgeCategoryEn || pkg.category}
+                            </span>
+                          </td>
+                          <td style={{ padding: "10px" }}>
+                            <div style={{ color: "#22c55e", fontWeight: "bold", fontSize: "14px" }}>৳ {bdt.toLocaleString()}</div>
+                            <div style={{ fontSize: "11px", color: "#94a3b8" }}>${pkg.minInvestmentUsd || Math.round(bdt / 120)}</div>
+                          </td>
+                          <td style={{ padding: "10px" }}>
+                            <div style={{ color: "#facc15", fontWeight: "bold" }}>{daily}% / দিন</div>
+                            <div style={{ fontSize: "12px", color: "#cbd5e1" }}>{days} দিন</div>
+                          </td>
+                          <td style={{ padding: "10px" }}>
+                            <div style={{ color: "#38bdf8", fontWeight: "bold" }}>{total}%</div>
+                            <div style={{ fontSize: "11px", color: "#94a3b8" }}>৳ {Math.round((bdt * total) / 100)} লাভ</div>
+                          </td>
+                          <td style={{ padding: "10px" }}>
+                            <div style={{ fontSize: "12px", color: (pkg.requiredVipLevel || 0) > 0 ? "#facc15" : "#a7f3d0" }}>
+                              {(pkg.requiredVipLevel || 0) > 0 ? `VIP ${pkg.requiredVipLevel} প্রয়োজন` : `VIP 0 (সবার জন্য)`}
+                            </div>
+                            <div style={{ fontSize: "11px", color: "#94a3b8" }}>
+                              {(pkg.maxPurchaseLimit || 0) > 0 ? `লিমিট: ০/${pkg.maxPurchaseLimit}` : `আনলিমিটেড`}
+                            </div>
+                          </td>
+                          <td style={{ padding: "10px" }}>
+                            <span style={{ display: "inline-block", padding: "3px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: "bold", background: isActive ? "#14532d" : "#7f1d1d", color: isActive ? "#4ade80" : "#fca5a5" }}>
+                              {isActive ? "সক্রিয়" : "নিষ্ক্রিয়"}
+                            </span>
+                          </td>
+                          <td style={{ padding: "10px", textAlign: "center" }}>
+                            <div style={{ display: "flex", gap: "6px", justifyContent: "center", flexWrap: "wrap" }}>
+                              <button
+                                onClick={() => handleOpenEditPackage(pkg)}
+                                style={{ background: "#3b82f6", color: "#fff", border: "none", padding: "4px 8px", borderRadius: "4px", cursor: "pointer", fontSize: "12px" }}
+                                title="প্যাকেজ এডিট করুন"
+                              >
+                                ✏️ এডিট
+                              </button>
+                              <button
+                                onClick={() => handleTogglePackageStatus(pkg)}
+                                style={{ background: isActive ? "#713f12" : "#15803d", color: "#fff", border: "none", padding: "4px 8px", borderRadius: "4px", cursor: "pointer", fontSize: "12px" }}
+                                title={isActive ? "লুকিয়ে রাখুন" : "প্রকাশ করুন"}
+                              >
+                                {isActive ? "লুকান" : "সক্রিয়"}
+                              </button>
+                              <button
+                                onClick={() => handleDeletePackage(pkg.id, pkg.nameEn)}
+                                style={{ background: "#dc3545", color: "#fff", border: "none", padding: "4px 8px", borderRadius: "4px", cursor: "pointer", fontSize: "12px" }}
+                                title="প্যাকেজ মুছুন"
+                              >
+                                🗑️
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ৪. ব্যালেন্স কন্ট্রোল ট্যাব */}
         {activeTab === "balance" && (
           <div style={{ maxWidth: "500px" }}>
             <h3>💰 Set User Balance</h3>

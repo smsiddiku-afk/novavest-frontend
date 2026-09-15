@@ -1487,8 +1487,18 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       return;
     }
 
-    // Match package from new INVESTMENT_PLANS
-    const matchedPlan = INVESTMENT_PLANS.find(
+    // Match package from live packages or INVESTMENT_PLANS
+    let currentPlanList = INVESTMENT_PLANS;
+    try {
+      const cached = localStorage.getItem('nova_investment_packages');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) currentPlanList = parsed;
+      }
+    } catch {
+      // ignore
+    }
+    const matchedPlan = currentPlanList.find(
       (p) =>
         p.nameBn === projectName ||
         p.nameEn === projectName ||

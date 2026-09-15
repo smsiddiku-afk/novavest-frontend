@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { scrollAppToTop } from '../utils/scrollHelper';
+import { getLivePackages } from '../utils/packageService';
 import {
   Sun,
   Wind,
@@ -211,8 +212,50 @@ export const InvestTabContent: React.FC<InvestTabContentProps> = ({
     scrollAppToTop();
   }, []);
 
-  // Filter plans according to selected category
-  const filteredPlans = INVESTMENT_PLANS.filter((plan) => {
+  // Dynamic plans loaded from packageService / Firestore with default fallback
+  const [plans, setPlans] = useState<InvestmentPlan[]>(() => {
+    try {
+      const cached = localStorage.getItem('nova_investment_packages');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {
+      // fallback
+    }
+    return INVESTMENT_PLANS;
+  });
+
+  useEffect(() => {
+    getLivePackages().then((liveList: any) => {
+      if (Array.isArray(liveList) && liveList.length > 0) {
+        setPlans(liveList);
+      }
+    });
+
+    const handleUpdated = (e: any) => {
+      if (e.detail && Array.isArray(e.detail)) {
+        setPlans(e.detail);
+      } else {
+        getLivePackages().then((liveList: any) => {
+          if (Array.isArray(liveList) && liveList.length > 0) {
+            setPlans(liveList);
+          }
+        });
+      }
+    };
+
+    window.addEventListener('nova_packages_updated', handleUpdated);
+    window.addEventListener('storage', handleUpdated);
+    return () => {
+      window.removeEventListener('nova_packages_updated', handleUpdated);
+      window.removeEventListener('storage', handleUpdated);
+    };
+  }, []);
+
+  // Filter plans according to selected category (active packages only)
+  const activePlans = plans.filter((p: any) => p.isActive !== false);
+  const filteredPlans = activePlans.filter((plan) => {
     if (selectedCategory === 'all') return true;
     return plan.category === selectedCategory;
   });

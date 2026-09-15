@@ -200,10 +200,16 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
 
     setIsSubmitting(true);
     try {
+      const rawDigits = phone.trim().replace(/\D/g, '');
+      const last10 = rawDigits.slice(-10);
+      const standardPhone = countryCode === '+880'
+        ? `+880 ${last10}`
+        : `${countryCode} ${rawDigits.replace(/^0+/, '')}`;
+
       const result = await registerWithFirebase(
         {
           email: email.trim(),
-          phone: `${countryCode} ${phone}`,
+          phone: standardPhone,
           username: username.trim(),
           password,
           referralCode: referralCode.trim(),
@@ -219,13 +225,13 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
           result.user.uid || 'user_' + Date.now(),
           userRefCode,
           referralCode.trim(),
-          `${countryCode} ${phone}`,
+          standardPhone,
           username.trim(),
           result.user.memberId
         );
 
         onRegistrationSuccess({
-          phone: `${countryCode} ${phone}`,
+          phone: standardPhone,
           username: username.trim(),
           password,
           confirmPassword,

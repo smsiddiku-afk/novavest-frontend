@@ -27,6 +27,9 @@ const PROTECTED_TABS: ProtectedTab[] = ['home', 'invest', 'transactions', 'walle
 const getCleanPath = (): string => {
   if (typeof window !== 'undefined') {
     const p = window.location.pathname.toLowerCase().trim();
+    const hash = window.location.hash.toLowerCase().trim();
+    const search = window.location.search.toLowerCase().trim();
+    if (hash === '#admin' || hash === '#/admin' || search.includes('admin') || p.includes('/admin')) return '/admin';
     return p ? (p.endsWith('/') && p.length > 1 ? p.slice(0, -1) : p) : '/';
   }
   return '/';
@@ -156,7 +159,11 @@ export default function App() {
     };
 
     window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
+    window.addEventListener('hashchange', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      window.removeEventListener('hashchange', handlePopState);
+    };
   }, [authUser, isAuthLoading]);
 
   const handleToggleLang = (newLang: Language) => {

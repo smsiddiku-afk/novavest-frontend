@@ -8,12 +8,14 @@ import {
   updateFirestoreWalletBalance,
   subscribeToFirestoreUserProfile,
   findEmailByPhone,
+  findPhoneByEmail,
   normalizePhone,
 } from '../lib/firebase';
 import { registerUserInReferralNetwork } from './referralService';
 import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
+  sendPasswordResetEmail,
   signOut,
   updateProfile,
   onAuthStateChanged as onFirebaseAuthChanged,
@@ -428,56 +430,106 @@ export const signInWithFirebase = async (
   lang: 'bn' | 'en' = 'bn'
 ): Promise<{ success: boolean; user?: UserProfile; error?: string }> => {
   try {
-    let resolvedEmail = emailOrPhone.trim();
-    let digits = '';
-    let last10 = '';
-
-    // If identifier is a phone number, resolve or synthesize email
-    if (!resolvedEmail.includes('@')) {
-      digits = normalizePhone(resolvedEmail);
-      last10 = digits.slice(-10);
-
-      const foundEmail = await findEmailByPhone(resolvedEmail);
-      if (foundEmail) {
-        resolvedEmail = foundEmail;
-      } else {
-        resolvedEmail = `${digits || 'user'}@novavest.local`;
-      }
+    const rawInput = emailOrPhone.trim();
+    if (!rawInput) {
+      return {
+        success: false,
+        error: lang === 'bn' ? 'অনুগ্রহ করে ইমেইল বা ফোন নম্বর দিন।' : 'Please enter email or phone number.',
+      };
     }
 
-    // Try signing in; if standard phone synth fails, try alternative candidate formats
-    let cred: any;
-    try {
-      cred = await signInWithEmailAndPassword(auth, resolvedEmail, pass);
-    } catch (firstErr: any) {
-      if (
-        !resolvedEmail.includes('@') ||
-        (digits && (firstErr?.code === 'auth/user-not-found' || firstErr?.code === 'auth/invalid-credential'))
-      ) {
-        const candidates = [
-          last10 ? `${last10}@novavest.local` : null,
-          last10 ? `880${last10}@novavest.local` : null,
-          last10 ? `0${last10}@novavest.local` : null,
-        ].filter(Boolean) as string[];
+    const digits = normalizePhone(rawInput);
+    const last10 = digits.length >= 10 ? digits.slice(-10) : digits;
 
-        let success = false;
-        for (const candidate of candidates) {
-          if (candidate === resolvedEmail) continue;
-          try {
-            cred = await signInWithEmailAndPassword(auth, candidate, pass);
-            resolvedEmail = candidate;
-            success = true;
-            break;
-          } catch {
-            // try next candidate
+    const emailCandidates: string[] = [];
+    const passwordsToTry: string[] = [pass];
+    if (pass.trim() && pass.trim() !== pass) {
+      passwordsToTry.push(pass.trim());
+    }
+
+    let phoneLookupDone = false;
+    let foundEmailFromPhone: string | null = null;
+
+    if (rawInput.includes('@')) {
+      // 1. User typed an email
+      emailCandidates.push(rawInput);
+      emailCandidates.push(rawInput.toLowerCase());
+
+      // If user originally registered with phone, look up if this email has an associated phone doc
+      try {
+        const associatedPhone = await findPhoneByEmail(rawInput);
+        if (associatedPhone) {
+          const pDigits = normalizePhone(associatedPhone);
+          const pLast10 = pDigits.length >= 10 ? pDigits.slice(-10) : pDigits;
+          if (pLast10) {
+            emailCandidates.push(`${pLast10}@novavest.local`);
+            emailCandidates.push(`880${pLast10}@novavest.local`);
+            emailCandidates.push(`0${pLast10}@novavest.local`);
+          }
+          if (pDigits) {
+            emailCandidates.push(`${pDigits}@novavest.local`);
           }
         }
-        if (!success) {
-          throw firstErr;
-        }
-      } else {
-        throw firstErr;
+      } catch {
+        // continue
       }
+    } else {
+      // 2. User typed a phone number, username, or memberId
+      phoneLookupDone = true;
+      foundEmailFromPhone = await findEmailByPhone(rawInput);
+      if (foundEmailFromPhone) {
+        emailCandidates.push(foundEmailFromPhone);
+        emailCandidates.push(foundEmailFromPhone.toLowerCase());
+      }
+      if (last10) {
+        emailCandidates.push(`${last10}@novavest.local`);
+        emailCandidates.push(`880${last10}@novavest.local`);
+        emailCandidates.push(`0${last10}@novavest.local`);
+        emailCandidates.push(`8800${last10}@novavest.local`);
+      }
+      if (digits) {
+        emailCandidates.push(`${digits}@novavest.local`);
+      }
+      emailCandidates.push(`${rawInput}@novavest.local`);
+    }
+
+    // Deduplicate candidate emails while strictly maintaining order
+    const uniqueCandidates = Array.from(new Set(emailCandidates.map((e) => e.trim()))).filter(Boolean);
+
+    let cred: any = null;
+    let lastAuthErr: any = null;
+    let successfulEmail = uniqueCandidates[0];
+
+    // Iteratively attempt login across candidates and password variants
+    for (const candEmail of uniqueCandidates) {
+      for (const p of passwordsToTry) {
+        try {
+          cred = await signInWithEmailAndPassword(auth, candEmail, p);
+          successfulEmail = candEmail;
+          break;
+        } catch (err: any) {
+          lastAuthErr = err;
+          // If network is offline, fail fast
+          if (err?.code === 'auth/network-request-failed') {
+            throw err;
+          }
+        }
+      }
+      if (cred) break;
+    }
+
+    if (!cred) {
+      // If user typed a phone number and no matching user account was found in Firestore or Auth
+      if (phoneLookupDone && !foundEmailFromPhone && lastAuthErr?.code === 'auth/invalid-credential') {
+        return {
+          success: false,
+          error:
+            lang === 'bn'
+              ? 'এই ফোন নম্বরে কোনো অ্যাকাউন্ট পাওয়া যায়নি। সঠিক নম্বর দিন অথবা নতুন অ্যাকাউন্ট তৈরি করুন।'
+              : 'No account found for this phone number. Please check the number or sign up.',
+        };
+      }
+      throw lastAuthErr;
     }
 
     // Fast-resolve profile: give Firestore 1.5s max, otherwise return immediately & sync in background
@@ -500,9 +552,9 @@ export const signInWithFirebase = async (
     } else {
       user = {
         uid: cred.user.uid,
-        name: cred.user.displayName || (resolvedEmail.includes('@') ? resolvedEmail.split('@')[0] : 'NVT Member'),
-        phone: resolvedEmail.endsWith('@novavest.local') ? emailOrPhone : '+880 1712-345678',
-        email: cred.user.email || resolvedEmail,
+        name: cred.user.displayName || (successfulEmail.includes('@') ? successfulEmail.split('@')[0] : 'NVT Member'),
+        phone: successfulEmail.endsWith('@novavest.local') ? rawInput : '+880 1712-345678',
+        email: cred.user.email || successfulEmail,
         memberId: `NVT${Math.floor(100000 + Math.random() * 900000)}`,
         referralCode: Math.random().toString(36).substring(2, 8).toUpperCase(),
         walletBalance: 0.0,
@@ -514,14 +566,14 @@ export const signInWithFirebase = async (
       createFirestoreUserProfile(cred.user.uid, {
         name: user.name,
         phone: user.phone || '+880 1712-345678',
-        email: user.email || resolvedEmail,
+        email: user.email || successfulEmail,
         memberId: user.memberId,
         referralCode: user.referralCode,
         walletBalance: user.walletBalance,
       }).catch(() => {});
     }
 
-    // Cache phone to email mapping in localStorage
+    // Cache phone to email mapping in localStorage for instant 0ms future lookups
     if (user.phone && user.email && typeof window !== 'undefined' && window.localStorage) {
       try {
         const norm = normalizePhone(user.phone);
@@ -531,6 +583,7 @@ export const signInWithFirebase = async (
           localStorage.setItem(`nvt_phone_email_${norm10}`, user.email);
           localStorage.setItem(`nvt_phone_email_0${norm10}`, user.email);
           localStorage.setItem(`nvt_phone_email_880${norm10}`, user.email);
+          localStorage.setItem(`nvt_phone_email_8800${norm10}`, user.email);
         }
       } catch {
         // ignore
@@ -581,6 +634,7 @@ export const registerWithFirebase = async (
         localStorage.setItem(`nvt_phone_email_${last10}`, finalEmail);
         localStorage.setItem(`nvt_phone_email_0${last10}`, finalEmail);
         localStorage.setItem(`nvt_phone_email_880${last10}`, finalEmail);
+        localStorage.setItem(`nvt_phone_email_8800${last10}`, finalEmail);
       }
     } catch {
       // ignore
@@ -704,4 +758,53 @@ export const onAuthStateChanged = (
       window.removeEventListener('storage', handleStorageEvent);
     }
   };
+};
+
+/**
+ * Send password reset email via Firebase Auth (resolves phone if given)
+ */
+export const sendFirebasePasswordReset = async (
+  emailOrPhone: string,
+  lang: 'bn' | 'en' = 'bn'
+): Promise<{ success: boolean; message: string }> => {
+  try {
+    const raw = emailOrPhone.trim();
+    if (!raw) {
+      return {
+        success: false,
+        message: lang === 'bn' ? 'অনুগ্রহ করে ইমেইল বা ফোন নম্বর লিখুন।' : 'Please enter email or phone number.',
+      };
+    }
+
+    let targetEmail = raw;
+    if (!raw.includes('@')) {
+      const found = await findEmailByPhone(raw);
+      if (found && found.includes('@') && !found.endsWith('@novavest.local')) {
+        targetEmail = found;
+      } else {
+        return {
+          success: false,
+          message:
+            lang === 'bn'
+              ? 'এই ফোন নম্বরের সাথে কোনো রেজিস্টার্ড রিয়েল ইমেইল যুক্ত নেই। অনুগ্রহ করে অ্যাডমিনের সাথে যোগাযোগ করুন বা নতুন অ্যাকাউন্ট তৈরি করুন।'
+              : 'No external email address linked to this phone. Please contact support or register.',
+        };
+      }
+    }
+
+    await sendPasswordResetEmail(auth, targetEmail);
+    return {
+      success: true,
+      message:
+        lang === 'bn'
+          ? `পাসওয়ার্ড রিসেট লিঙ্ক সফলভাবে ${targetEmail} ঠিকানায় পাঠানো হয়েছে। ইনবক্স অথবা স্প্যাম ফোল্ডার চেক করুন।`
+          : `Password reset link sent to ${targetEmail}. Please check your inbox or spam folder.`,
+    };
+  } catch (err: any) {
+    console.error('[AuthService] sendPasswordResetEmail error:', err);
+    return {
+      success: false,
+      message: getFriendlyFirebaseError(err, lang),
+    };
+  }
 };

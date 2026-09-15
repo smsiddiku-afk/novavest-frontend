@@ -3,6 +3,7 @@ import {
   getAuth,
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
+  sendPasswordResetEmail,
   signOut,
   updateProfile,
   onAuthStateChanged as onFirebaseAuthChanged,
@@ -173,6 +174,9 @@ export const createFirestoreUserProfile = async (
     isVerified: true,
   };
 
+  const normalized = normalizePhone(profile.phone);
+  const last10 = normalized.length >= 10 ? normalized.slice(-10) : normalized;
+
   const docPayload: Record<string, any> = {
     uid,
     name: profile.name,
@@ -184,6 +188,7 @@ export const createFirestoreUserProfile = async (
     memberSince,
     isVerified: true,
     phoneNormalized: normalizePhone(profile.phone),
+    phoneLast10: last10,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   };
@@ -236,11 +241,11 @@ export const getFirestoreUserProfile = async (uid: string): Promise<UserProfile 
 };
 
 /**
- * Find email associated with a phone number in Firestore
+ * Find email associated with a phone number (or identifier) in Firestore
  */
 export const findEmailByPhone = async (rawPhone: string): Promise<string | null> => {
   const normalized = normalizePhone(rawPhone);
-  if (!normalized) return null;
+  if (!normalized && !rawPhone.trim()) return null;
 
   const last10 = normalized.length >= 10 ? normalized.slice(-10) : normalized;
 
@@ -252,6 +257,7 @@ export const findEmailByPhone = async (rawPhone: string): Promise<string | null>
         `nvt_phone_email_${last10}`,
         `nvt_phone_email_0${last10}`,
         `nvt_phone_email_880${last10}`,
+        `nvt_phone_email_8800${last10}`,
       ];
       for (const key of keysToTry) {
         const cached = localStorage.getItem(key);
@@ -263,7 +269,10 @@ export const findEmailByPhone = async (rawPhone: string): Promise<string | null>
       if (rawAccounts) {
         const accounts = JSON.parse(rawAccounts);
         for (const acc of Object.values(accounts) as any[]) {
-          if (acc.phone && normalizePhone(acc.phone).slice(-10) === last10) {
+          if (acc.phone && last10 && normalizePhone(acc.phone).slice(-10) === last10) {
+            if (acc.email) return acc.email;
+          }
+          if (acc.memberId && acc.memberId.toUpperCase() === rawPhone.trim().toUpperCase()) {
             if (acc.email) return acc.email;
           }
         }
@@ -273,31 +282,206 @@ export const findEmailByPhone = async (rawPhone: string): Promise<string | null>
     // ignore
   }
 
-  // 2. Fast timeout-bounded Firestore lookup (capped at 1800ms to avoid blocking UI)
+  // 2. Comprehensive multi-tier Firestore lookup
   try {
     const usersRef = collection(db, 'users');
-    const q = query(usersRef, where('phoneNormalized', '==', normalized));
-    
-    const queryPromise = getDocs(q);
-    const timeoutPromise = new Promise<null>((res) => setTimeout(() => res(null), 1800));
-    
-    const result: any = await Promise.race([queryPromise, timeoutPromise]);
-    if (result && !result.empty) {
-      const docData = result.docs[0].data();
-      const foundEmail = docData.email || null;
-      if (foundEmail && typeof window !== 'undefined') {
+    let foundEmail: string | null = null;
+    let matchedDocId: string | null = null;
+
+    // A. Single-value indexed queries (fastest and resilient)
+    if (last10) {
+      try {
+        const qLast10 = query(usersRef, where('phoneLast10', '==', last10));
+        const res: any = await Promise.race([
+          getDocs(qLast10),
+          new Promise<null>((res) => setTimeout(() => res(null), 2500)),
+        ]);
+        if (res && !res.empty) {
+          foundEmail = res.docs[0].data().email || null;
+          matchedDocId = res.docs[0].id;
+        }
+      } catch (err) {
+        // continue
+      }
+    }
+
+    if (!foundEmail && normalized) {
+      try {
+        const qNorm = query(usersRef, where('phoneNormalized', '==', normalized));
+        const res: any = await Promise.race([
+          getDocs(qNorm),
+          new Promise<null>((res) => setTimeout(() => res(null), 2500)),
+        ]);
+        if (res && !res.empty) {
+          foundEmail = res.docs[0].data().email || null;
+          matchedDocId = res.docs[0].id;
+        }
+      } catch (err) {
+        // continue
+      }
+    }
+
+    // B. Direct raw phone string queries
+    if (!foundEmail && last10) {
+      const candidates = [
+        `+880 ${last10}`,
+        `+880 0${last10}`,
+        `+880${last10}`,
+        `0${last10}`,
+        last10,
+        rawPhone.trim(),
+      ];
+      for (const phoneStr of candidates) {
         try {
-          localStorage.setItem(`nvt_phone_email_${normalized}`, foundEmail);
-          localStorage.setItem(`nvt_phone_email_${last10}`, foundEmail);
+          const qPhone = query(usersRef, where('phone', '==', phoneStr));
+          const res: any = await Promise.race([
+            getDocs(qPhone),
+            new Promise<null>((res) => setTimeout(() => res(null), 1500)),
+          ]);
+          if (res && !res.empty) {
+            foundEmail = res.docs[0].data().email || null;
+            matchedDocId = res.docs[0].id;
+            break;
+          }
+        } catch {
+          // continue
+        }
+      }
+    }
+
+    // C. Identifier query by memberId or name
+    if (!foundEmail && rawPhone.trim()) {
+      try {
+        const cleanIdent = rawPhone.trim();
+        const qMember = query(usersRef, where('memberId', '==', cleanIdent.toUpperCase()));
+        const res: any = await Promise.race([
+          getDocs(qMember),
+          new Promise<null>((res) => setTimeout(() => res(null), 1500)),
+        ]);
+        if (res && !res.empty) {
+          foundEmail = res.docs[0].data().email || null;
+          matchedDocId = res.docs[0].id;
+        }
+      } catch {
+        // continue
+      }
+    }
+
+    // D. Comprehensive Firestore collection scan fallback (guarantees finding ANY legacy format)
+    if (!foundEmail) {
+      try {
+        const scanSnap: any = await Promise.race([
+          getDocs(usersRef),
+          new Promise<null>((res) => setTimeout(() => res(null), 3000)),
+        ]);
+        if (scanSnap && scanSnap.docs) {
+          for (const docSnap of scanSnap.docs) {
+            const data = docSnap.data();
+            const docPhone = data.phone || data.phoneNormalized || '';
+            const docNorm = normalizePhone(docPhone);
+            const docLast10 = docNorm.length >= 10 ? docNorm.slice(-10) : docNorm;
+
+            if (
+              (last10 && docLast10 && docLast10 === last10) ||
+              (normalized && docNorm && docNorm === normalized) ||
+              (data.memberId && data.memberId.toUpperCase() === rawPhone.trim().toUpperCase())
+            ) {
+              if (data.email) {
+                foundEmail = data.email;
+                matchedDocId = docSnap.id;
+                break;
+              }
+            }
+          }
+        }
+      } catch (scanErr) {
+        console.warn('[Firebase] Scan fallback notice:', scanErr);
+      }
+    }
+
+    if (foundEmail) {
+      // Cache locally for instantaneous subsequent logins
+      if (typeof window !== 'undefined' && window.localStorage) {
+        try {
+          if (normalized) localStorage.setItem(`nvt_phone_email_${normalized}`, foundEmail);
+          if (last10) {
+            localStorage.setItem(`nvt_phone_email_${last10}`, foundEmail);
+            localStorage.setItem(`nvt_phone_email_0${last10}`, foundEmail);
+            localStorage.setItem(`nvt_phone_email_880${last10}`, foundEmail);
+            localStorage.setItem(`nvt_phone_email_8800${last10}`, foundEmail);
+          }
         } catch {}
       }
+
+      // Self-heal Firestore doc with phoneNormalized & phoneLast10 asynchronously
+      if (matchedDocId && (normalized || last10)) {
+        updateDoc(doc(db, 'users', matchedDocId), {
+          phoneNormalized: normalized || undefined,
+          phoneLast10: last10 || undefined,
+        }).catch(() => {});
+      }
+
       return foundEmail;
     }
+
     return null;
   } catch (err) {
     console.warn('[Firebase] Query phone notice:', err);
     return null;
   }
+};
+
+/**
+ * Find phone associated with an email address in Firestore or local cache
+ */
+export const findPhoneByEmail = async (rawEmail: string): Promise<string | null> => {
+  const cleanEmail = rawEmail.trim().toLowerCase();
+  if (!cleanEmail) return null;
+
+  // 1. Check local storage accounts
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const rawAccounts = localStorage.getItem('novaterra_referral_accounts_v3');
+      if (rawAccounts) {
+        const accounts = JSON.parse(rawAccounts);
+        for (const acc of Object.values(accounts) as any[]) {
+          if (acc.email && acc.email.toLowerCase() === cleanEmail) {
+            if (acc.phone) return acc.phone;
+          }
+        }
+      }
+    }
+  } catch {}
+
+  // 2. Query Firestore users by email
+  try {
+    const usersRef = collection(db, 'users');
+    const q = query(usersRef, where('email', '==', rawEmail.trim()));
+    const snap: any = await Promise.race([
+      getDocs(q),
+      new Promise<null>((res) => setTimeout(() => res(null), 2500)),
+    ]);
+    if (snap && !snap.empty) {
+      return snap.docs[0].data().phone || null;
+    }
+
+    // 3. Scan fallback in case of case-difference
+    const scanSnap: any = await Promise.race([
+      getDocs(usersRef),
+      new Promise<null>((res) => setTimeout(() => res(null), 2500)),
+    ]);
+    if (scanSnap && scanSnap.docs) {
+      for (const d of scanSnap.docs) {
+        const data = d.data();
+        if (data.email && data.email.toLowerCase() === cleanEmail) {
+          return data.phone || null;
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[Firebase] findPhoneByEmail notice:', err);
+  }
+  return null;
 };
 
 /**

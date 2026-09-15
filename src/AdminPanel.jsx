@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from "react";
-import { initializeApp, getApps, getApp } from "firebase/app";
-import { getFirestore, collection, getDocs, doc, updateDoc, setDoc, getDoc, query, orderBy, increment } from "firebase/firestore";
-import { updateFirestoreDepositStatus } from "./lib/firebase";
+import { collection, getDocs, doc, setDoc, getDoc, query, orderBy, increment } from "firebase/firestore";
+import { db, updateFirestoreDepositStatus, sanitizeFirestoreData, cleanDocId } from "./lib/firebase";
 import { distributeReferralDepositCommissions } from "./utils/referralService";
 import {
   getLivePackages,
@@ -10,17 +9,6 @@ import {
   resetPackagesToDefault,
   DEFAULT_INVESTMENT_PACKAGES
 } from "./utils/packageService";
-
-const firebaseConfig = {
-  authDomain: "novavest-a711c.firebaseapp.com",
-  projectId: "novavest-a711c",
-  storageBucket: "novavest-a711c.firebasestorage.app",
-  messagingSenderId: "826750954477",
-  appId: "1:826750954477:web:5cc28ef9c0331520855e4"
-};
-
-const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
-const db = getFirestore(app);
 
 const ADMIN_SECRET_KEY = "123456"; 
 
@@ -68,6 +56,10 @@ export default function AdminPanel() {
 
   const [supportLink, setSupportLink] = useState("");
   const [telegramLink, setTelegramLink] = useState("");
+  const [crispWebsiteId, setCrispWebsiteId] = useState("458178db-b2c7-4e37-b759-d377ae93554a");
+  const [crispEnabled, setCrispEnabled] = useState(true);
+  const [hotline, setHotline] = useState("+880 9612-345678");
+  const [supportEmail, setSupportEmail] = useState("support@novaterraenergy.io");
 
   const handleLogin = (e) => {
     e.preventDefault();
@@ -129,6 +121,10 @@ export default function AdminPanel() {
         const data = settingsDoc.data();
         setSupportLink(data.whatsapp || "");
         setTelegramLink(data.telegram || "");
+        if (data.crispWebsiteId) setCrispWebsiteId(data.crispWebsiteId);
+        if (data.crispEnabled !== undefined) setCrispEnabled(data.crispEnabled);
+        if (data.hotline) setHotline(data.hotline);
+        if (data.supportEmail) setSupportEmail(data.supportEmail);
       }
 
       // ইনভেস্ট প্যাকেজ লোড
@@ -289,34 +285,43 @@ export default function AdminPanel() {
   const handleSaveSupport = async (e) => {
     e.preventDefault();
     try {
-      await setDoc(doc(db, "settings", "support"), {
-        whatsapp: supportLink,
-        telegram: telegramLink,
-        updatedAt: new Date()
-      }, { merge: true });
+      const supportData = sanitizeFirestoreData({
+        whatsapp: (supportLink || "").trim(),
+        telegram: (telegramLink || "").trim(),
+        crispWebsiteId: (crispWebsiteId || "").trim(),
+        crispEnabled: Boolean(crispEnabled),
+        hotline: (hotline || "").trim(),
+        supportEmail: (supportEmail || "").trim(),
+        updatedAt: new Date().toISOString()
+      });
+      await setDoc(doc(db, "settings", "support"), supportData, { merge: true });
 
-      setStatusMsg("✅ কাস্টমার সাপোর্ট লিংক সফলভাবে আপডেট করা হয়েছে!");
+      setStatusMsg("✅ কাস্টমার সাপোর্ট ও Crisp সেটিংস সফলভাবে আপডেট করা হয়েছে!");
     } catch (error) {
       console.error("সাপোর্ট সেভ এরর:", error);
-      setStatusMsg("❌ লিংক সেভ করা যায়নি।");
+      setStatusMsg("❌ সেটিংস সেভ করা যায়নি।");
     }
   };
 
   const handleWithdrawAction = async (withdrawId, userId, amount, action) => {
+    const cleanWId = cleanDocId(withdrawId, '');
+    if (!cleanWId) return;
     try {
-      const withdrawRef = doc(db, "withdrawals", withdrawId);
+      const withdrawRef = doc(db, "withdrawals", cleanWId);
       if (action === "approve") {
-        await updateDoc(withdrawRef, { status: "Approved" });
-        if (userId) {
-          const userRef = doc(db, "users", userId);
-          await updateDoc(userRef, {
+        await setDoc(withdrawRef, sanitizeFirestoreData({ status: "Approved", updatedAt: new Date().toISOString() }), { merge: true });
+        const cleanUId = cleanDocId(userId, '');
+        if (cleanUId && !Number.isNaN(Number(amount))) {
+          const userRef = doc(db, "users", cleanUId);
+          await setDoc(userRef, sanitizeFirestoreData({
             walletBalance: increment(-Number(amount)),
-            balance: increment(-Number(amount))
-          });
+            balance: increment(-Number(amount)),
+            updatedAt: new Date().toISOString(),
+          }), { merge: true });
         }
         setStatusMsg("✅ উইথড্র সফলভাবে অ্যাপ্রুভ করা হয়েছে!");
       } else {
-        await updateDoc(withdrawRef, { status: "Rejected" });
+        await setDoc(withdrawRef, sanitizeFirestoreData({ status: "Rejected", updatedAt: new Date().toISOString() }), { merge: true });
         setStatusMsg("❌ উইথড্র রিজেক্ট করা হয়েছে।");
       }
       fetchAllData();
@@ -327,23 +332,26 @@ export default function AdminPanel() {
   };
 
   const handleDepositAction = async (depositId, userId, amount, action, trxId) => {
+    const cleanDId = cleanDocId(depositId, '');
+    if (!cleanDId) return;
     try {
-      const depositRef = doc(db, "deposits", depositId);
+      const depositRef = doc(db, "deposits", cleanDId);
       const isApprove = action === "approve";
       const newStatus = isApprove ? "Approved" : "Rejected";
 
-      await updateDoc(depositRef, {
+      await setDoc(depositRef, sanitizeFirestoreData({
         status: newStatus,
         updatedAt: new Date().toISOString(),
-      });
+      }), { merge: true });
 
       // Synchronize with user's transactions and balance in Firestore
-      if (userId) {
+      const cleanUId = cleanDocId(userId, '');
+      if (cleanUId) {
         await updateFirestoreDepositStatus(
-          userId,
-          trxId || depositId,
+          cleanUId,
+          trxId || cleanDId,
           isApprove ? "completed" : "cancelled",
-          Number(amount)
+          Number(amount) || 0
         );
 
         if (isApprove) {
@@ -404,12 +412,15 @@ export default function AdminPanel() {
     }
 
     try {
-      const userDocRef = doc(db, "users", selectedUser);
-      await updateDoc(userDocRef, {
-        walletBalance: Number(newAmount),
-        balance: Number(newAmount),
-        updatedAt: new Date()
-      });
+      const cleanUId = cleanDocId(selectedUser, '');
+      if (!cleanUId) return;
+      const userDocRef = doc(db, "users", cleanUId);
+      const safeAmount = Number(newAmount) || 0;
+      await setDoc(userDocRef, sanitizeFirestoreData({
+        walletBalance: safeAmount,
+        balance: safeAmount,
+        updatedAt: new Date().toISOString()
+      }), { merge: true });
 
       setStatusMsg("✅ সফলভাবে ইউজারের ব্যালেন্স আপডেট হয়েছে!");
       setNewAmount("");
@@ -1131,18 +1142,69 @@ export default function AdminPanel() {
           </div>
         )}
 
-        {/* ৪. সাপোর্ট লিংক ট্যাব */}
+        {/* ৪. সাপোর্ট লিংক ও Crisp লাইভ চ্যাট ট্যাব */}
         {activeTab === "support" && (
-          <div style={{ maxWidth: "500px" }}>
-            <h3>📢 Customer Support Group Links</h3>
-            <form onSubmit={handleSaveSupport} style={{ marginTop: "15px" }}>
-              <label style={{ display: "block", marginBottom: "6px", fontSize: "14px" }}>WhatsApp / Support Group Link:</label>
+          <div style={{ maxWidth: "580px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "15px", borderBottom: "1px solid #2e3856", paddingBottom: "10px" }}>
+              <h3 style={{ margin: 0, color: "#00d2ff" }}>📢 Customer Support & Crisp Live Chat</h3>
+              <a 
+                href="https://app.crisp.chat" 
+                target="_blank" 
+                rel="noreferrer" 
+                style={{ padding: "6px 12px", borderRadius: "6px", backgroundColor: "#1e293b", color: "#38bdf8", textDecoration: "none", fontSize: "12px", fontWeight: "bold", border: "1px solid #0284c7" }}
+              >
+                📱 Crisp Inbox খুলুন ↗
+              </a>
+            </div>
+
+            <div style={{ backgroundColor: "rgba(14, 165, 233, 0.1)", border: "1px solid rgba(14, 165, 233, 0.3)", borderRadius: "8px", padding: "12px", marginBottom: "18px", fontSize: "13px", lineHeight: "1.5", color: "#bae6fd" }}>
+              💡 <strong>Crisp মোবাইল সাপোর্ট গাইড:</strong> ইউজার ওয়েবসাইটে মেসেজ দিলে সরাসরি আপনার ফোনে থাকা <strong>Crisp মোবাইল অ্যাপে</strong> নোটিফিকেশন আসবে। অ্যাপে ঢুকলে ইউজারের নাম, ফোন নম্বর ও মেম্বার আইডি দেখা যাবে এবং আপনি ফোন থেকেই মেসেজের উত্তর দিতে পারবেন।
+            </div>
+
+            <form onSubmit={handleSaveSupport}>
+              {/* Crisp Chat Config */}
+              <div style={{ backgroundColor: "#10182f", border: "1px solid #2e3856", borderRadius: "8px", padding: "14px", marginBottom: "16px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
+                  <label style={{ fontWeight: "bold", color: "#38bdf8", fontSize: "14px" }}>💬 Crisp Website ID:</label>
+                  <label style={{ fontSize: "13px", color: "#a5f3fc", display: "flex", alignItems: "center", gap: "6px", cursor: "pointer" }}>
+                    <input 
+                      type="checkbox" 
+                      checked={crispEnabled} 
+                      onChange={(e) => setCrispEnabled(e.target.checked)} 
+                    />
+                    লাইভ চ্যাট চালু রাখুন (Active)
+                  </label>
+                </div>
+                <input 
+                  type="text" 
+                  placeholder="458178db-b2c7-4e37-b759-d377ae93554a" 
+                  value={crispWebsiteId} 
+                  onChange={(e) => setCrispWebsiteId(e.target.value)} 
+                  style={{ width: "100%", padding: "10px", borderRadius: "6px", border: "1px solid #3b476c", backgroundColor: "#0b0f19", color: "#fff", boxSizing: "border-box", fontFamily: "monospace", fontSize: "13px" }} 
+                />
+              </div>
+
+              {/* WhatsApp Link */}
+              <label style={{ display: "block", marginBottom: "6px", fontSize: "14px", fontWeight: "bold" }}>🟢 WhatsApp Group / Support Link:</label>
               <input type="text" placeholder="https://chat.whatsapp.com/..." value={supportLink} onChange={(e) => setSupportLink(e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "12px", borderRadius: "6px", border: "1px solid #3b476c", backgroundColor: "#0b0f19", color: "#fff", boxSizing: "border-box" }} />
 
-              <label style={{ display: "block", marginBottom: "6px", fontSize: "14px" }}>Telegram Group / Channel Link:</label>
-              <input type="text" placeholder="https://t.me/..." value={telegramLink} onChange={(e) => setTelegramLink(e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px", borderRadius: "6px", border: "1px solid #3b476c", backgroundColor: "#0b0f19", color: "#fff", boxSizing: "border-box" }} />
+              {/* Telegram Link */}
+              <label style={{ display: "block", marginBottom: "6px", fontSize: "14px", fontWeight: "bold" }}>✈️ Telegram Group / Channel Link:</label>
+              <input type="text" placeholder="https://t.me/..." value={telegramLink} onChange={(e) => setTelegramLink(e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "12px", borderRadius: "6px", border: "1px solid #3b476c", backgroundColor: "#0b0f19", color: "#fff", boxSizing: "border-box" }} />
 
-              <button type="submit" style={{ width: "100%", padding: "12px", backgroundColor: "#22c55e", color: "#fff", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "bold" }}>লিংক সেভ করুন</button>
+              {/* Hotline & Email */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "15px" }}>
+                <div>
+                  <label style={{ display: "block", marginBottom: "6px", fontSize: "13px", fontWeight: "bold" }}>📞 Hotline Phone:</label>
+                  <input type="text" placeholder="+880 9612-345678" value={hotline} onChange={(e) => setHotline(e.target.value)} style={{ width: "100%", padding: "10px", borderRadius: "6px", border: "1px solid #3b476c", backgroundColor: "#0b0f19", color: "#fff", boxSizing: "border-box" }} />
+                </div>
+                <div>
+                  <label style={{ display: "block", marginBottom: "6px", fontSize: "13px", fontWeight: "bold" }}>✉️ Official Email:</label>
+                  <input type="email" placeholder="support@novaterraenergy.io" value={supportEmail} onChange={(e) => setSupportEmail(e.target.value)} style={{ width: "100%", padding: "10px", borderRadius: "6px", border: "1px solid #3b476c", backgroundColor: "#0b0f19", color: "#fff", boxSizing: "border-box" }} />
+                </div>
+              </div>
+
+              <button type="submit" style={{ width: "100%", padding: "12px", backgroundColor: "#22c55e", color: "#fff", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "bold", fontSize: "15px" }}>সব সেটিংস সেভ করুন</button>
             </form>
           </div>
         )}

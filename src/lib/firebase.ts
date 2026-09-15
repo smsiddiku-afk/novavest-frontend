@@ -88,8 +88,8 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     operationType,
     path,
   };
-  console.error('Firestore Error:', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
+  console.warn('[Firestore Safely Handled Error]:', JSON.stringify(errInfo));
+  return errInfo;
 }
 
 // Non-blocking background connectivity test (does not block UI or auth initialization)
@@ -109,25 +109,151 @@ testFirestoreConnection();
  * Normalizes phone numbers for matching (strips non-digits)
  */
 export const normalizePhone = (phone: string): string => {
-  return phone.replace(/\D/g, '');
+  return (phone || '').replace(/\D/g, '');
 };
 
 /**
- * Strips all undefined fields recursively from an object before sending to Firestore
- * to ensure Firestore setDoc/updateDoc never fails with 'Unsupported field value: undefined'
+ * Sanitizes document IDs to ensure valid Firestore document paths:
+ * - Trims whitespace
+ * - Replaces slashes '/' with '_' so references don't produce invalid segment counts
+ * - Replaces whitespace with '_'
+ * - Ensures a non-empty fallback
  */
-export function sanitizeFirestoreData<T extends Record<string, any>>(obj: T): Record<string, any> {
-  const result: Record<string, any> = {};
-  for (const [key, val] of Object.entries(obj)) {
-    if (val !== undefined) {
-      if (val !== null && typeof val === 'object' && !(val instanceof Date) && !('nanoseconds' in val) && !Array.isArray(val)) {
-        result[key] = sanitizeFirestoreData(val);
+export const cleanDocId = (id: unknown, fallback = 'doc'): string => {
+  if (typeof id !== 'string' && typeof id !== 'number') {
+    return fallback;
+  }
+  let str = String(id).trim().replace(/\//g, '_').replace(/\s+/g, '_');
+  str = str.replace(/^\.+|\.+$/g, '');
+  if (str === '.' || str === '..' || str.length === 0) {
+    return fallback;
+  }
+  return str;
+};
+
+/**
+ * Recursively sanitizes any JavaScript object/data before sending to Firestore:
+ * - Strips `undefined`, functions, symbols, and bigints
+ * - Replaces NaN, Infinity, -Infinity with 0
+ * - Flattens nested arrays recursively so Firestore never encounters nested arrays [[...]]
+ * - Prevents FieldValues inside arrays (Firestore throws if serverTimestamp/increment is in an array)
+ * - Strips empty keys `""` and keys beginning/ending with `__`
+ * - Converts non-plain objects / class instances safely to plain objects
+ * - Preserves top-level Firestore FieldValues (serverTimestamp, increment, arrayUnion, arrayRemove, deleteField)
+ */
+export function sanitizeFirestoreData(data: any, inArray = false): any {
+  if (data === undefined) {
+    return undefined;
+  }
+  if (data === null) {
+    return null;
+  }
+
+  const type = typeof data;
+  if (type === 'number') {
+    if (!Number.isFinite(data) || Number.isNaN(data)) {
+      return 0;
+    }
+    return data;
+  }
+  if (type === 'string' || type === 'boolean') {
+    return data;
+  }
+  if (type === 'function' || type === 'symbol' || type === 'bigint') {
+    return undefined;
+  }
+
+  // Preserve Date instances and Firestore Timestamps
+  if (data instanceof Date) {
+    return data;
+  }
+  if (typeof data === 'object' && 'nanoseconds' in data && 'seconds' in data) {
+    return data;
+  }
+
+  // Preserve Firestore FieldValues (increment, serverTimestamp, arrayUnion, arrayRemove, deleteField, etc.)
+  const isFieldValue =
+    Boolean(data._methodName) ||
+    (typeof data.isEqual === 'function' && typeof data._toFieldTransform === 'function');
+
+  if (isFieldValue) {
+    if (inArray) {
+      // Firestore does NOT permit FieldValues inside arrays
+      if (data._methodName === 'serverTimestamp') {
+        return new Date().toISOString();
+      }
+      if (data._methodName === 'increment' && typeof data._operand === 'number') {
+        return data._operand;
+      }
+      return null;
+    }
+    // If it's an arrayUnion or arrayRemove, sanitize the elements inside it
+    if ((data._methodName === 'arrayUnion' || data._methodName === 'arrayRemove') && Array.isArray(data._elements)) {
+      data._elements = data._elements
+        .map((el: any) => sanitizeFirestoreData(el, true))
+        .filter((el: any) => el !== undefined);
+    }
+    return data;
+  }
+
+  // Handle Arrays:
+  if (Array.isArray(data)) {
+    const flatItems: any[] = [];
+    for (const item of data) {
+      if (Array.isArray(item)) {
+        // Flatten nested arrays recursively
+        const innerSanitized = sanitizeFirestoreData(item, true);
+        if (Array.isArray(innerSanitized)) {
+          flatItems.push(...innerSanitized);
+        } else if (innerSanitized !== undefined) {
+          flatItems.push(innerSanitized);
+        }
       } else {
-        result[key] = val;
+        const sanitized = sanitizeFirestoreData(item, true);
+        if (sanitized !== undefined) {
+          flatItems.push(sanitized);
+        }
       }
     }
+    return flatItems;
   }
-  return result;
+
+  // Handle Objects:
+  if (type === 'object') {
+    let target = data;
+    if (typeof data.toJSON === 'function') {
+      try {
+        const jsonResult = data.toJSON();
+        if (typeof jsonResult === 'object' && jsonResult !== null) {
+          target = jsonResult;
+        } else {
+          return sanitizeFirestoreData(jsonResult, inArray);
+        }
+      } catch {
+        target = data;
+      }
+    }
+
+    const result: Record<string, any> = {};
+    for (const [key, val] of Object.entries(target)) {
+      if (typeof key !== 'string') continue;
+      const cleanKey = key.trim();
+      // Firestore forbids empty keys and keys starting and ending with __
+      if (cleanKey.length === 0 || /^__.*__$/.test(cleanKey)) {
+        continue;
+      }
+      if (val === undefined) {
+        continue;
+      }
+      const sanitizedVal = sanitizeFirestoreData(val, inArray);
+      if (sanitizedVal !== undefined) {
+        result[cleanKey] = sanitizedVal;
+      }
+    }
+    return result;
+  }
+
+  return undefined;
 }
 
 /**
@@ -145,31 +271,48 @@ export const createFirestoreUserProfile = async (
     walletBalance?: number;
   }
 ): Promise<UserProfile> => {
-  const userDocRef = doc(db, 'users', uid);
+  const cleanUid = cleanDocId(uid, '');
+  if (!cleanUid) {
+    return {
+      uid: '',
+      name: data?.name || 'NVT Member',
+      phone: data?.phone || '',
+      email: data?.email || '',
+      memberId: data?.memberId || 'NVT000000',
+      referralCode: 'NV0000',
+      walletBalance: 0,
+      memberSince: 'May 2024',
+      isVerified: true,
+    };
+  }
+
+  const userDocRef = doc(db, 'users', cleanUid);
   const now = new Date();
   const memberSince = now.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
 
   // Generate unique 6-character referral code if not already provided
-  const cleanMemberId = data.memberId?.trim() || `NVT${Math.floor(100000 + Math.random() * 900000)}`;
+  const cleanMemberId = (data.memberId || '').trim() || `NVT${Math.floor(100000 + Math.random() * 900000)}`;
   const referralCode =
-    data.referralCode?.trim().toUpperCase() ||
+    (data.referralCode || '').trim().toUpperCase() ||
     cleanMemberId.replace(/[^A-Z0-9]/gi, '').slice(-6).toUpperCase() ||
     Math.random().toString(36).substring(2, 8).toUpperCase();
 
-  const cleanReferredBy = data.referredBy?.trim().toUpperCase() || '';
+  const cleanReferredBy = (data.referredBy || '').trim().toUpperCase();
+
+  const safeBalance =
+    typeof data.walletBalance === 'number' && !Number.isNaN(data.walletBalance) && data.walletBalance !== 12450.0
+      ? data.walletBalance
+      : 0.0;
 
   const profile: UserProfile = {
-    uid,
-    name: data.name.trim() || 'NVT Member',
-    phone: data.phone.trim(),
-    email: data.email.trim(),
+    uid: cleanUid,
+    name: (data.name || '').trim() || 'NVT Member',
+    phone: (data.phone || '').trim(),
+    email: (data.email || '').trim(),
     memberId: cleanMemberId,
     referralCode,
     referredBy: cleanReferredBy || undefined,
-    walletBalance:
-      typeof data.walletBalance === 'number' && data.walletBalance !== 12450.0
-        ? data.walletBalance
-        : 0.0,
+    walletBalance: safeBalance,
     memberSince,
     isVerified: true,
   };
@@ -178,7 +321,7 @@ export const createFirestoreUserProfile = async (
   const last10 = normalized.length >= 10 ? normalized.slice(-10) : normalized;
 
   const docPayload: Record<string, any> = {
-    uid,
+    uid: cleanUid,
     name: profile.name,
     phone: profile.phone,
     email: profile.email,
@@ -187,22 +330,28 @@ export const createFirestoreUserProfile = async (
     walletBalance: profile.walletBalance,
     memberSince,
     isVerified: true,
-    phoneNormalized: normalizePhone(profile.phone),
-    phoneLast10: last10,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   };
 
+  if (normalized) {
+    docPayload.phoneNormalized = normalized;
+  }
+  if (last10) {
+    docPayload.phoneLast10 = last10;
+  }
   if (cleanReferredBy) {
     docPayload.referredBy = cleanReferredBy;
   }
 
   try {
-    await setDoc(userDocRef, sanitizeFirestoreData(docPayload), { merge: true });
+    const cleanPayload = sanitizeFirestoreData(docPayload);
+    if (cleanPayload && Object.keys(cleanPayload).length > 0) {
+      await setDoc(userDocRef, cleanPayload, { merge: true });
+    }
     return profile;
   } catch (error) {
-    console.error('[Firebase] Error in createFirestoreUserProfile:', error);
-    handleFirestoreError(error, OperationType.CREATE, `users/${uid}`);
+    console.warn('[Firebase] Warning in createFirestoreUserProfile:', error);
     return profile;
   }
 };
@@ -211,13 +360,15 @@ export const createFirestoreUserProfile = async (
  * Fetch a user profile by UID
  */
 export const getFirestoreUserProfile = async (uid: string): Promise<UserProfile | null> => {
-  const userDocRef = doc(db, 'users', uid);
+  const cleanUid = cleanDocId(uid, '');
+  if (!cleanUid) return null;
+  const userDocRef = doc(db, 'users', cleanUid);
   try {
     const snap = await getDoc(userDocRef);
     if (!snap.exists()) return null;
     const data = snap.data();
     return {
-      uid,
+      uid: cleanUid,
       name: data.name || 'NVT Member',
       phone: data.phone || '',
       email: data.email || '',
@@ -225,7 +376,7 @@ export const getFirestoreUserProfile = async (uid: string): Promise<UserProfile 
       referralCode: data.referralCode || data.memberId?.replace(/[^A-Z0-9]/gi, '').slice(-6).toUpperCase() || 'NV8829',
       referredBy: data.referredBy || undefined,
       walletBalance:
-        typeof data.walletBalance === 'number' && data.walletBalance !== 12450.0
+        typeof data.walletBalance === 'number' && !Number.isNaN(data.walletBalance) && data.walletBalance !== 12450.0
           ? data.walletBalance
           : 0.0,
       memberSince: data.memberSince || 'May 2024',
@@ -235,7 +386,7 @@ export const getFirestoreUserProfile = async (uid: string): Promise<UserProfile 
       transactions: data.transactions || [],
     };
   } catch (error) {
-    handleFirestoreError(error, OperationType.GET, `users/${uid}`);
+    console.warn('[Firebase] Warning fetching user profile:', error);
     return null;
   }
 };
@@ -415,10 +566,13 @@ export const findEmailByPhone = async (rawPhone: string): Promise<string | null>
 
       // Self-heal Firestore doc with phoneNormalized & phoneLast10 asynchronously
       if (matchedDocId && (normalized || last10)) {
-        updateDoc(doc(db, 'users', matchedDocId), {
-          phoneNormalized: normalized || undefined,
-          phoneLast10: last10 || undefined,
-        }).catch(() => {});
+        const patch: Record<string, any> = {};
+        if (normalized) patch.phoneNormalized = normalized;
+        if (last10) patch.phoneLast10 = last10;
+        if (Object.keys(patch).length > 0) {
+          const safeMatchedId = cleanDocId(matchedDocId);
+          setDoc(doc(db, 'users', safeMatchedId), sanitizeFirestoreData(patch), { merge: true }).catch(() => {});
+        }
       }
 
       return foundEmail;
@@ -488,14 +642,22 @@ export const findPhoneByEmail = async (rawEmail: string): Promise<string | null>
  * Update wallet balance in Firestore and maintain consistency
  */
 export const updateFirestoreWalletBalance = async (uid: string, newBalance: number): Promise<void> => {
-  const userDocRef = doc(db, 'users', uid);
+  const cleanUid = cleanDocId(uid, '');
+  if (!cleanUid) return;
+  const userDocRef = doc(db, 'users', cleanUid);
+  const safeBalance = typeof newBalance === 'number' && !Number.isNaN(newBalance) ? newBalance : 0.0;
   try {
-    await updateDoc(userDocRef, {
-      walletBalance: newBalance,
-      updatedAt: serverTimestamp(),
-    });
+    await setDoc(
+      userDocRef,
+      sanitizeFirestoreData({
+        walletBalance: safeBalance,
+        balance: safeBalance,
+        updatedAt: serverTimestamp(),
+      }),
+      { merge: true }
+    );
   } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, `users/${uid}`);
+    console.warn('[Firebase] Warning updating wallet balance:', error);
   }
 };
 
@@ -503,7 +665,9 @@ export const updateFirestoreWalletBalance = async (uid: string, newBalance: numb
  * Update full user profile in Firestore
  */
 export const updateFirestoreUserProfile = async (uid: string, updates: Partial<UserProfile>): Promise<void> => {
-  const userDocRef = doc(db, 'users', uid);
+  const cleanUid = cleanDocId(uid, '');
+  if (!cleanUid) return;
+  const userDocRef = doc(db, 'users', cleanUid);
   try {
     const payload: Record<string, any> = {
       ...updates,
@@ -512,9 +676,12 @@ export const updateFirestoreUserProfile = async (uid: string, updates: Partial<U
     if (updates.phone) {
       payload.phoneNormalized = normalizePhone(updates.phone);
     }
-    await updateDoc(userDocRef, sanitizeFirestoreData(payload));
+    const cleanPayload = sanitizeFirestoreData(payload);
+    if (cleanPayload && Object.keys(cleanPayload).length > 0) {
+      await setDoc(userDocRef, cleanPayload, { merge: true });
+    }
   } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, `users/${uid}`);
+    console.warn('[Firebase] Warning updating user profile:', error);
   }
 };
 
@@ -526,14 +693,16 @@ export const subscribeToFirestoreUserProfile = (
   onUpdate: (user: UserProfile) => void,
   onError?: (err: Error) => void
 ): (() => void) => {
-  const userDocRef = doc(db, 'users', uid);
+  const cleanUid = cleanDocId(uid, '');
+  if (!cleanUid) return () => {};
+  const userDocRef = doc(db, 'users', cleanUid);
   return onSnapshot(
     userDocRef,
     (snap) => {
       if (snap.exists()) {
         const data = snap.data();
         const profile: UserProfile = {
-          uid,
+          uid: cleanUid,
           name: data.name || 'NVT Member',
           phone: data.phone || '',
           email: data.email || '',
@@ -541,7 +710,7 @@ export const subscribeToFirestoreUserProfile = (
           referralCode: data.referralCode || data.memberId?.replace(/[^A-Z0-9]/gi, '').slice(-6).toUpperCase() || 'NV8829',
           referredBy: data.referredBy || undefined,
           walletBalance:
-            typeof data.walletBalance === 'number' && data.walletBalance !== 12450.0
+            typeof data.walletBalance === 'number' && !Number.isNaN(data.walletBalance) && data.walletBalance !== 12450.0
               ? data.walletBalance
               : 0.0,
           memberSince: data.memberSince || 'May 2024',
@@ -610,8 +779,8 @@ export const recordFirestoreDeposit = async (
     status?: 'completed' | 'pending' | 'failed' | 'cancelled';
   }
 ): Promise<{ deposit: DepositRecord; transaction: TransactionRecord }> => {
-  const depositId = data.orderNo || `DEP-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
-  const trxId = (data.trxId && data.trxId.trim()) || `TXN-${Date.now().toString().slice(-6)}`;
+  const depositId = cleanDocId(data.orderNo || `DEP-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`);
+  const trxId = cleanDocId((data.trxId && data.trxId.trim()) || `TXN-${Date.now().toString().slice(-6)}`);
   const now = new Date();
 
   const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
@@ -658,46 +827,50 @@ export const recordFirestoreDeposit = async (
   };
 
   try {
-    const userDocRef = doc(db, 'users', uid);
+    const cleanUid = cleanDocId(uid, '');
+    if (!cleanUid) {
+      return { deposit: depositItem, transaction: transactionItem };
+    }
+    const userDocRef = doc(db, 'users', cleanUid);
+
+    const safeDepositItem = sanitizeFirestoreData(depositItem);
+    const safeTransactionItem = sanitizeFirestoreData(transactionItem);
 
     // 1. If completed: atomically increment wallet balance and push transaction
     // If pending or failed: do NOT increment wallet balance, only push transaction
-    const updatePayload: any = {
-      transactions: arrayUnion(transactionItem),
+    const updatePayload: any = sanitizeFirestoreData({
+      transactions: arrayUnion(safeTransactionItem),
       updatedAt: serverTimestamp(),
-    };
-
-    if (finalStatus === 'completed') {
-      updatePayload.walletBalance = increment(data.amount);
-      updatePayload.balance = increment(data.amount);
-    }
+      ...(finalStatus === 'completed'
+        ? {
+            walletBalance: increment(Number(data.amount) || 0),
+            balance: increment(Number(data.amount) || 0),
+          }
+        : {}),
+    });
 
     await setDoc(userDocRef, updatePayload, { merge: true });
 
     // 2. Save in deposits collection & subcollection
     try {
-      await setDoc(doc(db, 'users', uid, 'deposits', depositId), {
-        ...depositItem,
+      const depPayload = sanitizeFirestoreData({
+        ...safeDepositItem,
         serverCreatedAt: serverTimestamp(),
       });
-      await setDoc(doc(db, 'deposits', depositId), {
-        ...depositItem,
-        serverCreatedAt: serverTimestamp(),
-      });
+      await setDoc(doc(db, 'users', cleanUid, 'deposits', depositId), depPayload, { merge: true });
+      await setDoc(doc(db, 'deposits', depositId), depPayload, { merge: true });
     } catch (depErr) {
       console.warn('[Firebase] Non-blocking notice saving deposits collection:', depErr);
     }
 
     // 3. Save in transactions collection & subcollection
     try {
-      await setDoc(doc(db, 'users', uid, 'transactions', trxId), {
-        ...transactionItem,
+      const trxPayload = sanitizeFirestoreData({
+        ...safeTransactionItem,
         serverCreatedAt: serverTimestamp(),
       });
-      await setDoc(doc(db, 'transactions', trxId), {
-        ...transactionItem,
-        serverCreatedAt: serverTimestamp(),
-      });
+      await setDoc(doc(db, 'users', cleanUid, 'transactions', trxId), trxPayload, { merge: true });
+      await setDoc(doc(db, 'transactions', trxId), trxPayload, { merge: true });
     } catch (trxErr) {
       console.warn('[Firebase] Non-blocking notice saving transactions collection:', trxErr);
     }
@@ -705,8 +878,7 @@ export const recordFirestoreDeposit = async (
     console.log(`[Firebase] Successfully recorded deposit [Status: ${finalStatus}]:`, depositItem);
     return { deposit: depositItem, transaction: transactionItem };
   } catch (error) {
-    console.error('[Firebase] Error in recordFirestoreDeposit:', error);
-    handleFirestoreError(error, OperationType.UPDATE, `users/${uid}`);
+    console.warn('[Firebase] Warning in recordFirestoreDeposit:', error);
     return { deposit: depositItem, transaction: transactionItem };
   }
 };
@@ -723,11 +895,15 @@ export const updateFirestoreDepositStatus = async (
   amount?: number
 ): Promise<boolean> => {
   try {
+    const cleanUid = cleanDocId(uid, '');
+    const cleanId = cleanDocId(trxIdOrOrderNo, '');
+    if (!cleanUid || !cleanId) return false;
+
     const isCompleted = newStatus === 'completed';
     const statusBangla = isCompleted ? 'সফল' : 'বাতিল';
     const depositStatus = isCompleted ? 'completed' : 'failed';
 
-    const userDocRef = doc(db, 'users', uid);
+    const userDocRef = doc(db, 'users', cleanUid);
     const userSnap = await getDoc(userDocRef);
 
     if (userSnap.exists()) {
@@ -736,64 +912,81 @@ export const updateFirestoreDepositStatus = async (
       let foundAmount = amount || 0;
 
       const updatedTxns = txns.map((t: any) => {
-        if (t.id === trxIdOrOrderNo || t.hash === trxIdOrOrderNo || t.orderNo === trxIdOrOrderNo) {
+        if (t.id === cleanId || t.hash === cleanId || t.orderNo === cleanId) {
           if (!foundAmount && t.rawAmount) foundAmount = Number(t.rawAmount);
           return {
             ...t,
             status: statusBangla,
             isCredit: isCompleted,
             desc: isCompleted
-              ? `ডিপোজিট TrxID: ${trxIdOrOrderNo} (সফল)`
-              : `ডিপোজিট TrxID: ${trxIdOrOrderNo} (বাতিল)`,
+              ? `ডিপোজিট TrxID: ${cleanId} (সফল)`
+              : `ডিপোজিট TrxID: ${cleanId} (বাতিল)`,
           };
         }
         return t;
       });
 
-      const updatePayload: any = {
-        transactions: updatedTxns,
+      const updatePayload: any = sanitizeFirestoreData({
+        transactions: sanitizeFirestoreData(updatedTxns),
         updatedAt: serverTimestamp(),
-      };
+        ...(isCompleted && foundAmount > 0
+          ? {
+              walletBalance: increment(foundAmount),
+              balance: increment(foundAmount),
+            }
+          : {}),
+      });
 
-      if (isCompleted && foundAmount > 0) {
-        updatePayload.walletBalance = increment(foundAmount);
-        updatePayload.balance = increment(foundAmount);
-      }
-
-      await updateDoc(userDocRef, updatePayload);
+      await setDoc(userDocRef, updatePayload, { merge: true });
     }
 
     // Update in deposits collections
     try {
-      await updateDoc(doc(db, 'users', uid, 'deposits', trxIdOrOrderNo), {
-        status: depositStatus,
-        updatedAt: serverTimestamp(),
-      });
+      await setDoc(
+        doc(db, 'users', cleanUid, 'deposits', cleanId),
+        sanitizeFirestoreData({
+          status: depositStatus,
+          updatedAt: serverTimestamp(),
+        }),
+        { merge: true }
+      );
     } catch (_) {}
     try {
-      await updateDoc(doc(db, 'deposits', trxIdOrOrderNo), {
-        status: isCompleted ? 'Approved' : 'Rejected',
-        updatedAt: serverTimestamp(),
-      });
+      await setDoc(
+        doc(db, 'deposits', cleanId),
+        sanitizeFirestoreData({
+          status: isCompleted ? 'Approved' : 'Rejected',
+          updatedAt: serverTimestamp(),
+        }),
+        { merge: true }
+      );
     } catch (_) {}
 
     // Update in transactions collections
     try {
-      await updateDoc(doc(db, 'users', uid, 'transactions', trxIdOrOrderNo), {
-        status: statusBangla,
-        isCredit: isCompleted,
-        updatedAt: serverTimestamp(),
-      });
+      await setDoc(
+        doc(db, 'users', cleanUid, 'transactions', cleanId),
+        sanitizeFirestoreData({
+          status: statusBangla,
+          isCredit: isCompleted,
+          updatedAt: serverTimestamp(),
+        }),
+        { merge: true }
+      );
     } catch (_) {}
     try {
-      await updateDoc(doc(db, 'transactions', trxIdOrOrderNo), {
-        status: statusBangla,
-        isCredit: isCompleted,
-        updatedAt: serverTimestamp(),
-      });
+      await setDoc(
+        doc(db, 'transactions', cleanId),
+        sanitizeFirestoreData({
+          status: statusBangla,
+          isCredit: isCompleted,
+          updatedAt: serverTimestamp(),
+        }),
+        { merge: true }
+      );
     } catch (_) {}
 
-    console.log(`[Firebase] Successfully updated deposit status [${trxIdOrOrderNo} -> ${newStatus}]`);
+    console.log(`[Firebase] Successfully updated deposit status [${cleanId} -> ${newStatus}]`);
     return true;
   } catch (err) {
     console.error('[Firebase] updateFirestoreDepositStatus error:', err);
@@ -813,9 +1006,11 @@ export const isValidRealTrxId = (_trxId: string): boolean => {
  * Fetch all user transactions from Firestore
  */
 export const getFirestoreUserTransactions = async (uid: string): Promise<TransactionRecord[]> => {
+  const cleanUid = cleanDocId(uid, '');
+  if (!cleanUid) return [];
   try {
     // Try user subcollection first
-    const subColRef = collection(db, 'users', uid, 'transactions');
+    const subColRef = collection(db, 'users', cleanUid, 'transactions');
     const snap = await getDocs(subColRef);
     if (!snap.empty) {
       return snap.docs.map((d) => d.data() as TransactionRecord);
@@ -823,14 +1018,14 @@ export const getFirestoreUserTransactions = async (uid: string): Promise<Transac
 
     // Fallback to querying top-level transactions collection
     const txRef = collection(db, 'transactions');
-    const q = query(txRef, where('userId', '==', uid));
+    const q = query(txRef, where('userId', '==', cleanUid));
     const topSnap = await getDocs(q);
     if (!topSnap.empty) {
       return topSnap.docs.map((d) => d.data() as TransactionRecord);
     }
 
     // Fallback to transactions in user document
-    const userDocRef = doc(db, 'users', uid);
+    const userDocRef = doc(db, 'users', cleanUid);
     const uSnap = await getDoc(userDocRef);
     if (uSnap.exists()) {
       return uSnap.data().transactions || [];
@@ -850,7 +1045,9 @@ export const subscribeToUserTransactions = (
   uid: string,
   onUpdate: (transactions: TransactionRecord[]) => void
 ): (() => void) => {
-  const subColRef = collection(db, 'users', uid, 'transactions');
+  const cleanUid = cleanDocId(uid, '');
+  if (!cleanUid) return () => {};
+  const subColRef = collection(db, 'users', cleanUid, 'transactions');
   return onSnapshot(
     subColRef,
     (snap) => {
@@ -890,17 +1087,20 @@ export const recordInvestmentInFirestore = async (
   totalDaily: number,
   allInvestments: InvestmentRecord[]
 ): Promise<void> => {
+  const cleanUid = cleanDocId(uid, '');
+  if (!cleanUid) return;
+
   try {
-    const userDocRef = doc(db, 'users', uid);
-    const invId = investment.id || `INV-${Date.now()}`;
+    const userDocRef = doc(db, 'users', cleanUid);
+    const invId = cleanDocId(investment.id || `INV-${Date.now()}`);
 
     // 1. Save in user's subcollection
     await setDoc(
-      doc(db, 'users', uid, 'investments', invId),
+      doc(db, 'users', cleanUid, 'investments', invId),
       sanitizeFirestoreData({
         ...investment,
         id: invId,
-        userId: uid,
+        userId: cleanUid,
         serverCreatedAt: serverTimestamp(),
       }),
       { merge: true }
@@ -912,7 +1112,7 @@ export const recordInvestmentInFirestore = async (
       sanitizeFirestoreData({
         ...investment,
         id: invId,
-        userId: uid,
+        userId: cleanUid,
         serverCreatedAt: serverTimestamp(),
       }),
       { merge: true }
@@ -922,11 +1122,11 @@ export const recordInvestmentInFirestore = async (
     await setDoc(
       userDocRef,
       sanitizeFirestoreData({
-        walletBalance: updatedBalance,
-        vipLevel: newVipLevel,
-        dailyRewards: totalDaily,
-        activeUnits: allInvestments.length,
-        activeInvestments: allInvestments,
+        walletBalance: Number(updatedBalance) || 0,
+        vipLevel: Number(newVipLevel) || 0,
+        dailyRewards: Number(totalDaily) || 0,
+        activeUnits: allInvestments?.length || 0,
+        activeInvestments: sanitizeFirestoreData(allInvestments || []),
         updatedAt: serverTimestamp(),
       }),
       { merge: true }
@@ -939,13 +1139,15 @@ export const recordInvestmentInFirestore = async (
 };
 
 export const getFirestoreUserInvestments = async (uid: string): Promise<InvestmentRecord[]> => {
+  const cleanUid = (uid || '').trim();
+  if (!cleanUid) return [];
   try {
-    const subCol = collection(db, 'users', uid, 'investments');
+    const subCol = collection(db, 'users', cleanUid, 'investments');
     const snap = await getDocs(subCol);
     if (!snap.empty) {
       return snap.docs.map((d) => d.data() as InvestmentRecord);
     }
-    const userDoc = await getDoc(doc(db, 'users', uid));
+    const userDoc = await getDoc(doc(db, 'users', cleanUid));
     if (userDoc.exists() && Array.isArray(userDoc.data().activeInvestments)) {
       return userDoc.data().activeInvestments;
     }
@@ -974,14 +1176,17 @@ export interface ReferralNodeRecord {
 
 export const saveReferralNodeToFirestore = async (node: ReferralNodeRecord): Promise<void> => {
   try {
-    const cleanCode = (node.userCode || '').trim().toUpperCase();
+    const rawCode = (node.userCode || '').trim().toUpperCase();
+    const cleanCode = cleanDocId(rawCode, '');
     if (!cleanCode) return;
+
+    const cleanMemberId = node.memberId ? cleanDocId(node.memberId.trim().toUpperCase(), '') : '';
 
     const payload = sanitizeFirestoreData({
       ...node,
       userCode: cleanCode,
       referredByCode: (node.referredByCode || '').trim().toUpperCase(),
-      memberId: (node.memberId || '').trim().toUpperCase(),
+      memberId: cleanMemberId,
       updatedAt: serverTimestamp(),
     });
 
@@ -989,8 +1194,8 @@ export const saveReferralNodeToFirestore = async (node: ReferralNodeRecord): Pro
     await setDoc(doc(db, 'referral_nodes', cleanCode), payload, { merge: true });
 
     // Also alias by memberId if different from referral code
-    if (node.memberId && node.memberId.trim().toUpperCase() !== cleanCode) {
-      await setDoc(doc(db, 'referral_nodes', node.memberId.trim().toUpperCase()), payload, { merge: true });
+    if (cleanMemberId && cleanMemberId !== cleanCode) {
+      await setDoc(doc(db, 'referral_nodes', cleanMemberId), payload, { merge: true });
     }
 
     console.log('[Firebase] Referral node synced to Firestore:', cleanCode);
@@ -1038,25 +1243,31 @@ export const recordPromoClaimInFirestore = async (
   level: string,
   amount: number
 ): Promise<void> => {
+  const cleanIdOrCode = cleanDocId(uidOrCode, '');
+  const cleanTierId = cleanDocId(tierId, '').toLowerCase();
+  if (!cleanIdOrCode || !cleanTierId) return;
+
   try {
-    const claimId = `${uidOrCode.replace(/[^a-zA-Z0-9]/g, '_')}_${tierId.toLowerCase()}`;
+    const claimId = cleanDocId(`${cleanIdOrCode}_${cleanTierId}`);
     const nowIso = new Date().toISOString();
 
     const payload = sanitizeFirestoreData({
       id: claimId,
-      userId: uidOrCode,
-      tierId: tierId.toLowerCase(),
-      level,
-      amount,
+      userId: cleanIdOrCode,
+      tierId: cleanTierId,
+      level: level || '',
+      amount: Number(amount) || 0,
       claimedAt: nowIso,
       serverCreatedAt: serverTimestamp(),
     });
 
-    // 1. Top-level promo claims
-    await setDoc(doc(db, 'promo_claims', claimId), payload, { merge: true });
+    if (payload && Object.keys(payload).length > 0) {
+      // 1. Top-level promo claims
+      await setDoc(doc(db, 'promo_claims', claimId), payload, { merge: true });
 
-    // 2. User subcollection
-    await setDoc(doc(db, 'users', uidOrCode, 'promo_claims', tierId.toLowerCase()), payload, { merge: true });
+      // 2. User subcollection
+      await setDoc(doc(db, 'users', cleanIdOrCode, 'promo_claims', cleanTierId), payload, { merge: true });
+    }
 
     console.log('[Firebase] Promo bonus claim persisted to Firestore:', claimId);
   } catch (err) {
@@ -1065,11 +1276,14 @@ export const recordPromoClaimInFirestore = async (
 };
 
 export const getFirestorePromoClaims = async (uidOrCode: string): Promise<Record<string, boolean>> => {
+  const cleanIdOrCode = cleanDocId(uidOrCode, '');
+  if (!cleanIdOrCode) return {};
+
   try {
     const result: Record<string, boolean> = {};
 
     // Check user subcollection
-    const subCol = collection(db, 'users', uidOrCode, 'promo_claims');
+    const subCol = collection(db, 'users', cleanIdOrCode, 'promo_claims');
     const snap = await getDocs(subCol);
     snap.forEach((d) => {
       const data = d.data();
@@ -1081,7 +1295,7 @@ export const getFirestorePromoClaims = async (uidOrCode: string): Promise<Record
 
     // Fallback: check top-level promo_claims query
     const topCol = collection(db, 'promo_claims');
-    const q = query(topCol, where('userId', '==', uidOrCode));
+    const q = query(topCol, where('userId', '==', cleanIdOrCode));
     const topSnap = await getDocs(q);
     topSnap.forEach((d) => {
       const data = d.data();
@@ -1112,15 +1326,23 @@ export const recordCommissionInFirestore = async (comm: {
   timestamp: string;
 }): Promise<void> => {
   try {
-    const docRef = doc(db, 'commissions', comm.id);
-    await setDoc(
-      docRef,
-      sanitizeFirestoreData({
-        ...comm,
-        serverCreatedAt: serverTimestamp(),
-      }),
-      { merge: true }
-    );
+    const safeId = cleanDocId(comm.id, `COMM-${Date.now()}`);
+    const docRef = doc(db, 'commissions', safeId);
+    const payload = sanitizeFirestoreData({
+      ...comm,
+      id: safeId,
+      recipientCode: cleanDocId(comm.recipientCode, ''),
+      sourceUserCode: cleanDocId(comm.sourceUserCode, ''),
+      level: Number(comm.level) || 1,
+      rate: Number(comm.rate) || 0,
+      depositAmount: Number(comm.depositAmount) || 0,
+      commissionAmount: Number(comm.commissionAmount) || 0,
+      timestamp: comm.timestamp || new Date().toISOString(),
+      serverCreatedAt: serverTimestamp(),
+    });
+    if (payload && Object.keys(payload).length > 0) {
+      await setDoc(docRef, payload, { merge: true });
+    }
   } catch (err) {
     console.warn('[Firebase] Notice recording commission in Firestore:', err);
   }

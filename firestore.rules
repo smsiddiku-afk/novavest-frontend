@@ -64,5 +64,17 @@ service cloud.firestore {
     match /commissions/{commissionId} {
       allow read, write: if true;
     }
+
+    match /packages/{packageId} {
+      allow read, write: if true;
+    }
+
+    match /settings/{settingId} {
+      allow read, write: if true;
+    }
+
+    match /withdrawals/{withdrawId} {
+      allow read, write: if true;
+    }
   }
 }

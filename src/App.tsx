@@ -18,6 +18,7 @@ import {
   signOutFromFirebase,
 } from './utils/authService';
 import { registerUserInReferralNetwork } from './utils/referralService';
+import { initCrisp, syncUserWithCrisp, fetchSupportSettings } from './utils/crispService';
 
 type ProtectedTab = 'home' | 'invest' | 'transactions' | 'wallet' | 'referral' | 'profile';
 
@@ -77,6 +78,26 @@ export default function App() {
       const corrected: UserProfile = { ...authUser, walletBalance: 0.0 };
       persistAuthUser(corrected);
       setAuthUser(corrected);
+    }
+  }, [authUser]);
+
+  // Initialize Crisp Live Chat Widget from Firestore settings or default ID
+  useEffect(() => {
+    let isMounted = true;
+    fetchSupportSettings().then((settings) => {
+      if (isMounted) {
+        initCrisp(settings.crispWebsiteId, settings.crispEnabled);
+      }
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  // Sync logged in user profile with Crisp session for admin
+  useEffect(() => {
+    if (authUser) {
+      syncUserWithCrisp(authUser);
     }
   }, [authUser]);
 

@@ -51,7 +51,9 @@ import {
   LayoutGrid,
   Leaf,
   User,
-  UserCheck
+  UserCheck,
+  MessageSquare,
+  MessageCircle
 } from 'lucide-react';
 import { HOURLY_GENERATION_DATA } from '../data/energyData';
 import { EnergySystem, Language } from '../types';
@@ -65,6 +67,7 @@ import {
 import { HowPowerGridWorksSection } from './HowPowerGridWorksSection';
 import { CompanyProfileModal } from './CompanyProfileModal';
 import { resolveImageSrc, handleImageError } from '../utils/imageUtils';
+import { openCrispChat } from '../utils/crispService';
 
 interface EnergyHomeTabProps {
   currentLang?: Language;
@@ -116,7 +119,7 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
 
   // Active Modals
   const [activeModal, setActiveModal] = useState<
-    'company' | 'employee' | 'video' | 'system-details' | 'new-projects' | 'supply' | 'support' | null
+    'company' | 'employee' | 'video' | 'system-details' | 'new-projects' | 'supply' | null
   >(null);
   const [selectedSystem, setSelectedSystem] = useState<EnergySystem | null>(null);
 
@@ -973,20 +976,21 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
             </span>
           </button>
 
-          {/* Card 8: Support (Sky Cyan, Headphones) */}
+          {/* Card 8: Live Chat (Direct Crisp Chat) */}
           <button
             type="button"
-            onClick={() => setActiveModal('support')}
+            id="home-live-chat-btn"
+            onClick={() => openCrispChat()}
             className="p-2.5 sm:p-3 rounded-2xl bg-gradient-to-b from-[#0284c7] to-[#0369a1] text-white flex flex-col items-center justify-center text-center shadow-md active:scale-95 transition-all cursor-pointer group"
           >
             <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-white/20 flex items-center justify-center mb-1 group-hover:scale-110 transition-transform">
-              <Headphones className="w-4.5 h-4.5 text-white" />
+              <MessageSquare className="w-4.5 h-4.5 text-white" />
             </div>
             <span className="text-xs sm:text-sm font-bold leading-tight block truncate w-full">
-              {lang === 'bn' ? 'সাপোর্ট' : 'Support'}
+              {lang === 'bn' ? 'লাইভ চ্যাট' : 'Live Chat'}
             </span>
             <span className="text-[9.5px] sm:text-[10px] text-cyan-200 font-medium flex items-center gap-0.5 mt-0.5 truncate max-w-full">
-              {lang === 'bn' ? '২৪/৭ হেল্পলাইন' : '24/7 Helpline'} <ChevronRight className="w-2.5 h-2.5 shrink-0" />
+              {lang === 'bn' ? 'মেসেজ করুন' : 'Chat Now'} <ChevronRight className="w-2.5 h-2.5 shrink-0" />
             </span>
           </button>
         </div>
@@ -1493,14 +1497,15 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
 
                 <button
                   type="button"
+                  id="drawer-live-chat-btn"
                   onClick={() => {
-                    setActiveModal('support');
                     setIsDrawerOpen(false);
+                    openCrispChat();
                   }}
                   className="w-full p-2.5 rounded-xl hover:bg-slate-800/80 text-slate-200 hover:text-cyan-300 flex items-center gap-3 transition-colors text-left"
                 >
-                  <Headphones className="w-4 h-4 text-teal-400" />
-                  <span>{t.supportModalTitle}</span>
+                  <MessageSquare className="w-4 h-4 text-emerald-400" />
+                  <span>{lang === 'bn' ? 'লাইভ চ্যাট সাপোর্ট' : 'Live Chat Support'}</span>
                 </button>
 
                 <button
@@ -1753,84 +1758,6 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-400">Solar Mega-Park Corridor • 2,420 MW Peak Feed</p>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setActiveModal(null)}
-              className="w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs cursor-pointer"
-            >
-              {t.closeBtn}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* ───────────────────────────────────────────────────────────
-          MODAL: SUPPORT & HELPLINE (🎧)
-      ─────────────────────────────────────────────────────────── */}
-      {activeModal === 'support' && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
-          <div className="w-full max-w-md bg-[#0a1020] border border-teal-500/40 rounded-3xl p-5 text-white space-y-4 max-h-[85vh] overflow-y-auto">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-800">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-teal-500/20 border border-teal-500/40 flex items-center justify-center text-teal-400">
-                  <Headphones className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold">{t.supportModalTitle}</h3>
-                  <span className="text-[10px] text-teal-400">{lang === 'bn' ? 'তাত্ক্ষণিক সহায়তা' : 'Instant Assistance'}</span>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setActiveModal(null)}
-                className="p-1 text-slate-400 hover:text-white cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="space-y-2.5 text-xs">
-              <div className="p-3 rounded-xl bg-[#10182f] border border-slate-800 flex items-center justify-between">
-                <div>
-                  <h4 className="font-bold text-white">{lang === 'bn' ? 'জরুরী গ্রিড হটলাইন' : 'Emergency Grid Hotline'}</h4>
-                  <p className="text-[11px] text-slate-400">+880 9612-345678 (24/7 Toll-Free)</p>
-                </div>
-                <a
-                  href="tel:+8809612345678"
-                  className="px-3 py-1.5 rounded-lg bg-teal-500/20 text-teal-300 font-bold hover:bg-teal-500/30"
-                >
-                  {lang === 'bn' ? 'কল করুন' : 'Call Now'}
-                </a>
-              </div>
-
-              <div className="p-3 rounded-xl bg-[#10182f] border border-slate-800 flex items-center justify-between">
-                <div>
-                  <h4 className="font-bold text-white">{lang === 'bn' ? 'অফিসিয়াল টেলিগ্রাম চ্যানেল' : 'Official Telegram Channel'}</h4>
-                  <p className="text-[11px] text-slate-400">@NVTEnergySupport</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => showToast('Telegram: @NVTEnergySupport')}
-                  className="px-3 py-1.5 rounded-lg bg-cyan-500/20 text-cyan-300 font-bold hover:bg-cyan-500/30 cursor-pointer"
-                >
-                  {lang === 'bn' ? 'যুক্ত হোন' : 'Join'}
-                </button>
-              </div>
-
-              <div className="p-3 rounded-xl bg-[#10182f] border border-slate-800 flex items-center justify-between">
-                <div>
-                  <h4 className="font-bold text-white">{lang === 'bn' ? 'ইমেইল সাপোর্ট' : 'Email Support'}</h4>
-                  <p className="text-[11px] text-slate-400">support@novaterraenergy.io</p>
-                </div>
-                <a
-                  href="mailto:support@novaterraenergy.io"
-                  className="px-3 py-1.5 rounded-lg bg-blue-500/20 text-blue-300 font-bold hover:bg-blue-500/30"
-                >
-                  {lang === 'bn' ? 'ইমেইল' : 'Email'}
-                </a>
               </div>
             </div>
 

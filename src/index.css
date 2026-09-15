@@ -511,4 +511,15 @@ body.day-mode,
   animation-play-state: paused;
 }
 
+/* Ensure Crisp chat widget floats cleanly above mobile bottom navigation bar */
+@media (max-width: 768px) {
+  .crisp-client .cc-1x3z,
+  .crisp-client .cc-tup6,
+  .crisp-client [data-chat-status],
+  .crisp-client [data-is-launcher="true"] {
+    bottom: 72px !important;
+  }
+}
+
+
 

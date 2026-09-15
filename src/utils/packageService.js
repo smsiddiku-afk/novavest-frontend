@@ -1,4 +1,4 @@
-import { db } from "../lib/firebase";
+import { db, sanitizeFirestoreData, cleanDocId } from "../lib/firebase";
 import { collection, doc, getDocs, setDoc, deleteDoc } from "firebase/firestore";
 
 export const DEFAULT_INVESTMENT_PACKAGES = [
@@ -176,7 +176,8 @@ async function fetchFromFirestore() {
     if (snap.empty) {
       // Seed default packages into Firestore
       for (const pkg of DEFAULT_INVESTMENT_PACKAGES) {
-        await setDoc(doc(db, "packages", pkg.id), pkg);
+        const safeId = cleanDocId(pkg.id, 'pkg');
+        await setDoc(doc(db, "packages", safeId), sanitizeFirestoreData(pkg), { merge: true });
       }
       broadcastUpdate(DEFAULT_INVESTMENT_PACKAGES);
       return DEFAULT_INVESTMENT_PACKAGES;
@@ -195,7 +196,7 @@ async function fetchFromFirestore() {
         durationDays: Number(data.durationDays || 30),
         totalReturnPercent: Number(data.totalReturnPercent || Math.round((data.dailyReturnPercent || 2.0) * (data.durationDays || 30))),
         requiredVipLevel: Number(data.requiredVipLevel || 0),
-        maxPurchaseLimit: data.maxPurchaseLimit !== undefined ? Number(data.maxPurchaseLimit) : undefined,
+        maxPurchaseLimit: Number(data.maxPurchaseLimit) || 0,
         isActive: data.isActive !== false,
       });
     });
@@ -221,9 +222,11 @@ async function fetchFromFirestore() {
 // Add or update package in Firestore
 export const updatePackageInFirestore = async (pkg) => {
   try {
+    const rawId = pkg.id || `plan-${Date.now()}`;
+    const safeId = cleanDocId(rawId, `plan-${Date.now()}`);
     const sanitized = {
       ...pkg,
-      id: pkg.id || `plan-${Date.now()}`,
+      id: safeId,
       minInvestmentBdt: Number(pkg.minInvestmentBdt || pkg.minInvestment || 1000),
       minInvestment: Number(pkg.minInvestmentBdt || pkg.minInvestment || 1000),
       minInvestmentUsd: Number(pkg.minInvestmentUsd || Math.round((pkg.minInvestmentBdt || pkg.minInvestment || 1000) / 120)),
@@ -231,19 +234,19 @@ export const updatePackageInFirestore = async (pkg) => {
       durationDays: Number(pkg.durationDays || 30),
       totalReturnPercent: Number(pkg.totalReturnPercent || Math.round((pkg.dailyReturnPercent || 2.0) * (pkg.durationDays || 30))),
       requiredVipLevel: Number(pkg.requiredVipLevel || 0),
-      maxPurchaseLimit: pkg.maxPurchaseLimit ? Number(pkg.maxPurchaseLimit) : 0,
+      maxPurchaseLimit: Number(pkg.maxPurchaseLimit) || 0,
       isActive: pkg.isActive !== false,
       updatedAt: new Date().toISOString(),
     };
 
-    await setDoc(doc(db, "packages", sanitized.id), sanitized, { merge: true });
+    await setDoc(doc(db, "packages", safeId), sanitizeFirestoreData(sanitized), { merge: true });
 
     // Update local state and broadcast
     const current = await getLivePackages();
-    const index = current.findIndex((p) => p.id === sanitized.id);
+    const index = current.findIndex((p) => p.id === safeId);
     let updatedList;
     if (index >= 0) {
-      updatedList = current.map((p) => (p.id === sanitized.id ? sanitized : p));
+      updatedList = current.map((p) => (p.id === safeId ? sanitized : p));
     } else {
       updatedList = [...current, sanitized];
     }
@@ -258,9 +261,11 @@ export const updatePackageInFirestore = async (pkg) => {
 // Delete package from Firestore
 export const deletePackageFromFirestore = async (pkgId) => {
   try {
-    await deleteDoc(doc(db, "packages", pkgId));
+    const safeId = cleanDocId(pkgId, '');
+    if (!safeId) return false;
+    await deleteDoc(doc(db, "packages", safeId));
     const current = await getLivePackages();
-    const updatedList = current.filter((p) => p.id !== pkgId);
+    const updatedList = current.filter((p) => p.id !== safeId && p.id !== pkgId);
     broadcastUpdate(updatedList);
     return true;
   } catch (err) {
@@ -273,7 +278,8 @@ export const deletePackageFromFirestore = async (pkgId) => {
 export const resetPackagesToDefault = async () => {
   try {
     for (const pkg of DEFAULT_INVESTMENT_PACKAGES) {
-      await setDoc(doc(db, "packages", pkg.id), pkg);
+      const safeId = cleanDocId(pkg.id, 'pkg');
+      await setDoc(doc(db, "packages", safeId), sanitizeFirestoreData(pkg), { merge: true });
     }
     broadcastUpdate(DEFAULT_INVESTMENT_PACKAGES);
     return true;

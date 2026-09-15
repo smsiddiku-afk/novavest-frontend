@@ -54,7 +54,9 @@ import {
   Crown,
   Coins,
   ChevronDown,
+  MessageSquare,
 } from 'lucide-react';
+import { openCrispChat } from '../utils/crispService';
 import { AppDownloadModal } from './AppDownloadModal';
 import { EnergyHomeTab } from './EnergyHomeTab';
 import { InvestTabContent, INVESTMENT_PLANS } from './InvestTabContent';
@@ -413,7 +415,6 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     | 'substations'
     | 'engineering'
     | 'esg'
-    | 'helpline'
     | null
   >(null);
 
@@ -2633,23 +2634,23 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 </div>
               </button>
 
-              {/* 10. 24/7 Priority Support & Helpline */}
+              {/* 10. Live Chat & Support */}
               <button
                 id="profile-helpline-btn"
                 type="button"
-                onClick={() => setActiveSubModal('helpline')}
+                onClick={() => openCrispChat()}
                 className={`w-full px-4 sm:px-5 py-3.5 flex items-center justify-between transition-colors cursor-pointer text-left group ${
                   themeMode === 'day' ? 'hover:bg-slate-50' : 'hover:bg-emerald-500/10'
                 }`}
               >
                 <div className="flex items-center gap-3.5">
                   <div className="w-9 h-9 rounded-full bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center text-emerald-400 group-hover:scale-105 transition-transform shrink-0">
-                    <Headphones className="w-4.5 h-4.5" />
+                    <MessageSquare className="w-4.5 h-4.5" />
                   </div>
                   <span className={`text-[15px] font-semibold tracking-tight transition-colors ${
                     themeMode === 'day' ? 'text-slate-800 group-hover:text-emerald-600' : 'text-slate-100 group-hover:text-emerald-300'
                   }`}>
-                    {currentLang === 'bn' ? '২৪/৭ সাপোর্ট ও হেল্পলাইন' : '24/7 Priority Support & Helpline'}
+                    {currentLang === 'bn' ? 'লাইভ চ্যাট সাপোর্ট' : 'Live Chat Support'}
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
@@ -4063,99 +4064,6 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               <div className="p-4 rounded-3xl bg-[#062c22] border border-emerald-500/25 flex justify-between items-center shadow-lg">
                 <span className="font-semibold text-white">Audit Standard Compliance:</span>
                 <span className="font-bold text-teal-300">Certified Grade AAA</span>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setActiveSubModal(null)}
-              className="w-full py-3.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 font-bold text-slate-950 text-xs transition-colors cursor-pointer mt-4"
-            >
-              {currentLang === 'bn' ? 'প্রোফাইলে ফিরে যান' : 'Return to Profile'}
-            </button>
-          </main>
-        </div>
-      )}
-
-      {/* 6. Corporate Helpline 24/7 Page (Full-Page View) */}
-      {activeSubModal === 'helpline' && (
-        <div
-          id="profile-subpage-helpline"
-          className="fixed inset-0 z-50 overflow-y-auto bg-[#06483A] flex flex-col text-slate-100 animate-in fade-in duration-200"
-        >
-          <header className="sticky top-0 z-20 bg-[#062c22]/95 backdrop-blur-md border-b border-emerald-500/30 px-4 py-3.5 sm:px-6 sm:py-4 flex items-center justify-between shrink-0">
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={() => setActiveSubModal(null)}
-                className="w-10 h-10 rounded-full bg-[#042018] hover:bg-[#07362a] text-emerald-300 hover:text-white flex items-center justify-center transition-all cursor-pointer active:scale-95 border border-emerald-500/30 shadow-sm"
-                aria-label="Back to Profile"
-              >
-                <ArrowLeft className="w-5 h-5" />
-              </button>
-              <div>
-                <h1 className="text-base sm:text-lg font-bold text-white tracking-wide flex items-center gap-2">
-                  <Headphones className="w-5 h-5 text-emerald-400" />
-                  <span>{currentLang === 'bn' ? '২৪/৭ কর্পোরেট হেল্পলাইন' : '24/7 Priority Helpline'}</span>
-                </h1>
-                <p className="text-[11px] text-slate-300">
-                  {currentLang === 'bn' ? 'গ্রাহক সহায়তা ও জরুরি সেবা' : 'Customer Support & Dispatch'}
-                </p>
-              </div>
-            </div>
-            <span className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-bold">
-              24/7 Live
-            </span>
-          </header>
-
-          <main className="flex-1 w-full max-w-xl mx-auto px-4 py-6 sm:px-6 sm:py-8 space-y-4">
-            <div className="space-y-3 text-xs">
-              <a
-                href="tel:+8809612001122"
-                className="p-4 rounded-3xl bg-[#062c22] hover:bg-[#07362a] border border-emerald-500/30 flex items-center justify-between transition-colors block shadow-lg"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
-                    <PhoneCall className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <span className="font-bold text-white text-sm block">Toll-Free Hotline</span>
-                    <span className="text-xs text-slate-300 font-mono">09612-001122</span>
-                  </div>
-                </div>
-                <span className="text-xs text-emerald-400 font-bold bg-emerald-500/15 px-3 py-1.5 rounded-xl border border-emerald-500/30">
-                  Call Now
-                </span>
-              </a>
-
-              <a
-                href="mailto:support@ai-energy.bd"
-                className="p-4 rounded-3xl bg-[#062c22] hover:bg-[#07362a] border border-emerald-500/30 flex items-center justify-between transition-colors block shadow-lg"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
-                    <Mail className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <span className="font-bold text-white text-sm block">Official Support Desk</span>
-                    <span className="text-xs text-slate-300 font-mono">support@ai-energy.bd</span>
-                  </div>
-                </div>
-                <span className="text-xs text-emerald-400 font-bold bg-emerald-500/15 px-3 py-1.5 rounded-xl border border-emerald-500/30">
-                  Email
-                </span>
-              </a>
-
-              <div className="p-4 rounded-3xl bg-[#062c22] border border-emerald-500/30 flex items-start gap-3 shadow-lg">
-                <div className="w-10 h-10 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
-                  <MapPin className="w-5 h-5" />
-                </div>
-                <div>
-                  <span className="font-bold text-white text-sm block">Corporate Headquarters</span>
-                  <span className="text-xs text-slate-300 leading-relaxed block mt-0.5">
-                    Level 14, Silicon Energy Tower, Road 11, Gulshan-2, Dhaka-1212
-                  </span>
-                </div>
               </div>
             </div>
 

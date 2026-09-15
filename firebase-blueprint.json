@@ -150,6 +150,43 @@
         "timestamp": { "type": "string", "description": "ISO timestamp" }
       },
       "required": ["id", "recipientCode", "commissionAmount"]
+    },
+    "Package": {
+      "title": "Package",
+      "description": "Investment plan package available for purchase",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "minInvestmentBdt": { "type": "number" },
+        "dailyReturnPercent": { "type": "number" },
+        "durationDays": { "type": "number" }
+      },
+      "required": ["id", "name"]
+    },
+    "SupportSettings": {
+      "title": "SupportSettings",
+      "description": "Global support and Crisp chat configuration",
+      "type": "object",
+      "properties": {
+        "crispWebsiteId": { "type": "string" },
+        "crispEnabled": { "type": "boolean" },
+        "hotline": { "type": "string" },
+        "whatsapp": { "type": "string" },
+        "telegram": { "type": "string" }
+      }
+    },
+    "Withdrawal": {
+      "title": "Withdrawal",
+      "description": "Withdrawal requests submitted by users",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "amount": { "type": "number" },
+        "status": { "type": "string" }
+      },
+      "required": ["id", "amount"]
     }
   },
   "firestore": {
@@ -218,6 +255,24 @@
         "$ref": "#/entities/PromoClaim"
       },
       "description": "User promo claims subcollection"
+    },
+    "/packages/{packageId}": {
+      "schema": {
+        "$ref": "#/entities/Package"
+      },
+      "description": "Investment package documents"
+    },
+    "/settings/{settingId}": {
+      "schema": {
+        "$ref": "#/entities/SupportSettings"
+      },
+      "description": "Global support settings"
+    },
+    "/withdrawals/{withdrawId}": {
+      "schema": {
+        "$ref": "#/entities/Withdrawal"
+      },
+      "description": "Withdrawal request documents"
     }
   }
 }

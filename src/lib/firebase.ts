@@ -140,6 +140,7 @@ export const cleanDocId = (id: unknown, fallback = 'doc'): string => {
  * - Strips empty keys `""` and keys beginning/ending with `__`
  * - Converts non-plain objects / class instances safely to plain objects
  * - Preserves top-level Firestore FieldValues (serverTimestamp, increment, arrayUnion, arrayRemove, deleteField)
+ * - Preserves Firestore DocumentReferences
  */
 export function sanitizeFirestoreData(data: any, inArray = false): any {
   if (data === undefined) {
@@ -171,9 +172,15 @@ export function sanitizeFirestoreData(data: any, inArray = false): any {
     return data;
   }
 
+  // Preserve Firestore DocumentReferences (do not convert to plain object which strips prototype)
+  if (typeof data === 'object' && data !== null && (data.type === 'document' || (data.firestore && data.path))) {
+    return data;
+  }
+
   // Preserve Firestore FieldValues (increment, serverTimestamp, arrayUnion, arrayRemove, deleteField, etc.)
   const isFieldValue =
     Boolean(data._methodName) ||
+    Boolean(data?.constructor && typeof data.constructor.name === 'string' && data.constructor.name.includes('FieldValue')) ||
     (typeof data.isEqual === 'function' && typeof data._toFieldTransform === 'function');
 
   if (isFieldValue) {
@@ -187,12 +194,14 @@ export function sanitizeFirestoreData(data: any, inArray = false): any {
       }
       return null;
     }
-    // If it's an arrayUnion or arrayRemove, sanitize the elements inside it
-    if ((data._methodName === 'arrayUnion' || data._methodName === 'arrayRemove') && Array.isArray(data._elements)) {
-      data._elements = data._elements
-        .map((el: any) => sanitizeFirestoreData(el, true))
-        .filter((el: any) => el !== undefined);
-    }
+    // If it's an arrayUnion or arrayRemove, sanitize the elements inside it safely
+    try {
+      if ((data._methodName === 'arrayUnion' || data._methodName === 'arrayRemove') && Array.isArray(data._elements)) {
+        data._elements = data._elements
+          .map((el: any) => sanitizeFirestoreData(el, true))
+          .filter((el: any) => el !== undefined);
+      }
+    } catch {}
     return data;
   }
 
@@ -220,22 +229,8 @@ export function sanitizeFirestoreData(data: any, inArray = false): any {
 
   // Handle Objects:
   if (type === 'object') {
-    let target = data;
-    if (typeof data.toJSON === 'function') {
-      try {
-        const jsonResult = data.toJSON();
-        if (typeof jsonResult === 'object' && jsonResult !== null) {
-          target = jsonResult;
-        } else {
-          return sanitizeFirestoreData(jsonResult, inArray);
-        }
-      } catch {
-        target = data;
-      }
-    }
-
     const result: Record<string, any> = {};
-    for (const [key, val] of Object.entries(target)) {
+    for (const [key, val] of Object.entries(data)) {
       if (typeof key !== 'string') continue;
       const cleanKey = key.trim();
       // Firestore forbids empty keys and keys starting and ending with __
@@ -255,6 +250,83 @@ export function sanitizeFirestoreData(data: any, inArray = false): any {
 
   return undefined;
 }
+
+/**
+ * Safe document reference constructor that validates collection and document paths
+ */
+export const safeDoc = (collectionName: string, ...segments: (string | undefined | null)[]) => {
+  try {
+    if (!collectionName || typeof collectionName !== 'string' || collectionName.trim().length === 0) {
+      return null;
+    }
+    const cleanCol = collectionName.trim();
+    const cleanSegments: string[] = [];
+    for (const s of segments) {
+      if (s === undefined || s === null) continue;
+      const c = cleanDocId(String(s), '');
+      if (c && c.length > 0) {
+        cleanSegments.push(c);
+      }
+    }
+    if (cleanSegments.length === 0) return null;
+    // Total path components must be even (e.g. collection/doc or col/doc/subcol/doc)
+    if ((cleanSegments.length + 1) % 2 !== 0) {
+      return null;
+    }
+    return doc(db, cleanCol, ...cleanSegments);
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Safe setDoc wrapper that prevents "Invalid data" or document reference exceptions
+ */
+export const safeSetDoc = async (
+  docRef: any,
+  data: any,
+  options: { merge?: boolean } = { merge: true }
+): Promise<boolean> => {
+  if (!docRef) return false;
+  try {
+    const clean = sanitizeFirestoreData(data);
+    if (!clean || typeof clean !== 'object' || Array.isArray(clean)) {
+      return false;
+    }
+    if (Object.keys(clean).length === 0) {
+      return true; // No keys to write
+    }
+    await setDoc(docRef, clean, options);
+    return true;
+  } catch (err: any) {
+    console.warn('[Firebase] safeSetDoc notice:', err?.message || err);
+    return false;
+  }
+};
+
+/**
+ * Safe updateDoc wrapper that prevents "Invalid data" or missing document exceptions
+ */
+export const safeUpdateDoc = async (
+  docRef: any,
+  data: any
+): Promise<boolean> => {
+  if (!docRef) return false;
+  try {
+    const clean = sanitizeFirestoreData(data);
+    if (!clean || typeof clean !== 'object' || Array.isArray(clean)) {
+      return false;
+    }
+    if (Object.keys(clean).length === 0) {
+      return true;
+    }
+    await setDoc(docRef, clean, { merge: true });
+    return true;
+  } catch (err: any) {
+    console.warn('[Firebase] safeUpdateDoc notice:', err?.message || err);
+    return false;
+  }
+};
 
 /**
  * Create a new user profile in Firestore
@@ -286,7 +358,7 @@ export const createFirestoreUserProfile = async (
     };
   }
 
-  const userDocRef = doc(db, 'users', cleanUid);
+  const userDocRef = safeDoc('users', cleanUid);
   const now = new Date();
   const memberSince = now.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
 
@@ -347,8 +419,52 @@ export const createFirestoreUserProfile = async (
   try {
     const cleanPayload = sanitizeFirestoreData(docPayload);
     if (cleanPayload && Object.keys(cleanPayload).length > 0) {
-      await setDoc(userDocRef, cleanPayload, { merge: true });
+      await safeSetDoc(userDocRef, cleanPayload, { merge: true });
     }
+
+    // Immediately create referral node record and dispatch real-time event
+    const nodePayload = {
+      userId: cleanUid,
+      userCode: referralCode,
+      memberId: cleanMemberId,
+      referredByCode: cleanReferredBy,
+      phone: profile.phone,
+      username: profile.name,
+      joinedAt: now.toISOString(),
+      investAmount: safeBalance,
+      updatedAt: serverTimestamp(),
+    };
+
+    const ref1 = safeDoc('referral_nodes', referralCode);
+    if (ref1) safeSetDoc(ref1, nodePayload, { merge: true }).catch(() => {});
+    if (cleanMemberId && cleanMemberId !== referralCode) {
+      const ref2 = safeDoc('referral_nodes', cleanMemberId);
+      if (ref2) safeSetDoc(ref2, nodePayload, { merge: true }).catch(() => {});
+    }
+
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        const raw = localStorage.getItem('novavest_registered_accounts');
+        const accs = raw ? JSON.parse(raw) : {};
+        accs[referralCode] = {
+          userId: cleanUid,
+          userCode: referralCode,
+          memberId: cleanMemberId,
+          referredByCode: cleanReferredBy,
+          phone: profile.phone,
+          username: profile.name,
+          joinedAt: now.toISOString(),
+          investAmount: safeBalance,
+        };
+        if (cleanMemberId) {
+          accs[cleanMemberId] = accs[referralCode];
+        }
+        localStorage.setItem('novavest_registered_accounts', JSON.stringify(accs));
+        window.dispatchEvent(new Event('referral_rewards_updated'));
+        window.dispatchEvent(new Event('storage'));
+      } catch {}
+    }
+
     return profile;
   } catch (error) {
     console.warn('[Firebase] Warning in createFirestoreUserProfile:', error);
@@ -362,7 +478,8 @@ export const createFirestoreUserProfile = async (
 export const getFirestoreUserProfile = async (uid: string): Promise<UserProfile | null> => {
   const cleanUid = cleanDocId(uid, '');
   if (!cleanUid) return null;
-  const userDocRef = doc(db, 'users', cleanUid);
+  const userDocRef = safeDoc('users', cleanUid);
+  if (!userDocRef) return null;
   try {
     const snap = await getDoc(userDocRef);
     if (!snap.exists()) return null;
@@ -571,7 +688,8 @@ export const findEmailByPhone = async (rawPhone: string): Promise<string | null>
         if (last10) patch.phoneLast10 = last10;
         if (Object.keys(patch).length > 0) {
           const safeMatchedId = cleanDocId(matchedDocId);
-          setDoc(doc(db, 'users', safeMatchedId), sanitizeFirestoreData(patch), { merge: true }).catch(() => {});
+          const uRef = safeDoc('users', safeMatchedId);
+          if (uRef) safeSetDoc(uRef, patch, { merge: true }).catch(() => {});
         }
       }
 
@@ -644,16 +762,17 @@ export const findPhoneByEmail = async (rawEmail: string): Promise<string | null>
 export const updateFirestoreWalletBalance = async (uid: string, newBalance: number): Promise<void> => {
   const cleanUid = cleanDocId(uid, '');
   if (!cleanUid) return;
-  const userDocRef = doc(db, 'users', cleanUid);
+  const userDocRef = safeDoc('users', cleanUid);
+  if (!userDocRef) return;
   const safeBalance = typeof newBalance === 'number' && !Number.isNaN(newBalance) ? newBalance : 0.0;
   try {
-    await setDoc(
+    await safeSetDoc(
       userDocRef,
-      sanitizeFirestoreData({
+      {
         walletBalance: safeBalance,
         balance: safeBalance,
         updatedAt: serverTimestamp(),
-      }),
+      },
       { merge: true }
     );
   } catch (error) {
@@ -667,7 +786,8 @@ export const updateFirestoreWalletBalance = async (uid: string, newBalance: numb
 export const updateFirestoreUserProfile = async (uid: string, updates: Partial<UserProfile>): Promise<void> => {
   const cleanUid = cleanDocId(uid, '');
   if (!cleanUid) return;
-  const userDocRef = doc(db, 'users', cleanUid);
+  const userDocRef = safeDoc('users', cleanUid);
+  if (!userDocRef) return;
   try {
     const payload: Record<string, any> = {
       ...updates,
@@ -676,10 +796,7 @@ export const updateFirestoreUserProfile = async (uid: string, updates: Partial<U
     if (updates.phone) {
       payload.phoneNormalized = normalizePhone(updates.phone);
     }
-    const cleanPayload = sanitizeFirestoreData(payload);
-    if (cleanPayload && Object.keys(cleanPayload).length > 0) {
-      await setDoc(userDocRef, cleanPayload, { merge: true });
-    }
+    await safeSetDoc(userDocRef, payload, { merge: true });
   } catch (error) {
     console.warn('[Firebase] Warning updating user profile:', error);
   }
@@ -695,7 +812,8 @@ export const subscribeToFirestoreUserProfile = (
 ): (() => void) => {
   const cleanUid = cleanDocId(uid, '');
   if (!cleanUid) return () => {};
-  const userDocRef = doc(db, 'users', cleanUid);
+  const userDocRef = safeDoc('users', cleanUid);
+  if (!userDocRef) return () => {};
   return onSnapshot(
     userDocRef,
     (snap) => {
@@ -831,14 +949,14 @@ export const recordFirestoreDeposit = async (
     if (!cleanUid) {
       return { deposit: depositItem, transaction: transactionItem };
     }
-    const userDocRef = doc(db, 'users', cleanUid);
+    const userDocRef = safeDoc('users', cleanUid);
 
     const safeDepositItem = sanitizeFirestoreData(depositItem);
     const safeTransactionItem = sanitizeFirestoreData(transactionItem);
 
     // 1. If completed: atomically increment wallet balance and push transaction
     // If pending or failed: do NOT increment wallet balance, only push transaction
-    const updatePayload: any = sanitizeFirestoreData({
+    const updatePayload: any = {
       transactions: arrayUnion(safeTransactionItem),
       updatedAt: serverTimestamp(),
       ...(finalStatus === 'completed'
@@ -847,30 +965,36 @@ export const recordFirestoreDeposit = async (
             balance: increment(Number(data.amount) || 0),
           }
         : {}),
-    });
+    };
 
-    await setDoc(userDocRef, updatePayload, { merge: true });
+    if (userDocRef) {
+      await safeSetDoc(userDocRef, updatePayload, { merge: true });
+    }
 
     // 2. Save in deposits collection & subcollection
     try {
-      const depPayload = sanitizeFirestoreData({
+      const depPayload = {
         ...safeDepositItem,
         serverCreatedAt: serverTimestamp(),
-      });
-      await setDoc(doc(db, 'users', cleanUid, 'deposits', depositId), depPayload, { merge: true });
-      await setDoc(doc(db, 'deposits', depositId), depPayload, { merge: true });
+      };
+      const uDepRef = safeDoc('users', cleanUid, 'deposits', depositId);
+      if (uDepRef) await safeSetDoc(uDepRef, depPayload, { merge: true });
+      const tDepRef = safeDoc('deposits', depositId);
+      if (tDepRef) await safeSetDoc(tDepRef, depPayload, { merge: true });
     } catch (depErr) {
       console.warn('[Firebase] Non-blocking notice saving deposits collection:', depErr);
     }
 
     // 3. Save in transactions collection & subcollection
     try {
-      const trxPayload = sanitizeFirestoreData({
+      const trxPayload = {
         ...safeTransactionItem,
         serverCreatedAt: serverTimestamp(),
-      });
-      await setDoc(doc(db, 'users', cleanUid, 'transactions', trxId), trxPayload, { merge: true });
-      await setDoc(doc(db, 'transactions', trxId), trxPayload, { merge: true });
+      };
+      const uTrxRef = safeDoc('users', cleanUid, 'transactions', trxId);
+      if (uTrxRef) await safeSetDoc(uTrxRef, trxPayload, { merge: true });
+      const tTrxRef = safeDoc('transactions', trxId);
+      if (tTrxRef) await safeSetDoc(tTrxRef, trxPayload, { merge: true });
     } catch (trxErr) {
       console.warn('[Firebase] Non-blocking notice saving transactions collection:', trxErr);
     }
@@ -903,7 +1027,8 @@ export const updateFirestoreDepositStatus = async (
     const statusBangla = isCompleted ? 'সফল' : 'বাতিল';
     const depositStatus = isCompleted ? 'completed' : 'failed';
 
-    const userDocRef = doc(db, 'users', cleanUid);
+    const userDocRef = safeDoc('users', cleanUid);
+    if (!userDocRef) return false;
     const userSnap = await getDoc(userDocRef);
 
     if (userSnap.exists()) {
@@ -926,8 +1051,8 @@ export const updateFirestoreDepositStatus = async (
         return t;
       });
 
-      const updatePayload: any = sanitizeFirestoreData({
-        transactions: sanitizeFirestoreData(updatedTxns),
+      const updatePayload: any = {
+        transactions: updatedTxns,
         updatedAt: serverTimestamp(),
         ...(isCompleted && foundAmount > 0
           ? {
@@ -935,55 +1060,67 @@ export const updateFirestoreDepositStatus = async (
               balance: increment(foundAmount),
             }
           : {}),
-      });
+      };
 
-      await setDoc(userDocRef, updatePayload, { merge: true });
+      await safeSetDoc(userDocRef, updatePayload, { merge: true });
     }
 
     // Update in deposits collections
     try {
-      await setDoc(
-        doc(db, 'users', cleanUid, 'deposits', cleanId),
-        sanitizeFirestoreData({
-          status: depositStatus,
-          updatedAt: serverTimestamp(),
-        }),
-        { merge: true }
-      );
+      const uDep = safeDoc('users', cleanUid, 'deposits', cleanId);
+      if (uDep) {
+        await safeSetDoc(
+          uDep,
+          {
+            status: depositStatus,
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        );
+      }
     } catch (_) {}
     try {
-      await setDoc(
-        doc(db, 'deposits', cleanId),
-        sanitizeFirestoreData({
-          status: isCompleted ? 'Approved' : 'Rejected',
-          updatedAt: serverTimestamp(),
-        }),
-        { merge: true }
-      );
+      const tDep = safeDoc('deposits', cleanId);
+      if (tDep) {
+        await safeSetDoc(
+          tDep,
+          {
+            status: isCompleted ? 'Approved' : 'Rejected',
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        );
+      }
     } catch (_) {}
 
     // Update in transactions collections
     try {
-      await setDoc(
-        doc(db, 'users', cleanUid, 'transactions', cleanId),
-        sanitizeFirestoreData({
-          status: statusBangla,
-          isCredit: isCompleted,
-          updatedAt: serverTimestamp(),
-        }),
-        { merge: true }
-      );
+      const uTrx = safeDoc('users', cleanUid, 'transactions', cleanId);
+      if (uTrx) {
+        await safeSetDoc(
+          uTrx,
+          {
+            status: statusBangla,
+            isCredit: isCompleted,
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        );
+      }
     } catch (_) {}
     try {
-      await setDoc(
-        doc(db, 'transactions', cleanId),
-        sanitizeFirestoreData({
-          status: statusBangla,
-          isCredit: isCompleted,
-          updatedAt: serverTimestamp(),
-        }),
-        { merge: true }
-      );
+      const tTrx = safeDoc('transactions', cleanId);
+      if (tTrx) {
+        await safeSetDoc(
+          tTrx,
+          {
+            status: statusBangla,
+            isCredit: isCompleted,
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        );
+      }
     } catch (_) {}
 
     console.log(`[Firebase] Successfully updated deposit status [${cleanId} -> ${newStatus}]`);
@@ -1025,10 +1162,12 @@ export const getFirestoreUserTransactions = async (uid: string): Promise<Transac
     }
 
     // Fallback to transactions in user document
-    const userDocRef = doc(db, 'users', cleanUid);
-    const uSnap = await getDoc(userDocRef);
-    if (uSnap.exists()) {
-      return uSnap.data().transactions || [];
+    const userDocRef = safeDoc('users', cleanUid);
+    if (userDocRef) {
+      const uSnap = await getDoc(userDocRef);
+      if (uSnap.exists()) {
+        return uSnap.data().transactions || [];
+      }
     }
 
     return [];
@@ -1091,46 +1230,39 @@ export const recordInvestmentInFirestore = async (
   if (!cleanUid) return;
 
   try {
-    const userDocRef = doc(db, 'users', cleanUid);
+    const userDocRef = safeDoc('users', cleanUid);
     const invId = cleanDocId(investment.id || `INV-${Date.now()}`);
 
+    const invPayload = {
+      ...investment,
+      id: invId,
+      userId: cleanUid,
+      serverCreatedAt: serverTimestamp(),
+    };
+
     // 1. Save in user's subcollection
-    await setDoc(
-      doc(db, 'users', cleanUid, 'investments', invId),
-      sanitizeFirestoreData({
-        ...investment,
-        id: invId,
-        userId: cleanUid,
-        serverCreatedAt: serverTimestamp(),
-      }),
-      { merge: true }
-    );
+    const uInvRef = safeDoc('users', cleanUid, 'investments', invId);
+    if (uInvRef) await safeSetDoc(uInvRef, invPayload, { merge: true });
 
     // 2. Save in top-level investments collection for admin auditing
-    await setDoc(
-      doc(db, 'investments', invId),
-      sanitizeFirestoreData({
-        ...investment,
-        id: invId,
-        userId: cleanUid,
-        serverCreatedAt: serverTimestamp(),
-      }),
-      { merge: true }
-    );
+    const tInvRef = safeDoc('investments', invId);
+    if (tInvRef) await safeSetDoc(tInvRef, invPayload, { merge: true });
 
     // 3. Atomically update user document profile & balance
-    await setDoc(
-      userDocRef,
-      sanitizeFirestoreData({
-        walletBalance: Number(updatedBalance) || 0,
-        vipLevel: Number(newVipLevel) || 0,
-        dailyRewards: Number(totalDaily) || 0,
-        activeUnits: allInvestments?.length || 0,
-        activeInvestments: sanitizeFirestoreData(allInvestments || []),
-        updatedAt: serverTimestamp(),
-      }),
-      { merge: true }
-    );
+    if (userDocRef) {
+      await safeSetDoc(
+        userDocRef,
+        {
+          walletBalance: Number(updatedBalance) || 0,
+          vipLevel: Number(newVipLevel) || 0,
+          dailyRewards: Number(totalDaily) || 0,
+          activeUnits: allInvestments?.length || 0,
+          activeInvestments: allInvestments || [],
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+    }
 
     console.log('[Firebase] Investment persisted to Firestore successfully:', invId);
   } catch (err) {
@@ -1139,7 +1271,7 @@ export const recordInvestmentInFirestore = async (
 };
 
 export const getFirestoreUserInvestments = async (uid: string): Promise<InvestmentRecord[]> => {
-  const cleanUid = (uid || '').trim();
+  const cleanUid = cleanDocId(uid, '');
   if (!cleanUid) return [];
   try {
     const subCol = collection(db, 'users', cleanUid, 'investments');
@@ -1147,9 +1279,12 @@ export const getFirestoreUserInvestments = async (uid: string): Promise<Investme
     if (!snap.empty) {
       return snap.docs.map((d) => d.data() as InvestmentRecord);
     }
-    const userDoc = await getDoc(doc(db, 'users', cleanUid));
-    if (userDoc.exists() && Array.isArray(userDoc.data().activeInvestments)) {
-      return userDoc.data().activeInvestments;
+    const uDoc = safeDoc('users', cleanUid);
+    if (uDoc) {
+      const userDoc = await getDoc(uDoc);
+      if (userDoc.exists() && Array.isArray(userDoc.data().activeInvestments)) {
+        return userDoc.data().activeInvestments;
+      }
     }
     return [];
   } catch (err) {
@@ -1174,6 +1309,42 @@ export interface ReferralNodeRecord {
   investAmount: number;
 }
 
+export const extractReferralNodeFromUserDoc = (data: any, id: string): ReferralNodeRecord | null => {
+  if (!data) return null;
+  const rawCode = data.referralCode || data.memberId || id || '';
+  const code = rawCode.toString().trim().toUpperCase();
+  if (!code) return null;
+
+  const rawMemberId = (data.memberId || '').toString().trim().toUpperCase();
+  const rawReferredBy = (data.referredBy || data.referredByCode || '').toString().trim().toUpperCase();
+  const phone = (data.phone || '').toString().trim();
+  const name = (data.name || data.username || 'User').toString().trim();
+
+  let joinedAt = new Date().toISOString();
+  if (data.createdAt) {
+    if (typeof data.createdAt.toDate === 'function') {
+      joinedAt = data.createdAt.toDate().toISOString();
+    } else if (typeof data.createdAt === 'string') {
+      joinedAt = data.createdAt;
+    }
+  } else if (data.joinedAt) {
+    joinedAt = typeof data.joinedAt === 'string' ? data.joinedAt : new Date().toISOString();
+  }
+
+  const investAmount = Number(data.totalInvested || data.investAmount || data.walletBalance || 0);
+
+  return {
+    userId: id || data.uid || '',
+    userCode: code,
+    memberId: rawMemberId || undefined,
+    referredByCode: rawReferredBy,
+    phone,
+    username: name,
+    joinedAt,
+    investAmount: isNaN(investAmount) ? 0 : investAmount,
+  };
+};
+
 export const saveReferralNodeToFirestore = async (node: ReferralNodeRecord): Promise<void> => {
   try {
     const rawCode = (node.userCode || '').trim().toUpperCase();
@@ -1182,20 +1353,26 @@ export const saveReferralNodeToFirestore = async (node: ReferralNodeRecord): Pro
 
     const cleanMemberId = node.memberId ? cleanDocId(node.memberId.trim().toUpperCase(), '') : '';
 
-    const payload = sanitizeFirestoreData({
+    const payload = {
       ...node,
       userCode: cleanCode,
       referredByCode: (node.referredByCode || '').trim().toUpperCase(),
-      memberId: cleanMemberId,
+      memberId: cleanMemberId || undefined,
       updatedAt: serverTimestamp(),
-    });
+    };
 
     // Write to primary code doc
-    await setDoc(doc(db, 'referral_nodes', cleanCode), payload, { merge: true });
+    const ref1 = safeDoc('referral_nodes', cleanCode);
+    if (ref1) {
+      await safeSetDoc(ref1, payload, { merge: true });
+    }
 
     // Also alias by memberId if different from referral code
     if (cleanMemberId && cleanMemberId !== cleanCode) {
-      await setDoc(doc(db, 'referral_nodes', cleanMemberId), payload, { merge: true });
+      const ref2 = safeDoc('referral_nodes', cleanMemberId);
+      if (ref2) {
+        await safeSetDoc(ref2, payload, { merge: true });
+      }
     }
 
     console.log('[Firebase] Referral node synced to Firestore:', cleanCode);
@@ -1206,16 +1383,57 @@ export const saveReferralNodeToFirestore = async (node: ReferralNodeRecord): Pro
 
 export const syncReferralAccountsFromFirestore = async (): Promise<Record<string, ReferralNodeRecord>> => {
   try {
-    const nodesCol = collection(db, 'referral_nodes');
-    const snap = await getDocs(nodesCol);
     const result: Record<string, ReferralNodeRecord> = {};
 
-    snap.forEach((d) => {
-      const data = d.data() as ReferralNodeRecord;
-      if (data.userCode) {
-        result[data.userCode.toUpperCase()] = data;
+    // Seed with existing local data first
+    try {
+      const existingRaw = localStorage.getItem('novavest_registered_accounts');
+      if (existingRaw) {
+        Object.assign(result, JSON.parse(existingRaw));
       }
-    });
+    } catch {}
+
+    // 1. Fetch from 'users' collection (authoritative source)
+    try {
+      const usersSnap = await getDocs(collection(db, 'users'));
+      usersSnap.forEach((d) => {
+        const node = extractReferralNodeFromUserDoc(d.data(), d.id);
+        if (node && node.userCode) {
+          result[node.userCode] = {
+            ...(result[node.userCode] || {}),
+            ...node,
+          };
+          if (node.memberId && node.memberId !== node.userCode) {
+            result[node.memberId] = result[node.userCode];
+          }
+        }
+      });
+    } catch (usersErr) {
+      console.warn('[Firebase] Notice querying users collection for referrals:', usersErr);
+    }
+
+    // 2. Fetch from 'referral_nodes' collection
+    try {
+      const nodesCol = collection(db, 'referral_nodes');
+      const snap = await getDocs(nodesCol);
+      snap.forEach((d) => {
+        const data = d.data() as ReferralNodeRecord;
+        if (data.userCode) {
+          const key = data.userCode.toUpperCase();
+          result[key] = {
+            ...(result[key] || {}),
+            ...data,
+            userCode: key,
+            referredByCode: (data.referredByCode || result[key]?.referredByCode || '').toUpperCase(),
+          };
+          if (data.memberId) {
+            result[data.memberId.toUpperCase()] = result[key];
+          }
+        }
+      });
+    } catch (nodesErr) {
+      console.warn('[Firebase] Notice querying referral_nodes for referrals:', nodesErr);
+    }
 
     if (Object.keys(result).length > 0) {
       // Merge with localStorage
@@ -1229,6 +1447,160 @@ export const syncReferralAccountsFromFirestore = async (): Promise<Record<string
   } catch (err) {
     console.warn('[Firebase] Notice syncing referral nodes from Firestore:', err);
     return {};
+  }
+};
+
+/**
+ * Real-time listener for referral network changes.
+ * Listens to Firestore 'users' and 'referral_nodes' to deliver instant updates with zero delay.
+ */
+export const subscribeToReferralNetwork = (
+  callback: (accounts: Record<string, ReferralNodeRecord>) => void
+): (() => void) => {
+  let isMounted = true;
+  const mergedAccounts: Record<string, ReferralNodeRecord> = {};
+
+  // Seed from localStorage first for zero-delay UI rendering
+  try {
+    const raw = localStorage.getItem('novavest_registered_accounts');
+    if (raw) {
+      Object.assign(mergedAccounts, JSON.parse(raw));
+      callback({ ...mergedAccounts });
+    }
+  } catch {}
+
+  const updateStore = () => {
+    if (!isMounted) return;
+    try {
+      // Ensure local non-synced items are preserved
+      const rawLocal = localStorage.getItem('novavest_registered_accounts');
+      const local = rawLocal ? JSON.parse(rawLocal) : {};
+      const fullyMerged = { ...local, ...mergedAccounts };
+      localStorage.setItem('novavest_registered_accounts', JSON.stringify(fullyMerged));
+      callback(fullyMerged);
+    } catch {
+      callback({ ...mergedAccounts });
+    }
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('referral_rewards_updated'));
+      window.dispatchEvent(new Event('storage'));
+    }
+  };
+
+  // 1. Real-time listener on 'users' collection
+  const unsubUsers = onSnapshot(
+    collection(db, 'users'),
+    (snap) => {
+      snap.forEach((d) => {
+        const node = extractReferralNodeFromUserDoc(d.data(), d.id);
+        if (node && node.userCode) {
+          mergedAccounts[node.userCode] = {
+            ...(mergedAccounts[node.userCode] || {}),
+            ...node,
+          };
+          if (node.memberId && node.memberId !== node.userCode) {
+            mergedAccounts[node.memberId] = mergedAccounts[node.userCode];
+          }
+        }
+      });
+      updateStore();
+    },
+    (err) => {
+      console.warn('[Firebase] Real-time referral users listener notice:', err);
+    }
+  );
+
+  // 2. Real-time listener on 'referral_nodes' collection
+  const unsubNodes = onSnapshot(
+    collection(db, 'referral_nodes'),
+    (snap) => {
+      snap.forEach((d) => {
+        const data = d.data() as ReferralNodeRecord;
+        if (data.userCode) {
+          const key = data.userCode.toUpperCase();
+          mergedAccounts[key] = {
+            ...(mergedAccounts[key] || {}),
+            ...data,
+            userCode: key,
+            referredByCode: (data.referredByCode || mergedAccounts[key]?.referredByCode || '').toUpperCase(),
+          };
+          if (data.memberId) {
+            mergedAccounts[data.memberId.toUpperCase()] = mergedAccounts[key];
+          }
+        }
+      });
+      updateStore();
+    },
+    (err) => {
+      console.warn('[Firebase] Real-time referral nodes listener notice:', err);
+    }
+  );
+
+  return () => {
+    isMounted = false;
+    try {
+      unsubUsers();
+    } catch {}
+    try {
+      unsubNodes();
+    } catch {}
+  };
+};
+
+/**
+ * Credit commission directly into user's wallet in Firestore
+ */
+export const creditUserCommissionInFirestore = async (
+  userIdOrCode: string,
+  commissionAmount: number
+): Promise<void> => {
+  const cleanId = cleanDocId(userIdOrCode, '');
+  const amt = Number(commissionAmount);
+  if (!cleanId || !amt || amt <= 0) return;
+  try {
+    const userRef = safeDoc('users', cleanId);
+    if (userRef) {
+      await safeSetDoc(
+        userRef,
+        {
+          walletBalance: increment(amt),
+          totalReferralEarnings: increment(amt),
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+    }
+
+    // Query by referralCode if doc doesn't exist by ID
+    const q = query(collection(db, 'users'), where('referralCode', '==', cleanId));
+    const qSnap = await getDocs(q);
+    if (!qSnap.empty) {
+      await safeSetDoc(
+        qSnap.docs[0].ref,
+        {
+          walletBalance: increment(amt),
+          totalReferralEarnings: increment(amt),
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+    } else {
+      const q2 = query(collection(db, 'users'), where('memberId', '==', cleanId));
+      const q2Snap = await getDocs(q2);
+      if (!q2Snap.empty) {
+        await safeSetDoc(
+          q2Snap.docs[0].ref,
+          {
+            walletBalance: increment(amt),
+            totalReferralEarnings: increment(amt),
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        );
+      }
+    }
+  } catch (err) {
+    console.warn('[Firebase] Notice crediting commission to user in Firestore:', err);
   }
 };
 
@@ -1251,7 +1623,7 @@ export const recordPromoClaimInFirestore = async (
     const claimId = cleanDocId(`${cleanIdOrCode}_${cleanTierId}`);
     const nowIso = new Date().toISOString();
 
-    const payload = sanitizeFirestoreData({
+    const payload = {
       id: claimId,
       userId: cleanIdOrCode,
       tierId: cleanTierId,
@@ -1259,15 +1631,15 @@ export const recordPromoClaimInFirestore = async (
       amount: Number(amount) || 0,
       claimedAt: nowIso,
       serverCreatedAt: serverTimestamp(),
-    });
+    };
 
-    if (payload && Object.keys(payload).length > 0) {
-      // 1. Top-level promo claims
-      await setDoc(doc(db, 'promo_claims', claimId), payload, { merge: true });
+    // 1. Top-level promo claims
+    const ref1 = safeDoc('promo_claims', claimId);
+    if (ref1) await safeSetDoc(ref1, payload, { merge: true });
 
-      // 2. User subcollection
-      await setDoc(doc(db, 'users', cleanIdOrCode, 'promo_claims', cleanTierId), payload, { merge: true });
-    }
+    // 2. User subcollection
+    const ref2 = safeDoc('users', cleanIdOrCode, 'promo_claims', cleanTierId);
+    if (ref2) await safeSetDoc(ref2, payload, { merge: true });
 
     console.log('[Firebase] Promo bonus claim persisted to Firestore:', claimId);
   } catch (err) {
@@ -1327,8 +1699,9 @@ export const recordCommissionInFirestore = async (comm: {
 }): Promise<void> => {
   try {
     const safeId = cleanDocId(comm.id, `COMM-${Date.now()}`);
-    const docRef = doc(db, 'commissions', safeId);
-    const payload = sanitizeFirestoreData({
+    const docRef = safeDoc('commissions', safeId);
+    if (!docRef) return;
+    const payload = {
       ...comm,
       id: safeId,
       recipientCode: cleanDocId(comm.recipientCode, ''),
@@ -1339,10 +1712,8 @@ export const recordCommissionInFirestore = async (comm: {
       commissionAmount: Number(comm.commissionAmount) || 0,
       timestamp: comm.timestamp || new Date().toISOString(),
       serverCreatedAt: serverTimestamp(),
-    });
-    if (payload && Object.keys(payload).length > 0) {
-      await setDoc(docRef, payload, { merge: true });
-    }
+    };
+    await safeSetDoc(docRef, payload, { merge: true });
   } catch (err) {
     console.warn('[Firebase] Notice recording commission in Firestore:', err);
   }

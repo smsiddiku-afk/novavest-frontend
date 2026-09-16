@@ -74,6 +74,8 @@ export interface UserProfile {
     date: string;
   }>;
   transactions?: any[];
+  isAuthenticatorSet?: boolean;
+  authenticatorSecret?: string;
 }
 
 export type LegalDocType = 'terms' | 'privacy' | null;

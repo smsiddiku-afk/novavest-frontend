@@ -1034,7 +1034,7 @@ export const InvestTabContent: React.FC<InvestTabContentProps> = ({
                   <div className="w-7 h-7 rounded-lg bg-[#00c853] flex items-center justify-center p-0.5 text-black">
                     <Zap className="w-4 h-4" />
                   </div>
-                  <span className="font-extrabold text-white text-sm">AI ENERGY</span>
+                  <span className="font-extrabold text-white text-sm">NVT ENERGY</span>
                 </div>
                 <button
                   type="button"
@@ -1108,7 +1108,7 @@ export const InvestTabContent: React.FC<InvestTabContentProps> = ({
             </div>
 
             <div className="pt-4 border-t border-emerald-500/20 text-[11px] text-slate-400 text-center">
-              AI Energy © 2026. Clean Energy for Better Tomorrow.
+              NVT Energy © 2026. Clean Energy for Better Tomorrow.
             </div>
           </div>
         </div>

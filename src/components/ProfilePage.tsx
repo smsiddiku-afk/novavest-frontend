@@ -1451,11 +1451,47 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
   const [withdrawAccount, setWithdrawAccount] = useState('');
   const [withdrawPin, setWithdrawPin] = useState('');
 
-  // Google Authenticator state
-  const [isAuthenticatorEnabled, setIsAuthenticatorEnabled] = useState(true);
+  // Google Authenticator state (defaults to false / not set unless explicitly configured)
+  const [isAuthenticatorSet, setIsAuthenticatorSet] = useState<boolean>(() => {
+    if (user.isAuthenticatorSet !== undefined) {
+      return !!user.isAuthenticatorSet;
+    }
+    try {
+      const activeId = user.uid || user.memberId || user.phone;
+      if (activeId) {
+        const saved = localStorage.getItem(`nvt_google_auth_set_${activeId}`);
+        if (saved !== null) {
+          return saved === 'true';
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return false;
+  });
   const [authSecretKey] = useState('NB2W 45DF OIZX E33N');
   const [authInputCode, setAuthInputCode] = useState('');
   const [isAuthKeyCopied, setIsAuthKeyCopied] = useState(false);
+
+  // Sync state if user.isAuthenticatorSet changes externally
+  useEffect(() => {
+    if (user.isAuthenticatorSet !== undefined && user.isAuthenticatorSet !== isAuthenticatorSet) {
+      setIsAuthenticatorSet(!!user.isAuthenticatorSet);
+    }
+  }, [user.isAuthenticatorSet]);
+
+  const handleSaveAuthenticator = (status: boolean) => {
+    setIsAuthenticatorSet(status);
+    updateUser((prev) => ({ ...prev, isAuthenticatorSet: status }));
+    try {
+      const activeId = user.uid || user.memberId || user.phone;
+      if (activeId) {
+        localStorage.setItem(`nvt_google_auth_set_${activeId}`, status ? 'true' : 'false');
+      }
+    } catch {
+      // ignore
+    }
+  };
 
   // Daily Town Hall state
   const [isTownHallReminderSet, setIsTownHallReminderSet] = useState(false);
@@ -1473,7 +1509,23 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     } catch {
       // ignore
     }
-    updateUser((prev) => ({ ...prev, walletBalance: prev.walletBalance + 50 }));
+    const bonusTrx = {
+      id: `BONUS-${Date.now().toString().slice(-6)}`,
+      type: 'reward',
+      title: currentLang === 'bn' ? 'দৈনিক ফ্রি বোনাস' : 'Daily Check-in Bonus',
+      desc: currentLang === 'bn' ? 'অ্যাটেন্ডেন্স বোনাস' : 'Daily Attendance Bonus',
+      amount: 50,
+      status: currentLang === 'bn' ? 'সফল' : 'Completed',
+      time: `আজ, ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`,
+      date: new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }),
+      channel: 'Daily Bonus',
+      isCredit: true,
+    };
+    updateUser((prev) => ({
+      ...prev,
+      walletBalance: prev.walletBalance + 50,
+      transactions: [bonusTrx, ...(prev.transactions || [])],
+    }));
     showToast(t.toastBonusClaimed);
   };
 
@@ -1562,6 +1614,20 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     const maxVip = Math.max(user.vipLevel || 0, 1, ...updatedInvestments.map((inv: any) => inv.vipLevel || 1));
     const totalDaily = updatedInvestments.reduce((acc: number, curr: any) => acc + (curr.dailyYield || 0), 0);
 
+    const invTxn = {
+      id: newInvestment.id,
+      type: 'investment',
+      title: currentLang === 'bn' ? `প্রজেক্ট বিনিয়োগ (${projectName})` : `Project Investment (${projectName})`,
+      desc: currentLang === 'bn' ? `প্যাকেজ: ${projectName}` : `Package: ${projectName}`,
+      amount: -amount,
+      rawAmount: -amount,
+      status: currentLang === 'bn' ? 'সফল' : 'Completed',
+      time: `আজ, ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`,
+      date: new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }),
+      channel: 'Wallet Balance',
+      isCredit: false,
+    };
+
     updateUser((prev) => ({
       ...prev,
       walletBalance: prev.walletBalance - amount,
@@ -1569,6 +1635,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       activeUnits: updatedInvestments.length,
       dailyRewards: totalDaily,
       activeInvestments: updatedInvestments,
+      transactions: [invTxn, ...(prev.transactions || [])],
     }));
 
     // Cloud Firestore Sync: persist active investment to user's profile and investments collection
@@ -1833,7 +1900,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 </div>
                 <div className="flex flex-col">
                   <div className="flex items-center gap-1 font-black text-lg sm:text-xl tracking-wider leading-none">
-                    <span className={themeMode === 'day' ? 'text-slate-900' : 'text-white'}>AI</span>
+                    <span className={themeMode === 'day' ? 'text-slate-900' : 'text-white'}>NVT</span>
                     <span className="text-[#00e676]">ENERGY</span>
                   </div>
                   <span className="text-[10px] text-slate-400 font-medium tracking-tight mt-0.5">
@@ -1957,6 +2024,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           <TransactionsTabContent
             userBalance={user.walletBalance}
             userTransactions={user.transactions || []}
+            activeInvestments={user.activeInvestments || []}
             currentLang={currentLang}
             themeMode={themeMode}
           />
@@ -2459,20 +2527,38 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 }`}
               >
                 <div className="flex items-center gap-3.5">
-                  <div className="w-9 h-9 rounded-full bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center text-emerald-400 group-hover:scale-105 transition-transform shrink-0">
+                  <div className={`w-9 h-9 rounded-full flex items-center justify-center group-hover:scale-105 transition-transform shrink-0 ${
+                    isAuthenticatorSet
+                      ? 'bg-emerald-500/15 border border-emerald-500/25 text-emerald-400'
+                      : 'bg-amber-500/15 border border-amber-500/25 text-amber-400'
+                  }`}>
                     <ShieldCheck className="w-4.5 h-4.5" />
                   </div>
-                  <span className={`text-[15px] font-semibold tracking-tight transition-colors ${
-                    themeMode === 'day' ? 'text-slate-800 group-hover:text-emerald-600' : 'text-slate-100 group-hover:text-emerald-300'
-                  }`}>
-                    {currentLang === 'bn' ? 'গুগল অথেন্টিকেটর' : 'Google Authenticator'}
-                  </span>
+                  <div>
+                    <span className={`text-[15px] font-semibold tracking-tight transition-colors block ${
+                      themeMode === 'day' ? 'text-slate-800 group-hover:text-emerald-600' : 'text-slate-100 group-hover:text-emerald-300'
+                    }`}>
+                      {currentLang === 'bn' ? 'গুগল অথেন্টিকেটর' : 'Google Authenticator'}
+                    </span>
+                    <span className="text-[11px] text-slate-400 block">
+                      {isAuthenticatorSet
+                        ? (currentLang === 'bn' ? 'দ্বি-স্তর নিরাপত্তা সক্রিয় রয়েছে' : '2FA Protection is Active')
+                        : (currentLang === 'bn' ? 'নিরাপত্তা বৃদ্ধি করতে সেট করুন' : 'Setup 2-factor authentication')}
+                    </span>
+                  </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/35">
-                    <Check className="w-3 h-3 text-emerald-400" />
-                    <span>{currentLang === 'bn' ? 'চালু আছে' : 'Active'}</span>
-                  </span>
+                  {isAuthenticatorSet ? (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/35 shadow-sm">
+                      <Check className="w-3 h-3 text-emerald-400" />
+                      <span>{currentLang === 'bn' ? 'একটিভ' : 'Active'}</span>
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-500/15 text-amber-300 border border-amber-500/30 shadow-sm">
+                      <AlertCircle className="w-3 h-3 text-amber-400" />
+                      <span>not set</span>
+                    </span>
+                  )}
                   <ChevronRight className={`w-4.5 h-4.5 transition-colors ${
                     themeMode === 'day' ? 'text-slate-400 group-hover:text-slate-700' : 'text-slate-500 group-hover:text-emerald-300'
                   }`} />
@@ -2556,7 +2642,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 }`} />
               </button>
 
-              {/* 7. Official Mobile App (APK) */}
+              {/* 7. Official Mobile App (Direct Install / APK) */}
               <button
                 id="profile-app-download-button"
                 type="button"
@@ -2569,15 +2655,25 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                   <div className="w-9 h-9 rounded-full bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center text-emerald-400 group-hover:scale-105 transition-transform shrink-0">
                     <Smartphone className="w-4.5 h-4.5" />
                   </div>
-                  <span className={`text-[15px] font-semibold tracking-tight transition-colors ${
-                    themeMode === 'day' ? 'text-slate-800 group-hover:text-emerald-600' : 'text-slate-100 group-hover:text-emerald-300'
-                  }`}>
-                    {currentLang === 'bn' ? 'অফিসিয়াল মোবাইল অ্যাপ (APK)' : 'Official Mobile App (APK)'}
-                  </span>
+                  <div>
+                    <span className={`text-[15px] font-semibold tracking-tight transition-colors block ${
+                      themeMode === 'day' ? 'text-slate-800 group-hover:text-emerald-600' : 'text-slate-100 group-hover:text-emerald-300'
+                    }`}>
+                      {currentLang === 'bn' ? 'অফিসিয়াল মোবাইল অ্যাপ ইনস্টল' : 'Official Mobile App Install'}
+                    </span>
+                    <span className="text-[11px] text-emerald-400 font-medium block">
+                      {currentLang === 'bn' ? '১-ক্লিকে সরাসরি ফোনে ইনস্টল' : '1-Click Direct Install'}
+                    </span>
+                  </div>
                 </div>
-                <ChevronRight className={`w-4.5 h-4.5 transition-colors ${
-                  themeMode === 'day' ? 'text-slate-400 group-hover:text-slate-700' : 'text-slate-500 group-hover:text-emerald-300'
-                }`} />
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                    v2.4.2
+                  </span>
+                  <ChevronRight className={`w-4.5 h-4.5 transition-colors ${
+                    themeMode === 'day' ? 'text-slate-400 group-hover:text-slate-700' : 'text-slate-500 group-hover:text-emerald-300'
+                  }`} />
+                </div>
               </button>
 
               {/* 8. Company Profile & Architecture */}
@@ -2718,53 +2814,24 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               </div>
             </div>
 
-            {/* Official App Footer & Compliance Badges (Eliminates Empty Space) */}
-            <div className={`mt-4 mb-2 p-4 rounded-2xl border text-center space-y-2.5 transition-colors duration-200 ${
-              themeMode === 'day'
-                ? 'bg-white border-slate-200/90 shadow-sm text-slate-600'
-                : 'bg-[#042018] border-emerald-500/25 text-slate-300'
-            }`}>
-              <div className="flex items-center justify-center gap-2 flex-wrap text-[11px]">
-                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">
-                  <ShieldCheck className="w-3 h-3 text-emerald-500" />
-                  {currentLang === 'bn' ? 'বিইআরসি লাইসেন্সপ্রাপ্ত' : 'BERC Regulated'}
-                </span>
-                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-blue-500/10 text-blue-500 border border-blue-500/20">
-                  <CheckCircle2 className="w-3 h-3 text-blue-500" />
-                  ISO 50001
-                </span>
-                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-purple-500/10 text-purple-500 border border-purple-500/20">
-                  256-Bit SSL
-                </span>
-              </div>
-              <div className="text-[11px] leading-tight">
-                <p className={`font-semibold ${themeMode === 'day' ? 'text-slate-800' : 'text-slate-300'}`}>
-                  NVT • Nova Terra Energy Grid Platform BD
-                </p>
-                <p className={`text-[10px] font-mono mt-0.5 ${themeMode === 'day' ? 'text-slate-500' : 'text-slate-400'}`}>
-                  App Version 2.4.2 (Official Release)
-                </p>
-                <p className={`text-[10px] mt-1 ${themeMode === 'day' ? 'text-slate-500' : 'text-slate-400'}`}>
-                  © 2026 Nova Terra Energy (NVT) BD Ltd. {currentLang === 'bn' ? 'সর্বস্বত্ব সংরক্ষিত।' : 'All rights reserved.'}
-                </p>
-              </div>
-            </div>
+
           </>
         )}
       </div>
 
       {/* 4. Bottom Navigation Bar (Mobile View only, hidden on desktop) */}
-      <div className={`md:hidden fixed bottom-0 left-0 right-0 z-40 max-w-md mx-auto backdrop-blur-lg border-t transition-colors duration-200 ${
+      <div className={`md:hidden fixed bottom-0 left-0 right-0 z-50 max-w-md mx-auto backdrop-blur-lg border-t transition-colors duration-200 ${
         themeMode === 'day'
           ? 'bg-white/95 border-slate-200/90 shadow-[0_-4px_20px_-4px_rgba(0,0,0,0.06)]'
           : 'bg-[#042018]/95 border-emerald-500/25'
       }`}>
         <nav
           id="bottom-navbar"
-          className="w-full px-2 py-2 flex items-center justify-around"
+          className="w-full px-2 py-2 flex items-center justify-around relative z-50"
         >
           {/* Home */}
           <button
+            id="bottom-nav-home-btn"
             type="button"
             onClick={() => switchTab('home')}
             className={`relative flex flex-col items-center py-1 px-3 rounded-2xl transition-all cursor-pointer active:scale-95 ${
@@ -2794,6 +2861,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
           {/* Invest */}
           <button
+            id="bottom-nav-invest-btn"
             type="button"
             onClick={() => switchTab('invest')}
             className={`relative flex flex-col items-center py-1 px-3 rounded-2xl transition-all cursor-pointer active:scale-95 ${
@@ -2823,6 +2891,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
           {/* History (Clock icon matching screenshot) */}
           <button
+            id="bottom-nav-history-btn"
             type="button"
             onClick={() => switchTab('transactions')}
             className={`relative flex flex-col items-center py-1 px-3 rounded-2xl transition-all cursor-pointer active:scale-95 ${
@@ -2882,9 +2951,10 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
           {/* Profile */}
           <button
+            id="bottom-nav-profile-btn"
             type="button"
             onClick={() => switchTab('profile')}
-            className={`relative flex flex-col items-center py-1 px-3 rounded-2xl transition-all cursor-pointer active:scale-95 ${
+            className={`relative flex flex-col items-center py-1 px-3 rounded-2xl transition-all cursor-pointer active:scale-95 z-10 ${
               currentTab === 'profile'
                 ? themeMode === 'day'
                   ? 'text-emerald-600 font-extrabold bg-emerald-50'
@@ -3118,6 +3188,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           onOpenAddWallet={() => setActiveSubModal('payment')}
           onOpenRecharge={() => setActiveSubModal('recharge')}
           showToast={showToast}
+          isAuthenticatorSet={isAuthenticatorSet}
         />
       )}
 
@@ -3216,9 +3287,17 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
                 <div className="p-3 rounded-2xl bg-[#042018] border border-emerald-500/20 flex justify-between items-center">
                   <span className="text-slate-300">{currentLang === 'bn' ? 'দ্বি-স্তর নিরাপত্তা (2FA)' : 'Two-Factor (2FA)'}</span>
-                  <span className={`font-semibold ${isAuthenticatorEnabled ? 'text-emerald-400' : 'text-slate-400'}`}>
-                    {isAuthenticatorEnabled ? (currentLang === 'bn' ? 'চালু রয়েছে' : 'Enabled') : (currentLang === 'bn' ? 'বন্ধ' : 'Disabled')}
-                  </span>
+                  {isAuthenticatorSet ? (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/35">
+                      <Check className="w-3 h-3 text-emerald-400" />
+                      <span>{currentLang === 'bn' ? 'একটিভ' : 'Active'}</span>
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                      <AlertCircle className="w-3 h-3 text-amber-400" />
+                      <span>not set</span>
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
@@ -3253,6 +3332,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           onClose={() => setActiveSubModal(null)}
           showToast={showToast}
           onOpen2FA={() => setActiveSubModal('authenticator')}
+          isAuthenticatorSet={isAuthenticatorSet}
         />
       )}
 
@@ -3477,56 +3557,66 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             </div>
             <span
               className={`px-3 py-1 rounded-full text-xs font-bold border ${
-                isAuthenticatorEnabled
+                isAuthenticatorSet
                   ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
-                  : 'bg-slate-800 text-slate-400 border-slate-700'
+                  : 'bg-amber-500/20 text-amber-300 border-amber-500/30'
               }`}
             >
-              {isAuthenticatorEnabled
-                ? currentLang === 'bn'
-                  ? 'সক্রিয়'
-                  : 'Active'
-                : currentLang === 'bn'
-                ? 'নিষ্ক্রিয়'
-                : 'Disabled'}
+              {isAuthenticatorSet
+                ? (currentLang === 'bn' ? 'একটিভ' : 'Active')
+                : 'not set'}
             </span>
           </header>
 
           <main className="flex-1 w-full max-w-xl mx-auto px-4 py-6 sm:px-6 sm:py-8 space-y-6">
             {/* Status Toggle Card */}
             <div className="p-4 rounded-3xl bg-[#062c22] border border-emerald-500/30 shadow-xl flex items-center justify-between">
-              <div>
-                <span className="text-sm font-bold text-white block">
-                  {currentLang === 'bn' ? 'অথেন্টিকেটর স্ট্যাটাস' : 'Authenticator Status'}
-                </span>
-                <span className="text-xs text-slate-300">
-                  {currentLang === 'bn'
-                    ? 'উত্তোলন ও সংবেদনশীল লেনদেনের সুরক্ষা দেয়'
-                    : 'Protects withdrawals & sensitive changes'}
+              <div className="space-y-0.5 pr-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-bold text-white block">
+                    {currentLang === 'bn' ? 'অথেন্টিকেটর স্ট্যাটাস' : 'Authenticator Status'}
+                  </span>
+                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                    isAuthenticatorSet
+                      ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/35'
+                      : 'bg-amber-500/20 text-amber-300 border-amber-500/35'
+                  }`}>
+                    {isAuthenticatorSet ? (currentLang === 'bn' ? 'একটিভ' : 'Active') : 'not set'}
+                  </span>
+                </div>
+                <span className="text-xs text-slate-300 block">
+                  {isAuthenticatorSet
+                    ? (currentLang === 'bn'
+                        ? 'গুগল অথেন্টিকেটর একটিভ রয়েছে এবং অ্যাকাউন্ট সুরক্ষিত।'
+                        : 'Google Authenticator is Active & account is secured.')
+                    : (currentLang === 'bn'
+                        ? 'গুগল অথেন্টিকেটর এখনও সেট করা হয়নি (not set)। সিক্রেট কি দিয়ে সেট করুন।'
+                        : 'Google Authenticator is not set. Setup using the key below.')}
                 </span>
               </div>
               <button
                 type="button"
+                id="profile-authenticator-toggle-btn"
                 onClick={() => {
-                  const nextState = !isAuthenticatorEnabled;
-                  setIsAuthenticatorEnabled(nextState);
+                  const nextState = !isAuthenticatorSet;
+                  handleSaveAuthenticator(nextState);
                   showToast(
                     nextState
                       ? currentLang === 'bn'
-                        ? 'গুগল অথেন্টিকেটর সক্রিয় হয়েছে!'
+                        ? 'গুগল অথেন্টিকেটর সক্রিয় হয়েছে (একটিভ)!'
                         : 'Google Authenticator Activated!'
                       : currentLang === 'bn'
-                      ? 'গুগল অথেন্টিকেটর নিষ্ক্রিয় করা হয়েছে'
-                      : 'Google Authenticator Deactivated'
+                      ? 'গুগল অথেন্টিকেটর নিষ্ক্রিয় করা হয়েছে (not set)'
+                      : 'Google Authenticator disabled (not set)'
                   );
                 }}
                 className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
-                  isAuthenticatorEnabled ? 'bg-emerald-500' : 'bg-slate-700'
+                  isAuthenticatorSet ? 'bg-emerald-500' : 'bg-slate-700'
                 }`}
               >
                 <span
                   className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                    isAuthenticatorEnabled ? 'translate-x-5' : 'translate-x-0'
+                    isAuthenticatorSet ? 'translate-x-5' : 'translate-x-0'
                   }`}
                 />
               </button>
@@ -3637,12 +3727,14 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 />
                 <button
                   type="button"
+                  id="profile-auth-verify-code-btn"
                   onClick={() => {
                     if (authInputCode.length === 6) {
+                      handleSaveAuthenticator(true);
                       showToast(
                         currentLang === 'bn'
-                          ? '২এফএ কোড সফলভাবে যাচাই হয়েছে!'
-                          : '2FA Code Verified Successfully!'
+                          ? '২এফএ কোড সফলভাবে যাচাই হয়েছে! গুগল অথেন্টিকেটর এখন একটিভ।'
+                          : '2FA Code Verified! Google Authenticator is now Active.'
                       );
                       setAuthInputCode('');
                     } else {
@@ -3651,24 +3743,39 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                   }}
                   className="px-5 py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold shrink-0 transition-colors cursor-pointer"
                 >
-                  {currentLang === 'bn' ? 'যাচাই' : 'Verify'}
+                  {currentLang === 'bn' ? 'যাচাই ও একটিভ করুন' : 'Verify & Set'}
                 </button>
               </div>
             </div>
 
             <button
               type="button"
+              id="profile-auth-final-save-btn"
               onClick={() => {
-                showToast(
-                  currentLang === 'bn'
-                    ? 'গুগল অথেন্টিকেটর কনফিগারেশন সংরক্ষণ করা হয়েছে!'
-                    : 'Google Authenticator configuration saved!'
-                );
+                if (!isAuthenticatorSet) {
+                  handleSaveAuthenticator(true);
+                  showToast(
+                    currentLang === 'bn'
+                      ? 'গুগল অথেন্টিকেটর সফলভাবে সেট ও একটিভ করা হয়েছে!'
+                      : 'Google Authenticator set and activated!'
+                  );
+                } else {
+                  showToast(
+                    currentLang === 'bn'
+                      ? 'গুগল অথেন্টিকেটর বর্তমানে একটিভ রয়েছে।'
+                      : 'Google Authenticator is currently Active.'
+                  );
+                }
                 setActiveSubModal(null);
               }}
-              className="w-full py-3.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-sm shadow-lg shadow-emerald-500/25 transition-all cursor-pointer"
+              className="w-full py-3.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-sm shadow-lg shadow-emerald-500/25 transition-all cursor-pointer flex items-center justify-center gap-2"
             >
-              {currentLang === 'bn' ? 'সংরক্ষণ সম্পন্ন করুন' : 'Done & Save'}
+              <ShieldCheck className="w-4 h-4" />
+              <span>
+                {isAuthenticatorSet
+                  ? (currentLang === 'bn' ? 'একটিভ রয়েছে (সংরক্ষণ সম্পন্ন)' : 'Active (Done & Back)')
+                  : (currentLang === 'bn' ? 'অথেনটিক সেট করুন ও একটিভ করুন' : 'Set & Activate Authenticator')}
+              </span>
             </button>
           </main>
         </div>

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ArrowDownToLine, ArrowUpFromLine, Zap, Gift, CheckCircle2, Clock, XCircle, X, Copy, Check, FileText } from 'lucide-react';
+import { ArrowDownToLine, ArrowUpFromLine, Zap, Gift, CheckCircle2, Clock, XCircle, X, Copy, Check, FileText, TrendingUp } from 'lucide-react';
 import { Language } from '../types';
 import { translations } from '../utils/translations';
 
@@ -7,6 +7,7 @@ interface TransactionsTabContentProps {
   userBalance: number;
   currentLang?: Language;
   userTransactions?: any[];
+  activeInvestments?: any[];
   themeMode?: 'night' | 'day';
 }
 
@@ -14,17 +15,41 @@ export const TransactionsTabContent: React.FC<TransactionsTabContentProps> = ({
   userBalance,
   currentLang = 'en',
   userTransactions = [],
+  activeInvestments = [],
   themeMode = 'night',
 }) => {
   const isBn = currentLang === 'bn';
   const t = translations[currentLang];
-  const [activeFilter, setActiveFilter] = useState<'all' | 'recharge' | 'yield' | 'withdraw'>('all');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'recharge' | 'invest' | 'yield' | 'withdraw'>('all');
   const [selectedReceipt, setSelectedReceipt] = useState<any | null>(null);
   const [copiedTrx, setCopiedTrx] = useState(false);
 
+  // Merge active investments into transactions if not already recorded
+  const combinedRawTransactions = [...userTransactions];
+  if (Array.isArray(activeInvestments)) {
+    activeInvestments.forEach((inv: any) => {
+      const invId = inv.id || `INV-${inv.name || 'PLAN'}`;
+      const exists = combinedRawTransactions.some((t: any) => t.id === invId || (t.id && inv.name && t.id.includes(inv.name)));
+      if (!exists) {
+        combinedRawTransactions.push({
+          id: invId,
+          type: 'investment',
+          title: isBn ? `প্রজেক্ট বিনিয়োগ (${inv.name || 'প্যাকেজ'})` : `Project Investment (${inv.name || 'Package'})`,
+          desc: isBn ? `প্যাকেজ: ${inv.name || 'সক্রিয়'}` : `Package: ${inv.name || 'Active'}`,
+          amount: -(Number(inv.amount) || 0),
+          status: isBn ? 'সফল' : 'Completed',
+          time: inv.date || (isBn ? 'সক্রিয়' : 'Active'),
+          date: inv.date || new Date().toLocaleDateString('en-GB'),
+          channel: 'Wallet Balance',
+          isCredit: false,
+        });
+      }
+    });
+  }
+
   // Real transactions from user session and Firestore, deduplicated by ID
   const seenIds = new Set<string>();
-  const transactions = userTransactions
+  const transactions = combinedRawTransactions
     .filter((tx: any) => {
       const keyId = tx.id || tx.hash;
       if (!keyId) return true;
@@ -47,26 +72,43 @@ export const TransactionsTabContent: React.FC<TransactionsTabContentProps> = ({
     const statusCode = isPending ? 'pending' : isCancelled ? 'cancelled' : 'completed';
 
     const rawType = String(tx.type || '').toLowerCase();
-    const isRecharge =
-      rawType === 'recharge' ||
-      rawType === 'deposit' ||
-      rawType === 'payin' ||
-      (typeof tx.amount === 'number' ? tx.amount > 0 : String(tx.amount || '').startsWith('+'));
-    const isWithdraw =
-      rawType === 'withdrawal' ||
-      rawType === 'withdraw' ||
-      rawType === 'payout' ||
-      (typeof tx.amount === 'number' ? tx.amount < 0 : String(tx.amount || '').startsWith('-'));
-    const isYield = rawType === 'yield' || rawType === 'bonus' || rawType === 'reward' || rawType === 'earning';
+    const isInvest =
+      rawType === 'investment' ||
+      rawType === 'invest' ||
+      rawType.includes('package') ||
+      rawType.includes('plan');
 
-    const normalizedType = isYield ? 'yield' : isWithdraw ? 'withdraw' : 'recharge';
+    const isRecharge =
+      !isInvest && (
+        rawType === 'recharge' ||
+        rawType === 'deposit' ||
+        rawType === 'payin' ||
+        (typeof tx.amount === 'number' ? tx.amount > 0 : String(tx.amount || '').startsWith('+'))
+      );
+
+    const isWithdraw =
+      !isInvest && (
+        rawType === 'withdrawal' ||
+        rawType === 'withdraw' ||
+        rawType === 'payout'
+      );
+
+    const isYield =
+      rawType === 'yield' ||
+      rawType === 'bonus' ||
+      rawType === 'reward' ||
+      rawType === 'earning';
+
+    const normalizedType = isInvest ? 'invest' : isYield ? 'yield' : isWithdraw ? 'withdraw' : 'recharge';
 
     return {
       id: tx.id || tx.hash || `TRX-${Date.now()}`,
       type: normalizedType,
       title:
         tx.title ||
-        (normalizedType === 'withdraw'
+        (normalizedType === 'invest'
+          ? (isBn ? 'প্রজেক্ট বিনিয়োগ' : 'Project Investment')
+          : normalizedType === 'withdraw'
           ? (isBn ? 'ব্যালেন্স উত্তোলন' : 'Balance Withdrawal')
           : isYield
           ? (isBn ? 'দৈনিক ইনভেস্টমেন্ট আয়' : 'Daily Yield Reward')
@@ -90,6 +132,7 @@ export const TransactionsTabContent: React.FC<TransactionsTabContentProps> = ({
   const filtered = transactions.filter((trx) => {
     if (activeFilter === 'all') return true;
     if (activeFilter === 'recharge') return trx.type === 'recharge';
+    if (activeFilter === 'invest') return trx.type === 'invest';
     if (activeFilter === 'yield') return trx.type === 'yield' || trx.type === 'bonus';
     if (activeFilter === 'withdraw') return trx.type === 'withdraw';
     return true;
@@ -122,10 +165,11 @@ export const TransactionsTabContent: React.FC<TransactionsTabContentProps> = ({
       </div>
 
       {/* Filter Tabs */}
-      <div className="grid grid-cols-4 gap-1.5 p-1 rounded-2xl bg-[#091325] border border-slate-800">
+      <div className="grid grid-cols-5 gap-1 p-1 rounded-2xl bg-[#091325] border border-slate-800">
         {[
           { id: 'all' as const, label: isBn ? 'সকল' : 'All' },
           { id: 'recharge' as const, label: isBn ? 'রিচার্জ' : 'Recharge' },
+          { id: 'invest' as const, label: isBn ? 'বিনিয়োগ' : 'Invest' },
           { id: 'yield' as const, label: isBn ? 'আয়' : 'Yields' },
           { id: 'withdraw' as const, label: isBn ? 'উত্তোলন' : 'Withdraw' },
         ].map((tab) => (
@@ -133,7 +177,7 @@ export const TransactionsTabContent: React.FC<TransactionsTabContentProps> = ({
             key={tab.id}
             type="button"
             onClick={() => setActiveFilter(tab.id)}
-            className={`py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+            className={`py-2 px-1 text-center rounded-xl text-[11px] sm:text-xs font-bold transition-all cursor-pointer truncate ${
               activeFilter === tab.id
                 ? 'bg-cyan-500 text-slate-950 font-black shadow-md shadow-cyan-500/20'
                 : 'text-slate-400 hover:text-white'
@@ -176,6 +220,8 @@ export const TransactionsTabContent: React.FC<TransactionsTabContentProps> = ({
                       ? 'bg-blue-500/15 border-blue-500/30 text-blue-400'
                       : trx.type === 'withdraw'
                       ? 'bg-rose-500/15 border-rose-500/30 text-rose-400'
+                      : trx.type === 'invest'
+                      ? 'bg-purple-500/15 border-purple-500/30 text-purple-400'
                       : trx.type === 'bonus'
                       ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400'
                       : 'bg-cyan-500/15 border-cyan-500/30 text-cyan-400'
@@ -183,6 +229,7 @@ export const TransactionsTabContent: React.FC<TransactionsTabContentProps> = ({
                 >
                   {trx.type === 'recharge' && <ArrowDownToLine className="w-5 h-5" />}
                   {trx.type === 'withdraw' && <ArrowUpFromLine className="w-5 h-5" />}
+                  {trx.type === 'invest' && <TrendingUp className="w-5 h-5" />}
                   {trx.type === 'bonus' && <Gift className="w-5 h-5" />}
                   {trx.type === 'yield' && <Zap className="w-5 h-5 fill-current" />}
                 </div>

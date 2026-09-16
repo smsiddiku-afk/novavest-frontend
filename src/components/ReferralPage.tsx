@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import { Language } from '../types';
 import { getReferralTreeForUser } from '../utils/referralService';
+import { subscribeToReferralNetwork, syncReferralAccountsFromFirestore } from '../lib/firebase';
 
 export interface ReferralMember {
   id: string;
@@ -74,18 +75,58 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
   // Copy states
   const [copiedCode, setCopiedCode] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [liveAccounts, setLiveAccounts] = useState<Record<string, any> | undefined>(undefined);
   const [refreshTick, setRefreshTick] = useState(0);
 
   useEffect(() => {
-    const handleUpdate = () => setRefreshTick((t) => t + 1);
+    // 0. Instantaneous seed from localStorage
+    try {
+      const raw = localStorage.getItem('novavest_registered_accounts');
+      if (raw) {
+        setLiveAccounts(JSON.parse(raw));
+      }
+    } catch {}
+
+    // 1. Immediate Firestore initial sync
+    syncReferralAccountsFromFirestore()
+      .then((accs) => {
+        if (accs && Object.keys(accs).length > 0) {
+          setLiveAccounts((prev) => ({ ...(prev || {}), ...accs }));
+        }
+      })
+      .catch(() => {});
+
+    // 2. Real-time Firestore snapshot listener for instantaneous 3-tier sync
+    const unsubscribe = subscribeToReferralNetwork((streamedAccounts) => {
+      setLiveAccounts((prev) => ({ ...(prev || {}), ...streamedAccounts }));
+      setRefreshTick((t) => t + 1);
+    });
+
+    // 3. Local instantaneous event listener for zero-delay UI update
+    const handleUpdate = () => {
+      try {
+        const raw = localStorage.getItem('novavest_registered_accounts');
+        if (raw) {
+          setLiveAccounts((prev) => ({ ...(prev || {}), ...JSON.parse(raw) }));
+        }
+      } catch {}
+      setRefreshTick((t) => t + 1);
+    };
+
     window.addEventListener('referral_rewards_updated', handleUpdate);
-    return () => window.removeEventListener('referral_rewards_updated', handleUpdate);
+    window.addEventListener('storage', handleUpdate);
+
+    return () => {
+      unsubscribe();
+      window.removeEventListener('referral_rewards_updated', handleUpdate);
+      window.removeEventListener('storage', handleUpdate);
+    };
   }, []);
 
-  // Real referral network data for this user
+  // Real referral network data for this user across all 3 levels
   const teamTree = useMemo(
-    () => getReferralTreeForUser(userCode, userMemberId),
-    [userCode, userMemberId, refreshTick]
+    () => getReferralTreeForUser(userCode, userMemberId, liveAccounts),
+    [userCode, userMemberId, refreshTick, liveAccounts]
   );
   const realMembers: ReferralMember[] = useMemo(() => {
     return (teamTree.members || []).map((m) => ({

@@ -27,6 +27,7 @@ interface WithdrawModalProps {
   onOpenAddWallet?: () => void;
   onOpenRecharge?: () => void;
   showToast?: (message: string) => void;
+  isAuthenticatorSet?: boolean;
 }
 
 export interface WithdrawalReceiptData {
@@ -54,8 +55,26 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
   onOpenAddWallet,
   onOpenRecharge,
   showToast,
+  isAuthenticatorSet: isAuthenticatorSetProp,
 }) => {
   const isBn = currentLang === 'bn';
+
+  const isAuthSet = Boolean(
+    isAuthenticatorSetProp ?? (() => {
+      try {
+        const uStr = localStorage.getItem('nvt_auth_user') || localStorage.getItem('auth_user');
+        if (uStr) {
+          const u = JSON.parse(uStr);
+          if (u.isAuthenticatorSet !== undefined) return u.isAuthenticatorSet;
+          const id = u.uid || u.memberId || u.phone;
+          if (id && localStorage.getItem(`nvt_google_auth_set_${id}`) === 'true') return true;
+        }
+      } catch {
+        // ignore
+      }
+      return false;
+    })()
+  );
 
   // Load bound wallets from localStorage
   const [boundWallets, setBoundWallets] = useState<WalletItem[]>(() => {
@@ -192,15 +211,17 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
       return;
     }
 
-    // 4. Validate Google Authenticator 2FA code
+    // 4. Validate Google Authenticator 2FA code (required if active, optional if not set)
     const cleanCode = authCode.trim().replace(/\D/g, '');
-    if (cleanCode.length !== 6) {
-      setErrorMsg(
-        isBn
-          ? 'অনুগ্রহ করে আপনার ৬ সংখ্যার অথেন্টিকেটর কোডটি দিন।'
-          : 'Please enter the 6-digit code from your Google Authenticator app.'
-      );
-      return;
+    if (isAuthSet) {
+      if (cleanCode.length !== 6) {
+        setErrorMsg(
+          isBn
+            ? 'অনুগ্রহ করে আপনার ৬ সংখ্যার গুগল অথেন্টিকেটর কোডটি দিন।'
+            : 'Please enter the 6-digit code from your Google Authenticator app.'
+        );
+        return;
+      }
     }
 
     setIsSubmitting(true);
@@ -229,7 +250,7 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
         dateStr,
         timeStr,
         status: 'Processing',
-        authCode: cleanCode,
+        authCode: cleanCode || (isAuthSet ? '123456' : 'NOT_SET'),
       };
 
       setReceiptData(newReceipt);
@@ -716,14 +737,21 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
               <div className="flex items-center">
                 <span className="w-1 h-4 bg-emerald-400 rounded-full mr-2" />
                 <span className="text-sm font-bold text-white tracking-wide">
-                  {isBn ? 'Authenticator কোড' : 'Authenticator code'}
+                  {isBn ? 'Google Authenticator কোড' : 'Google Authenticator code'}
                 </span>
               </div>
 
-              <span className="text-[11px] text-emerald-400 flex items-center gap-1 font-medium">
-                <Lock className="w-3 h-3" />
-                <span>6-Digit 2FA</span>
-              </span>
+              {isAuthSet ? (
+                <span className="text-[11px] text-emerald-300 flex items-center gap-1 font-semibold bg-emerald-500/20 px-2.5 py-0.5 rounded-full border border-emerald-500/35">
+                  <Check className="w-3 h-3 text-emerald-400" />
+                  <span>{isBn ? 'একটিভ' : 'Active'}</span>
+                </span>
+              ) : (
+                <span className="text-[11px] text-amber-300 flex items-center gap-1 font-semibold bg-amber-500/15 px-2.5 py-0.5 rounded-full border border-amber-500/30">
+                  <AlertCircle className="w-3 h-3 text-amber-400" />
+                  <span>not set</span>
+                </span>
+              )}
             </div>
 
             <div className="relative">
@@ -740,11 +768,25 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
                   setAuthCode(val);
                   if (errorMsg) setErrorMsg(null);
                 }}
-                placeholder={isBn ? '৬ ডিজিটের কোড দিন' : 'Enter 6-digit Authenticator code'}
-                required
+                placeholder={
+                  isAuthSet
+                    ? (isBn ? '৬ ডিজিটের কোড দিন' : 'Enter 6-digit Authenticator code')
+                    : (isBn ? 'not set (ঐচ্ছিক কোড)' : 'not set (optional code)')
+                }
+                required={isAuthSet}
                 className="w-full bg-[#031812] border border-emerald-500/30 rounded-xl px-4 py-3.5 text-white font-mono text-base tracking-widest focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400 placeholder:tracking-normal placeholder-slate-500 transition-all text-center"
               />
             </div>
+            {!isAuthSet && (
+              <p className="text-[11px] text-amber-400/90 flex items-center gap-1">
+                <AlertCircle className="w-3 h-3 text-amber-400 shrink-0" />
+                <span>
+                  {isBn
+                    ? 'গুগল অথেন্টিকেটর এখনও সেট করা হয়নি (not set)। প্রোফাইল থেকে সেট করতে পারেন।'
+                    : 'Google Authenticator is not set. You can activate it in Profile settings.'}
+                </span>
+              </p>
+            )}
           </div>
 
           {/* ========================================================= */}

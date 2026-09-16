@@ -60,7 +60,7 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
       const ref = urlParams.get('ref') || urlParams.get('referral');
       if (ref) return ref.trim();
     }
-    return 'IZC4NR';
+    return 'NV8829';
   });
 
   // OTP State

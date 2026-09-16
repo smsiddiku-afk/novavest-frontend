@@ -15,6 +15,7 @@ import {
   saveReferralNodeToFirestore,
   syncReferralAccountsFromFirestore,
   recordCommissionInFirestore,
+  creditUserCommissionInFirestore,
 } from '../lib/firebase';
 
 export interface TeamMember {
@@ -28,6 +29,7 @@ export interface TeamMember {
   status: 'active' | 'pending';
   referralCode?: string;
   referredBy?: string;
+  referredByName?: string;
 }
 
 export interface CommissionLog {
@@ -73,17 +75,81 @@ export const STORAGE_KEY_ACCOUNTS = 'novavest_registered_accounts';
 export const STORAGE_KEY_COMMISSION_LOGS = 'novavest_commission_logs';
 
 /**
- * Match two codes flexibly, accounting for case, whitespace, and optional "NVT" prefix
- * e.g. "NVT440912" matches "440912", "NV8829" matches "NV8829"
+ * Generate all normalized code variants for reliable matching:
+ * - Trims and uppercases
+ * - Handles NVT prefix (NVT440912 -> 440912, NV440912)
+ * - Handles NV prefix (NV8829 -> 8829, NVT8829)
+ * - Handles pure numbers (440912 -> NVT440912, NV440912)
+ * - Handles phone numbers (+88017..., 017...)
+ */
+export function getAllCodeVariants(code?: string): string[] {
+  if (!code) return [];
+  const clean = code.toString().trim().toUpperCase();
+  if (!clean) return [];
+
+  const set = new Set<string>();
+  set.add(clean);
+
+  // If starts with NVT
+  if (clean.startsWith('NVT')) {
+    const raw = clean.slice(3);
+    if (raw) {
+      set.add(raw);
+      set.add(`NV${raw}`);
+    }
+  }
+
+  // If starts with NV (and not NVT)
+  if (clean.startsWith('NV') && !clean.startsWith('NVT')) {
+    const raw = clean.slice(2);
+    if (raw) {
+      set.add(raw);
+      set.add(`NVT${raw}`);
+    }
+  }
+
+  // Pure digits: add NVT and NV prefixes
+  const pureDigits = clean.replace(/\D/g, '');
+  if (pureDigits && pureDigits === clean) {
+    set.add(`NVT${clean}`);
+    set.add(`NV${clean}`);
+  }
+
+  // Phone number normalization
+  if (pureDigits.length >= 10) {
+    set.add(pureDigits);
+    set.add(pureDigits.slice(-10));
+    if (pureDigits.length === 11 && pureDigits.startsWith('0')) {
+      set.add(pureDigits.slice(1));
+    }
+  }
+
+  return Array.from(set);
+}
+
+/**
+ * Match two codes flexibly across all variants
  */
 export function codesMatch(code1?: string, code2?: string): boolean {
   if (!code1 || !code2) return false;
-  const c1 = code1.trim().toUpperCase();
-  const c2 = code2.trim().toUpperCase();
-  if (c1 === c2) return true;
-  const s1 = c1.replace(/^NVT/i, '');
-  const s2 = c2.replace(/^NVT/i, '');
-  return Boolean(s1 && s2 && s1 === s2);
+  const v1 = getAllCodeVariants(code1);
+  const v2 = getAllCodeVariants(code2);
+  return v1.some((x) => v2.includes(x));
+}
+
+/**
+ * Extract all normalized identifier variants from an account object
+ */
+export function getAccountIdentifiers(acc: any): string[] {
+  if (!acc) return [];
+  const set = new Set<string>();
+  if (acc.userCode) getAllCodeVariants(acc.userCode).forEach((v) => set.add(v));
+  if (acc.memberId) getAllCodeVariants(acc.memberId).forEach((v) => set.add(v));
+  if (acc.referralCode) getAllCodeVariants(acc.referralCode).forEach((v) => set.add(v));
+  if (acc.userId) set.add(acc.userId.toString().trim());
+  if (acc.uid) set.add(acc.uid.toString().trim());
+  if (acc.phone) getAllCodeVariants(acc.phone).forEach((v) => set.add(v));
+  return Array.from(set);
 }
 
 /**
@@ -146,7 +212,7 @@ export function registerUserInReferralNetwork(
 
     if (!cleanCode) return;
 
-    accounts[cleanCode] = {
+    const nodeData = {
       userId,
       userCode: cleanCode,
       memberId: cleanMemberId || undefined,
@@ -157,19 +223,19 @@ export function registerUserInReferralNetwork(
       investAmount: accounts[cleanCode]?.investAmount || 0,
     };
 
+    accounts[cleanCode] = nodeData;
+    if (cleanMemberId) {
+      accounts[cleanMemberId] = nodeData;
+    }
+
     localStorage.setItem(STORAGE_KEY_ACCOUNTS, JSON.stringify(accounts));
 
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('referral_rewards_updated'));
+    }
+
     // Cloud Firestore Sync: persist referral node
-    saveReferralNodeToFirestore({
-      userId,
-      userCode: cleanCode,
-      memberId: cleanMemberId || undefined,
-      referredByCode: cleanReferredBy,
-      phone: phone || '',
-      username: username || 'User',
-      joinedAt: new Date().toISOString(),
-      investAmount: accounts[cleanCode]?.investAmount || 0,
-    }).catch(() => {});
+    saveReferralNodeToFirestore(nodeData).catch(() => {});
   } catch (err) {
     console.warn('[ReferralService] Failed to save to accounts store:', err);
   }
@@ -177,205 +243,271 @@ export function registerUserInReferralNetwork(
 
 /**
  * Compute the 3-tier team tree for any user given their personal referral code or memberId
+ *
+ * Rules:
+ * Level 1 (১ম লেভেল): Direct invitees whose referredByCode matches this user.
+ * Level 2 (২য় লেভেল): Invitees whose referredByCode matches any Level 1 member ("প্রথম লেবেলে মেম্বার যদি আর একজন কে রেফার করে সেটি আমার দ্বিতীয় লেভেলে যুক্ত হবে").
+ * Level 3 (৩য় লেভেল): Invitees whose referredByCode matches any Level 2 member ("দ্বিতীয় লেভেলের মেম্বার যদি রেফার করে সেটা তৃতীয় রেফার যাবে এভাবে").
  */
-export function getReferralTreeForUser(userCode: string, userMemberId?: string): ReferralTreeSummary {
+export function getReferralTreeForUser(
+  userCode: string,
+  userMemberId?: string,
+  customAccounts?: Record<string, any>
+): ReferralTreeSummary {
   const cleanUserCode = (userCode || 'NV8829').trim().toUpperCase();
   const cleanMemberId = (userMemberId || '').trim().toUpperCase();
 
-  const isCurrentUser = (code?: string) => {
-    if (!code) return false;
-    return codesMatch(code, cleanUserCode) || (cleanMemberId ? codesMatch(code, cleanMemberId) : false);
-  };
-
-  // Retrieve existing recorded accounts from localStorage
-  let accounts: Record<string, any> = {};
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY_ACCOUNTS);
-    if (raw) accounts = JSON.parse(raw);
-  } catch {
-    accounts = {};
+  // Retrieve accounts from custom parameter (real-time stream) or localStorage
+  let accounts: Record<string, any> = customAccounts || {};
+  if (!customAccounts || Object.keys(customAccounts).length === 0) {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY_ACCOUNTS);
+      if (raw) accounts = JSON.parse(raw);
+    } catch {
+      accounts = {};
+    }
   }
 
-  // Find all Level 1 users (users whose referredByCode matches the user's code/memberId)
-  const l1Codes: string[] = [];
-  const members: TeamMember[] = [];
+  // Deduplicate accounts into a single list of unique users
+  const uniqueAccounts: any[] = [];
+  const seenUserKeys = new Set<string>();
 
   Object.values(accounts).forEach((acc: any) => {
-    if (
-      (codesMatch(acc.referredByCode, cleanUserCode) || (cleanMemberId && codesMatch(acc.referredByCode, cleanMemberId))) &&
-      !isCurrentUser(acc.userCode) &&
-      !isCurrentUser(acc.memberId)
-    ) {
-      l1Codes.push(acc.userCode);
-      const invest = Number(acc.investAmount || 0);
-      const comm = Number((invest * TIER_COMMISSION_RATES[1]).toFixed(2));
-      members.push({
-        id: `REF-L1-${acc.userCode}`,
-        phone: maskPhone(acc.phone),
-        username: acc.username,
-        level: 1,
-        date: acc.joinedAt ? new Date(acc.joinedAt).toLocaleDateString('en-GB') : 'Today',
-        investAmount: invest,
-        commissionEarned: comm,
-        status: invest > 0 ? 'active' : 'pending',
-        referralCode: acc.userCode,
-        referredBy: cleanUserCode,
-      });
+    if (!acc) return;
+    const uid = (acc.userId || acc.phone || acc.userCode || '').toString().trim();
+    if (!uid) return;
+    if (seenUserKeys.has(uid)) return;
+    seenUserKeys.add(uid);
+    uniqueAccounts.push(acc);
+  });
+
+  // Collect all identifiers for Root User
+  const rootIdentifiers = new Set<string>();
+  getAllCodeVariants(cleanUserCode).forEach((v) => rootIdentifiers.add(v));
+  if (cleanMemberId) {
+    getAllCodeVariants(cleanMemberId).forEach((v) => rootIdentifiers.add(v));
+  }
+
+  const isRootUser = (acc: any) => {
+    const ids = getAccountIdentifiers(acc);
+    return ids.some((id) => rootIdentifiers.has(id));
+  };
+
+  const matchesIdentifiers = (refCode: string | undefined, identSet: Set<string>): boolean => {
+    if (!refCode) return false;
+    const variants = getAllCodeVariants(refCode);
+    return variants.some((v) => identSet.has(v));
+  };
+
+  const members: TeamMember[] = [];
+  const visitedAccountIds = new Set<string>();
+
+  // -------------------------------------------------------------
+  // LEVEL 1: Direct Referrals
+  // -------------------------------------------------------------
+  const l1Accounts: any[] = [];
+  const l1Identifiers = new Set<string>();
+
+  uniqueAccounts.forEach((acc) => {
+    if (isRootUser(acc)) return;
+    if (matchesIdentifiers(acc.referredByCode, rootIdentifiers)) {
+      const accId = acc.userId || acc.userCode;
+      if (!visitedAccountIds.has(accId)) {
+        visitedAccountIds.add(accId);
+        l1Accounts.push(acc);
+        getAccountIdentifiers(acc).forEach((id) => l1Identifiers.add(id));
+
+        const invest = Number(acc.investAmount || 0);
+        const comm = Number((invest * TIER_COMMISSION_RATES[1]).toFixed(2));
+        members.push({
+          id: `REF-L1-${acc.userCode || accId}`,
+          phone: maskPhone(acc.phone),
+          username: acc.username || 'Member',
+          level: 1,
+          date: acc.joinedAt ? new Date(acc.joinedAt).toLocaleDateString('en-GB') : 'Today',
+          investAmount: invest,
+          commissionEarned: comm,
+          status: invest > 0 ? 'active' : 'pending',
+          referralCode: acc.userCode,
+          referredBy: cleanUserCode,
+          referredByName: 'You (Direct)',
+        });
+      }
     }
   });
 
-  // Find Level 2 users (users who entered an L1 user's code)
-  const l2Codes: string[] = [];
-  l1Codes.forEach((l1Code) => {
-    Object.values(accounts).forEach((acc: any) => {
-      if (
-        codesMatch(acc.referredByCode, l1Code) &&
-        !codesMatch(acc.userCode, l1Code) &&
-        !isCurrentUser(acc.userCode) &&
-        !isCurrentUser(acc.memberId) &&
-        !l1Codes.some(c => codesMatch(c, acc.userCode))
-      ) {
-        l2Codes.push(acc.userCode);
+  // -------------------------------------------------------------
+  // LEVEL 2: Referrals by Level 1 Members
+  // "প্রথম লেবেলে মেম্বার যদি আর একজন কে রেফার করে সেটি আমার দ্বিতীয় লেভেলে যুক্ত হবে"
+  // -------------------------------------------------------------
+  const l2Accounts: any[] = [];
+  const l2Identifiers = new Set<string>();
+
+  if (l1Identifiers.size > 0) {
+    uniqueAccounts.forEach((acc) => {
+      if (isRootUser(acc)) return;
+      const accId = acc.userId || acc.userCode;
+      if (visitedAccountIds.has(accId)) return;
+
+      if (matchesIdentifiers(acc.referredByCode, l1Identifiers)) {
+        visitedAccountIds.add(accId);
+        l2Accounts.push(acc);
+        getAccountIdentifiers(acc).forEach((id) => l2Identifiers.add(id));
+
+        // Find parent in L1 for display
+        const parentL1 = l1Accounts.find((p) =>
+          getAccountIdentifiers(p).some((pid) =>
+            getAllCodeVariants(acc.referredByCode).includes(pid)
+          )
+        );
+
         const invest = Number(acc.investAmount || 0);
         const comm = Number((invest * TIER_COMMISSION_RATES[2]).toFixed(2));
         members.push({
-          id: `REF-L2-${acc.userCode}`,
+          id: `REF-L2-${acc.userCode || accId}`,
           phone: maskPhone(acc.phone),
-          username: acc.username,
+          username: acc.username || 'Member',
           level: 2,
           date: acc.joinedAt ? new Date(acc.joinedAt).toLocaleDateString('en-GB') : 'Recently',
           investAmount: invest,
           commissionEarned: comm,
           status: invest > 0 ? 'active' : 'pending',
           referralCode: acc.userCode,
-          referredBy: l1Code,
+          referredBy: parentL1 ? parentL1.userCode : acc.referredByCode,
+          referredByName: parentL1 ? maskPhone(parentL1.phone) : 'L1 Member',
         });
       }
     });
-  });
+  }
 
-  // Find Level 3 users (users who entered an L2 user's code)
-  const l3Codes: string[] = [];
-  l2Codes.forEach((l2Code) => {
-    Object.values(accounts).forEach((acc: any) => {
-      if (
-        codesMatch(acc.referredByCode, l2Code) &&
-        !codesMatch(acc.userCode, l2Code) &&
-        !isCurrentUser(acc.userCode) &&
-        !isCurrentUser(acc.memberId) &&
-        !l1Codes.some(c => codesMatch(c, acc.userCode)) &&
-        !l2Codes.some(c => codesMatch(c, acc.userCode))
-      ) {
-        l3Codes.push(acc.userCode);
+  // -------------------------------------------------------------
+  // LEVEL 3: Referrals by Level 2 Members
+  // "দ্বিতীয় লেভেলের মেম্বার যদি রেফার করে সেটা তৃতীয় রেফার যাবে এভাবে"
+  // -------------------------------------------------------------
+  const l3Accounts: any[] = [];
+
+  if (l2Identifiers.size > 0) {
+    uniqueAccounts.forEach((acc) => {
+      if (isRootUser(acc)) return;
+      const accId = acc.userId || acc.userCode;
+      if (visitedAccountIds.has(accId)) return;
+
+      if (matchesIdentifiers(acc.referredByCode, l2Identifiers)) {
+        visitedAccountIds.add(accId);
+        l3Accounts.push(acc);
+
+        // Find parent in L2 for display
+        const parentL2 = l2Accounts.find((p) =>
+          getAccountIdentifiers(p).some((pid) =>
+            getAllCodeVariants(acc.referredByCode).includes(pid)
+          )
+        );
+
         const invest = Number(acc.investAmount || 0);
         const comm = Number((invest * TIER_COMMISSION_RATES[3]).toFixed(2));
         members.push({
-          id: `REF-L3-${acc.userCode}`,
+          id: `REF-L3-${acc.userCode || accId}`,
           phone: maskPhone(acc.phone),
-          username: acc.username,
+          username: acc.username || 'Member',
           level: 3,
           date: acc.joinedAt ? new Date(acc.joinedAt).toLocaleDateString('en-GB') : 'Recently',
           investAmount: invest,
           commissionEarned: comm,
           status: invest > 0 ? 'active' : 'pending',
           referralCode: acc.userCode,
-          referredBy: l2Code,
+          referredBy: parentL2 ? parentL2.userCode : acc.referredByCode,
+          referredByName: parentL2 ? maskPhone(parentL2.phone) : 'L2 Member',
         });
       }
     });
-  });
+  }
 
-  // Calculate statistics from real registered members
-  let l1Count = 0;
-  let l2Count = 0;
-  let l3Count = 0;
-  let activeL1Count = 0;
-  let activeL2Count = 0;
-  let activeL3Count = 0;
-  let l1Earn = 0;
-  let l2Earn = 0;
-  let l3Earn = 0;
+  // Calculate active counts
+  const activeLevel1Count = l1Accounts.filter((a) => Number(a.investAmount || 0) > 0).length;
+  const activeLevel2Count = l2Accounts.filter((a) => Number(a.investAmount || 0) > 0).length;
+  const activeLevel3Count = l3Accounts.filter((a) => Number(a.investAmount || 0) > 0).length;
+  const totalActiveCount = activeLevel1Count + activeLevel2Count + activeLevel3Count;
 
-  members.forEach((m) => {
-    const isActive = m.status === 'active' && m.investAmount > 0;
-    if (m.level === 1) {
-      l1Count++;
-      if (isActive) activeL1Count++;
-      l1Earn += m.commissionEarned;
-    } else if (m.level === 2) {
-      l2Count++;
-      if (isActive) activeL2Count++;
-      l2Earn += m.commissionEarned;
-    } else if (m.level === 3) {
-      l3Count++;
-      if (isActive) activeL3Count++;
-      l3Earn += m.commissionEarned;
-    }
-  });
-
-  const totalActiveCount = activeL1Count + activeL2Count + activeL3Count;
-
-  // Commission logs calculation for today and yesterday
-  let todayEarnings = 0.0;
-  let yesterdayEarnings = 0.0;
-
+  // Retrieve commission logs for this user
+  let commissionLogs: CommissionLog[] = [];
   try {
     const rawLogs = localStorage.getItem(STORAGE_KEY_COMMISSION_LOGS);
     if (rawLogs) {
-      const logs: CommissionLog[] = JSON.parse(rawLogs);
-      const now = new Date();
-      const todayStr = now.toISOString().slice(0, 10);
-      const yesterdayDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-      const yesterdayStr = yesterdayDate.toISOString().slice(0, 10);
-
-      logs.forEach((log) => {
-        if (isCurrentUser(log.recipientCode)) {
-          const logDay = log.timestamp ? log.timestamp.slice(0, 10) : '';
-          if (logDay === todayStr) {
-            todayEarnings += log.commissionAmount;
-          } else if (logDay === yesterdayStr) {
-            yesterdayEarnings += log.commissionAmount;
-          }
-        }
-      });
+      commissionLogs = JSON.parse(rawLogs);
     }
-  } catch {
-    // ignore
+  } catch {}
+
+  const myLogs = commissionLogs.filter((log) => matchesIdentifiers(log.recipientCode, rootIdentifiers));
+
+  let l1Earnings = 0;
+  let l2Earnings = 0;
+  let l3Earnings = 0;
+  let todayEarnings = 0;
+  let yesterdayEarnings = 0;
+
+  const now = new Date();
+  const todayStr = now.toISOString().split('T')[0];
+  const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const yesterdayStr = yesterday.toISOString().split('T')[0];
+
+  // Sum earnings from real commission logs if available
+  if (myLogs.length > 0) {
+    myLogs.forEach((log) => {
+      const amt = Number(log.commissionAmount) || 0;
+      if (log.level === 1) l1Earnings += amt;
+      else if (log.level === 2) l2Earnings += amt;
+      else if (log.level === 3) l3Earnings += amt;
+
+      const logDate = log.timestamp ? log.timestamp.split('T')[0] : '';
+      if (logDate === todayStr) {
+        todayEarnings += amt;
+      } else if (logDate === yesterdayStr) {
+        yesterdayEarnings += amt;
+      }
+    });
+  } else {
+    // If no logs yet, calculate based on current active investment rates
+    l1Accounts.forEach((acc) => {
+      l1Earnings += Number(acc.investAmount || 0) * TIER_COMMISSION_RATES[1];
+    });
+    l2Accounts.forEach((acc) => {
+      l2Earnings += Number(acc.investAmount || 0) * TIER_COMMISSION_RATES[2];
+    });
+    l3Accounts.forEach((acc) => {
+      l3Earnings += Number(acc.investAmount || 0) * TIER_COMMISSION_RATES[3];
+    });
   }
 
-  const totalEarn = Number((l1Earn + l2Earn + l3Earn).toFixed(2));
+  const totalEarnings = l1Earnings + l2Earnings + l3Earnings;
 
-  // Available rewards in cash rewards wallet
-  let savedRewards = 0.0;
+  // Available claimable cash rewards
+  let savedRewards = 0;
   try {
     const userSpecificKey = `${STORAGE_KEY_REWARDS}_${cleanUserCode}`;
-    const rawUser = localStorage.getItem(userSpecificKey);
-    if (rawUser !== null) {
-      savedRewards = Math.max(0, Number(rawUser));
+    const rawRewards = localStorage.getItem(userSpecificKey) || localStorage.getItem(STORAGE_KEY_REWARDS);
+    if (rawRewards) {
+      savedRewards = Number(rawRewards);
     } else {
-      const rawGlobal = localStorage.getItem(STORAGE_KEY_REWARDS);
-      if (rawGlobal !== null) {
-        savedRewards = Math.max(0, Number(rawGlobal));
-      }
+      savedRewards = totalEarnings;
     }
   } catch {
-    savedRewards = 0.0;
+    savedRewards = totalEarnings;
   }
 
   return {
     userCode: cleanUserCode,
-    level1Count: l1Count,
-    level2Count: l2Count,
-    level3Count: l3Count,
-    totalTeamCount: members.length,
-    activeLevel1Count: activeL1Count,
-    activeLevel2Count: activeL2Count,
-    activeLevel3Count: activeL3Count,
-    totalActiveCount: totalActiveCount,
-    level1Earnings: Number(l1Earn.toFixed(2)),
-    level2Earnings: Number(l2Earn.toFixed(2)),
-    level3Earnings: Number(l3Earn.toFixed(2)),
-    totalEarnings: totalEarn,
+    level1Count: l1Accounts.length,
+    level2Count: l2Accounts.length,
+    level3Count: l3Accounts.length,
+    totalTeamCount: l1Accounts.length + l2Accounts.length + l3Accounts.length,
+    activeLevel1Count,
+    activeLevel2Count,
+    activeLevel3Count,
+    totalActiveCount,
+    level1Earnings: Number(l1Earnings.toFixed(2)),
+    level2Earnings: Number(l2Earnings.toFixed(2)),
+    level3Earnings: Number(l3Earnings.toFixed(2)),
+    totalEarnings: Number(totalEarnings.toFixed(2)),
     todayEarnings: Number(todayEarnings.toFixed(2)),
     yesterdayEarnings: Number(yesterdayEarnings.toFixed(2)),
     availableRewards: Number(savedRewards.toFixed(2)),
@@ -488,9 +620,9 @@ export function distributeReferralDepositCommissions(
     for (let level = 1; level <= 3; level++) {
       if (!uplineRef) break;
 
-      // Find upline account
-      const uplineAcc = Object.values(accounts).find(
-        (a: any) => codesMatch(a.userCode, uplineRef) || codesMatch(a.memberId, uplineRef)
+      // Find upline account matching uplineRef across all code variants
+      const uplineAcc = Object.values(accounts).find((a: any) =>
+        getAccountIdentifiers(a).some((id) => getAllCodeVariants(uplineRef).includes(id))
       );
 
       if (!uplineAcc) break;
@@ -508,12 +640,18 @@ export function distributeReferralDepositCommissions(
 
         // Add to upline's available cash rewards in localStorage
         const userSpecificKey = `${STORAGE_KEY_REWARDS}_${uplineCode}`;
-        const currentSaved = Number(localStorage.getItem(userSpecificKey) || localStorage.getItem(STORAGE_KEY_REWARDS) || '0');
+        const currentSaved = Number(
+          localStorage.getItem(userSpecificKey) || localStorage.getItem(STORAGE_KEY_REWARDS) || '0'
+        );
         const updated = Number((currentSaved + commission).toFixed(2));
         localStorage.setItem(userSpecificKey, updated.toString());
 
         // Also update global reward if upline matches currentUserCode
-        if (currentUserCode && (codesMatch(uplineCode, currentUserCode) || codesMatch(uplineAcc.memberId, currentUserCode))) {
+        if (
+          currentUserCode &&
+          (codesMatch(uplineCode, currentUserCode) ||
+            (uplineAcc.memberId && codesMatch(uplineAcc.memberId, currentUserCode)))
+        ) {
           result.creditedUpline = true;
           localStorage.setItem(STORAGE_KEY_REWARDS, updated.toString());
         }
@@ -545,6 +683,9 @@ export function distributeReferralDepositCommissions(
           commissionAmount: commission,
           timestamp: nowIso,
         }).catch(() => {});
+
+        // Direct credit to user's wallet in Firestore
+        creditUserCommissionInFirestore(uplineAcc.userId || uplineCode, commission).catch(() => {});
       }
 
       // Move up to next parent

@@ -21,6 +21,7 @@ interface SecuritySettingsPageProps {
   onClose: () => void;
   showToast?: (message: string) => void;
   onOpen2FA?: () => void;
+  isAuthenticatorSet?: boolean;
 }
 
 export const SecuritySettingsPage: React.FC<SecuritySettingsPageProps> = ({
@@ -29,8 +30,26 @@ export const SecuritySettingsPage: React.FC<SecuritySettingsPageProps> = ({
   onClose,
   showToast,
   onOpen2FA,
+  isAuthenticatorSet: isAuthenticatorSetProp,
 }) => {
   const isBn = currentLang === 'bn';
+
+  const isAuthenticatorSet = Boolean(
+    isAuthenticatorSetProp ?? (() => {
+      try {
+        const uStr = localStorage.getItem('nvt_auth_user') || localStorage.getItem('auth_user');
+        if (uStr) {
+          const u = JSON.parse(uStr);
+          if (u.isAuthenticatorSet !== undefined) return u.isAuthenticatorSet;
+          const id = u.uid || u.memberId || u.phone;
+          if (id && localStorage.getItem(`nvt_google_auth_set_${id}`) === 'true') return true;
+        }
+      } catch {
+        // ignore
+      }
+      return false;
+    })()
+  );
 
   // Password fields
   const [oldPassword, setOldPassword] = useState('');
@@ -551,14 +570,27 @@ export const SecuritySettingsPage: React.FC<SecuritySettingsPageProps> = ({
           </h3>
 
           <div className="p-4 rounded-2xl bg-[#042018] border border-emerald-500/20 flex items-center justify-between">
-            <div className="space-y-0.5">
-              <span className="text-sm font-bold text-white block">
-                {isBn ? 'গুগল অথেন্টিকেটর (Google Authenticator)' : 'Google Authenticator'}
-              </span>
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-bold text-white block">
+                  {isBn ? 'গুগল অথেন্টিকেটর (Google Authenticator)' : 'Google Authenticator'}
+                </span>
+                {isAuthenticatorSet ? (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/35">
+                    <Check className="w-2.5 h-2.5 text-emerald-400" />
+                    <span>{isBn ? 'একটিভ' : 'Active'}</span>
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                    <AlertCircle className="w-2.5 h-2.5 text-amber-400" />
+                    <span>not set</span>
+                  </span>
+                )}
+              </div>
               <span className="text-xs text-slate-300 block">
                 {isBn
-                  ? 'উইথড্রয়াল ও সংবেদনশীল কাজের অতিরিক্ত নিরাপত্তা কোড'
-                  : 'Extra verification code for withdrawals and sensitive actions'}
+                  ? (isAuthenticatorSet ? 'গুগল অথেন্টিকেটর সফলভাবে সেট ও একটিভ করা আছে' : 'এখনও সেট করা হয়নি (not set), সেট করতে ট্যাপ করুন')
+                  : (isAuthenticatorSet ? 'Google Authenticator is configured & Active' : 'Not set yet, tap to configure 2FA')}
               </span>
             </div>
             <button
@@ -569,7 +601,7 @@ export const SecuritySettingsPage: React.FC<SecuritySettingsPageProps> = ({
               }}
               className="px-3 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 text-xs font-bold transition-all cursor-pointer whitespace-nowrap ml-3"
             >
-              {isBn ? 'সেটআপ করুন' : 'Configure'}
+              {isAuthenticatorSet ? (isBn ? 'পরিবর্তন করুন' : 'Manage') : (isBn ? 'সেটআপ করুন' : 'Setup')}
             </button>
           </div>
 

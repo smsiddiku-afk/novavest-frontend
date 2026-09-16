@@ -9,13 +9,35 @@
     <meta property="og:description" content="Nova Terra Energy (NVT) - Fuel, Gas & Electricity Infrastructure Investment Portal with real-time grid telemetry and smart project monitoring." />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
+    <meta name="theme-color" content="#06483A" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="NVT Energy" />
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="icon" type="image/svg+xml" href="/icon-192.svg" />
+    <link rel="apple-touch-icon" href="/icon-192.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700&family=Outfit:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
     <!-- Crisp Live Chat Widget Integration -->
     <script type="text/javascript">
       window.$crisp = [];
+      window.$crisp.push(['safe', true]);
       window.CRISP_WEBSITE_ID = "458178db-b2c7-4e37-b759-d377ae93554a";
+      window.addEventListener('error', function(e) {
+        if (e && (e.message && (e.message.indexOf('Invalid data') !== -1 || e.message.indexOf('crisp') !== -1) || (e.filename && e.filename.indexOf('crisp.chat') !== -1))) {
+          e.preventDefault && e.preventDefault();
+          e.stopPropagation && e.stopPropagation();
+        }
+      });
+      window.addEventListener('unhandledrejection', function(e) {
+        var reason = e && e.reason ? (e.reason.message || String(e.reason)) : '';
+        if (reason && (reason.indexOf('Invalid data') !== -1 || reason.indexOf('crisp') !== -1)) {
+          e.preventDefault && e.preventDefault();
+          e.stopPropagation && e.stopPropagation();
+        }
+      });
       (function(){
         var d = document;
         var s = d.createElement("script");
@@ -25,6 +47,29 @@
         d.getElementsByTagName("head")[0].appendChild(s);
       })();
     </script>
+    <style id="crisp-floating-offset-style">
+      :root, body, .crisp-client, .crisp-client * {
+        --crisp-customization-default-button-vertical: 82px !important;
+        --crisp-customization-mobile-button-vertical: 82px !important;
+        --crisp-override-env-safe-area-inset-bottom: 82px !important;
+      }
+      .crisp-client .cc-13wro,
+      .crisp-client .cc-165wh .cc-lk42u .cc-13wro,
+      .crisp-client .cc-1x3z,
+      .crisp-client .cc-tup6,
+      .crisp-client [data-chat-status],
+      .crisp-client [data-is-launcher="true"],
+      .crisp-client .cc-1gfkz {
+        bottom: calc(82px + env(safe-area-inset-bottom, 0px)) !important;
+        margin-bottom: 0px !important;
+        z-index: 45 !important;
+      }
+      .crisp-client .cc-165wh .cc-lk42u .cc-13wro .cc-11p4p .cc-l4wzd,
+      .crisp-client .cc-l4wzd {
+        bottom: calc(146px + env(safe-area-inset-bottom, 0px)) !important;
+        margin-bottom: 0px !important;
+      }
+    </style>
   </head>
   <body class="bg-[#06483A] text-slate-100 antialiased selection:bg-emerald-500 selection:text-white">
     <div id="root"></div>

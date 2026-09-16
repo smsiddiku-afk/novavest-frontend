@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { collection, getDocs, doc, setDoc, getDoc, query, orderBy, increment } from "firebase/firestore";
-import { db, updateFirestoreDepositStatus, sanitizeFirestoreData, cleanDocId } from "./lib/firebase";
+import { db, updateFirestoreDepositStatus, sanitizeFirestoreData, cleanDocId, safeDoc, safeSetDoc } from "./lib/firebase";
 import { distributeReferralDepositCommissions } from "./utils/referralService";
 import {
   getLivePackages,
@@ -116,8 +116,9 @@ export default function AdminPanel() {
         setDeposits(depositList);
       }
 
-      const settingsDoc = await getDoc(doc(db, "settings", "support"));
-      if (settingsDoc.exists()) {
+      const sRef = safeDoc("settings", "support");
+      const settingsDoc = sRef ? await getDoc(sRef) : null;
+      if (settingsDoc && settingsDoc.exists()) {
         const data = settingsDoc.data();
         setSupportLink(data.whatsapp || "");
         setTelegramLink(data.telegram || "");
@@ -294,7 +295,8 @@ export default function AdminPanel() {
         supportEmail: (supportEmail || "").trim(),
         updatedAt: new Date().toISOString()
       });
-      await setDoc(doc(db, "settings", "support"), supportData, { merge: true });
+      const supportRef = safeDoc("settings", "support");
+      if (supportRef) await safeSetDoc(supportRef, supportData, { merge: true });
 
       setStatusMsg("✅ কাস্টমার সাপোর্ট ও Crisp সেটিংস সফলভাবে আপডেট করা হয়েছে!");
     } catch (error) {
@@ -307,21 +309,23 @@ export default function AdminPanel() {
     const cleanWId = cleanDocId(withdrawId, '');
     if (!cleanWId) return;
     try {
-      const withdrawRef = doc(db, "withdrawals", cleanWId);
+      const withdrawRef = safeDoc("withdrawals", cleanWId);
       if (action === "approve") {
-        await setDoc(withdrawRef, sanitizeFirestoreData({ status: "Approved", updatedAt: new Date().toISOString() }), { merge: true });
+        if (withdrawRef) await safeSetDoc(withdrawRef, { status: "Approved", updatedAt: new Date().toISOString() }, { merge: true });
         const cleanUId = cleanDocId(userId, '');
         if (cleanUId && !Number.isNaN(Number(amount))) {
-          const userRef = doc(db, "users", cleanUId);
-          await setDoc(userRef, sanitizeFirestoreData({
-            walletBalance: increment(-Number(amount)),
-            balance: increment(-Number(amount)),
-            updatedAt: new Date().toISOString(),
-          }), { merge: true });
+          const userRef = safeDoc("users", cleanUId);
+          if (userRef) {
+            await safeSetDoc(userRef, {
+              walletBalance: increment(-Number(amount)),
+              balance: increment(-Number(amount)),
+              updatedAt: new Date().toISOString(),
+            }, { merge: true });
+          }
         }
         setStatusMsg("✅ উইথড্র সফলভাবে অ্যাপ্রুভ করা হয়েছে!");
       } else {
-        await setDoc(withdrawRef, sanitizeFirestoreData({ status: "Rejected", updatedAt: new Date().toISOString() }), { merge: true });
+        if (withdrawRef) await safeSetDoc(withdrawRef, { status: "Rejected", updatedAt: new Date().toISOString() }, { merge: true });
         setStatusMsg("❌ উইথড্র রিজেক্ট করা হয়েছে।");
       }
       fetchAllData();
@@ -335,14 +339,16 @@ export default function AdminPanel() {
     const cleanDId = cleanDocId(depositId, '');
     if (!cleanDId) return;
     try {
-      const depositRef = doc(db, "deposits", cleanDId);
+      const depositRef = safeDoc("deposits", cleanDId);
       const isApprove = action === "approve";
       const newStatus = isApprove ? "Approved" : "Rejected";
 
-      await setDoc(depositRef, sanitizeFirestoreData({
-        status: newStatus,
-        updatedAt: new Date().toISOString(),
-      }), { merge: true });
+      if (depositRef) {
+        await safeSetDoc(depositRef, {
+          status: newStatus,
+          updatedAt: new Date().toISOString(),
+        }, { merge: true });
+      }
 
       // Synchronize with user's transactions and balance in Firestore
       const cleanUId = cleanDocId(userId, '');
@@ -414,13 +420,15 @@ export default function AdminPanel() {
     try {
       const cleanUId = cleanDocId(selectedUser, '');
       if (!cleanUId) return;
-      const userDocRef = doc(db, "users", cleanUId);
+      const userDocRef = safeDoc("users", cleanUId);
       const safeAmount = Number(newAmount) || 0;
-      await setDoc(userDocRef, sanitizeFirestoreData({
-        walletBalance: safeAmount,
-        balance: safeAmount,
-        updatedAt: new Date().toISOString()
-      }), { merge: true });
+      if (userDocRef) {
+        await safeSetDoc(userDocRef, {
+          walletBalance: safeAmount,
+          balance: safeAmount,
+          updatedAt: new Date().toISOString()
+        }, { merge: true });
+      }
 
       setStatusMsg("✅ সফলভাবে ইউজারের ব্যালেন্স আপডেট হয়েছে!");
       setNewAmount("");

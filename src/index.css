@@ -511,14 +511,29 @@ body.day-mode,
   animation-play-state: paused;
 }
 
-/* Ensure Crisp chat widget floats cleanly above mobile bottom navigation bar */
-@media (max-width: 768px) {
-  .crisp-client .cc-1x3z,
-  .crisp-client .cc-tup6,
-  .crisp-client [data-chat-status],
-  .crisp-client [data-is-launcher="true"] {
-    bottom: 72px !important;
-  }
+/* Ensure Crisp chat widget floats cleanly above mobile bottom navigation bar so it NEVER overlaps Profile */
+:root, body, .crisp-client, .crisp-client * {
+  --crisp-customization-default-button-vertical: 82px !important;
+  --crisp-customization-mobile-button-vertical: 82px !important;
+  --crisp-override-env-safe-area-inset-bottom: 82px !important;
+}
+
+.crisp-client .cc-13wro,
+.crisp-client .cc-165wh .cc-lk42u .cc-13wro,
+.crisp-client .cc-1x3z,
+.crisp-client .cc-tup6,
+.crisp-client [data-chat-status],
+.crisp-client [data-is-launcher="true"],
+.crisp-client .cc-1gfkz {
+  bottom: calc(82px + env(safe-area-inset-bottom, 0px)) !important;
+  margin-bottom: 0px !important;
+  z-index: 45 !important;
+}
+
+.crisp-client .cc-165wh .cc-lk42u .cc-13wro .cc-11p4p .cc-l4wzd,
+.crisp-client .cc-l4wzd {
+  bottom: calc(146px + env(safe-area-inset-bottom, 0px)) !important;
+  margin-bottom: 0px !important;
 }
 
 

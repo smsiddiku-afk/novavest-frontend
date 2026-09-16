@@ -672,7 +672,7 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
           </div>
           <div className="flex flex-col">
             <div className="flex items-center gap-1 font-black text-lg sm:text-xl tracking-wider leading-none">
-              <span className={themeMode === 'day' ? 'text-slate-900' : 'text-white'}>AI</span>
+              <span className={themeMode === 'day' ? 'text-slate-900' : 'text-white'}>NVT</span>
               <span className="text-[#00e676]">ENERGY</span>
             </div>
             <span className="text-[10px] text-slate-400 font-medium tracking-tight mt-0.5">
@@ -1356,20 +1356,6 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
         </div>
       </div>
 
-      {/* ───────────────────────────────────────────────────────────
-          7. MINIMAL CLEAN FOOTER (তাছাড়া এক্সট্রা সব লেখা রিমুভ)
-      ─────────────────────────────────────────────────────────── */}
-      <footer className="pt-4 pb-4 text-center space-y-2 border-t border-slate-900">
-        <div className="flex items-center justify-center gap-2">
-          <div className="w-5 h-5 rounded-md bg-gradient-to-tr from-emerald-400 to-cyan-400 flex items-center justify-center p-0.5">
-            <Zap className="w-3.5 h-3.5 text-black" />
-          </div>
-          <span className="text-xs font-bold text-white">AI ENERGY • Clean Infrastructure</span>
-        </div>
-        <p className="text-[10px] text-slate-500">
-          © 2026 AI Energy Infrastructure. All Rights Reserved.
-        </p>
-      </footer>
 
 
       {/* ───────────────────────────────────────────────────────────
@@ -1389,7 +1375,7 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
                   <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-cyan-500 to-blue-600 flex items-center justify-center p-0.5">
                     <Zap className="w-4 h-4 text-black" />
                   </div>
-                  <span className="font-bold text-white text-sm">AI ENERGY MENU</span>
+                  <span className="font-bold text-white text-sm">NVT ENERGY MENU</span>
                 </div>
                 <button
                   type="button"

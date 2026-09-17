@@ -104,10 +104,18 @@ async function startServer() {
   };
 
   // ───────────────────────────────────────────────────────────
-  // HEALTH CHECK
+  // HEALTH CHECK & APK DOWNLOAD ROUTE
   // ───────────────────────────────────────────────────────────
   app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  });
+
+  // Direct APK File Download Handler with standard Android package MIME
+  app.get(['/NVT_Energy_v2.4.2.apk', '/download-apk', '/api/download-apk'], (req, res) => {
+    const filePath = path.join(process.cwd(), 'public', 'NVT_Energy_v2.4.2.apk');
+    res.setHeader('Content-Type', 'application/vnd.android.package-archive');
+    res.setHeader('Content-Disposition', 'attachment; filename="NVT_Energy_v2.4.2.apk"');
+    res.sendFile(filePath);
   });
 
   // ───────────────────────────────────────────────────────────

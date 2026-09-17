@@ -57,6 +57,7 @@ import {
   MessageSquare,
 } from 'lucide-react';
 import { openCrispChat } from '../utils/crispService';
+import { downloadNvtApk } from '../utils/appDownloader';
 import { AppDownloadModal } from './AppDownloadModal';
 import { EnergyHomeTab } from './EnergyHomeTab';
 import { InvestTabContent, INVESTMENT_PLANS } from './InvestTabContent';
@@ -1684,10 +1685,10 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
   };
 
   const handleAppDownloadClick = () => {
-    // "Profile page help বাটন এপ ডাউনলোড হবে"
-    // Triggers direct APK download & opens download status modal
+    // Directly trigger Android APK file download & open download information modal
+    downloadNvtApk();
+    showToast(currentLang === 'bn' ? 'NVT Energy APK ডাউনলোড শুরু হয়েছে...' : 'Downloading NVT Energy APK...');
     setIsDownloadModalOpen(true);
-    showToast('Downloading NVT APK...');
   };
 
   return (
@@ -2659,16 +2660,16 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                     <span className={`text-[15px] font-semibold tracking-tight transition-colors block ${
                       themeMode === 'day' ? 'text-slate-800 group-hover:text-emerald-600' : 'text-slate-100 group-hover:text-emerald-300'
                     }`}>
-                      {currentLang === 'bn' ? 'অফিসিয়াল মোবাইল অ্যাপ ইনস্টল' : 'Official Mobile App Install'}
+                      {currentLang === 'bn' ? 'অফিসিয়াল মোবাইল অ্যাপ (APK)' : 'Official Mobile App (APK)'}
                     </span>
                     <span className="text-[11px] text-emerald-400 font-medium block">
-                      {currentLang === 'bn' ? '১-ক্লিকে সরাসরি ফোনে ইনস্টল' : '1-Click Direct Install'}
+                      {currentLang === 'bn' ? 'ক্লিক করলেই সরাসরি APK ডাউনলোড' : 'Direct APK File Download'}
                     </span>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                    v2.4.2
+                    APK v2.4.2
                   </span>
                   <ChevronRight className={`w-4.5 h-4.5 transition-colors ${
                     themeMode === 'day' ? 'text-slate-400 group-hover:text-slate-700' : 'text-slate-500 group-hover:text-emerald-300'

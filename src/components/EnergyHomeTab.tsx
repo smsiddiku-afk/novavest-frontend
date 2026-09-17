@@ -53,7 +53,8 @@ import {
   User,
   UserCheck,
   MessageSquare,
-  MessageCircle
+  MessageCircle,
+  Smartphone,
 } from 'lucide-react';
 import { HOURLY_GENERATION_DATA } from '../data/energyData';
 import { EnergySystem, Language } from '../types';
@@ -68,6 +69,7 @@ import { HowPowerGridWorksSection } from './HowPowerGridWorksSection';
 import { CompanyProfileModal } from './CompanyProfileModal';
 import { resolveImageSrc, handleImageError } from '../utils/imageUtils';
 import { openCrispChat } from '../utils/crispService';
+import { downloadNvtApk } from '../utils/appDownloader';
 
 interface EnergyHomeTabProps {
   currentLang?: Language;
@@ -1492,6 +1494,25 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
                 >
                   <MessageSquare className="w-4 h-4 text-emerald-400" />
                   <span>{lang === 'bn' ? 'লাইভ চ্যাট সাপোর্ট' : 'Live Chat Support'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  id="drawer-app-download-btn"
+                  onClick={() => {
+                    setIsDrawerOpen(false);
+                    downloadNvtApk();
+                    showToast(lang === 'bn' ? 'NVT Energy APK ডাউনলোড শুরু হয়েছে...' : 'Downloading NVT Energy APK...');
+                  }}
+                  className="w-full p-2.5 rounded-xl hover:bg-slate-800/80 text-slate-200 hover:text-emerald-300 flex items-center justify-between transition-colors text-left cursor-pointer"
+                >
+                  <div className="flex items-center gap-3">
+                    <Smartphone className="w-4 h-4 text-emerald-400" />
+                    <span>{lang === 'bn' ? 'মোবাইল অ্যাপ ডাউনলোড' : 'Download Mobile App'}</span>
+                  </div>
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-mono">
+                    APK
+                  </span>
                 </button>
 
                 <button

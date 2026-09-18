@@ -12,11 +12,13 @@
  */
 
 import {
+  db,
   saveReferralNodeToFirestore,
   syncReferralAccountsFromFirestore,
   recordCommissionInFirestore,
   creditUserCommissionInFirestore,
 } from '../lib/firebase';
+import { collection, getDocs } from 'firebase/firestore';
 
 export interface TeamMember {
   id: string;
@@ -619,10 +621,181 @@ export function getReferralTreeForUser(
  * - Level 2 grandparent upline gets 3%
  * - Level 3 great-grandparent upline gets 1%
  */
+/**
+ * Cloud-based 3-level referral commission distribution
+ * Reads live data directly from Firestore to ensure all 3 upline levels get credited reliably
+ * even if local cache is fresh or from another browser/session.
+ */
+export async function distributeReferralDepositCommissionsCloud(
+  depositUserCode: string,
+  depositAmount: number,
+  currentUserCode?: string,
+  depositTxnId?: string
+): Promise<{
+  creditedUpline: boolean;
+  commissionsDistributed: Array<{ uplineCode: string; level: number; amount: number }>;
+}> {
+  const result = {
+    creditedUpline: false,
+    commissionsDistributed: [] as Array<{ uplineCode: string; level: number; amount: number }>,
+  };
+
+  const cleanDepositCode = (depositUserCode || '').trim().toUpperCase();
+  if (!cleanDepositCode || depositAmount <= 0) return result;
+
+  try {
+    // 1. Deduplication check if transaction or order ID is provided
+    if (depositTxnId) {
+      const dedupKey = `novavest_cloud_comm_done_${depositTxnId}`;
+      if (typeof window !== 'undefined' && localStorage.getItem(dedupKey)) {
+        console.log('[ReferralService Cloud] Commission already distributed for txn:', depositTxnId);
+        return result;
+      }
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(dedupKey, '1');
+      }
+    }
+
+    // 2. Fetch authoritative live users list from Firestore
+    const usersSnap = await getDocs(collection(db, 'users'));
+    const allUsers: any[] = [];
+    usersSnap.forEach((d) => {
+      const data = d.data() || {};
+      allUsers.push({
+        uid: d.id,
+        userCode: (data.referralCode || data.memberId || d.id || '').toString().trim().toUpperCase(),
+        memberId: (data.memberId || '').toString().trim().toUpperCase(),
+        referralCode: (data.referralCode || '').toString().trim().toUpperCase(),
+        referredByCode: (data.referredBy || data.referredByCode || '').toString().trim().toUpperCase(),
+        phone: (data.phone || '').toString().trim(),
+        username: (data.name || data.username || 'User').toString().trim(),
+        investAmount: Number(data.totalInvested || data.investAmount || 0),
+        walletBalance: Number(data.walletBalance || 0),
+      });
+    });
+
+    // 3. Find the depositing user in Firestore
+    let userAcc = allUsers.find(
+      (u) =>
+        codesMatch(u.userCode, cleanDepositCode) ||
+        codesMatch(u.referralCode, cleanDepositCode) ||
+        codesMatch(u.memberId, cleanDepositCode) ||
+        u.uid === depositUserCode ||
+        (u.phone && maskPhone(u.phone) === maskPhone(depositUserCode))
+    );
+
+    // Local storage fallback for userAcc
+    if (!userAcc) {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY_ACCOUNTS);
+        if (raw) {
+          const localAccs = JSON.parse(raw);
+          userAcc = Object.values(localAccs).find(
+            (a: any) =>
+              codesMatch(a.userCode, cleanDepositCode) ||
+              codesMatch(a.memberId, cleanDepositCode) ||
+              a.userId === depositUserCode ||
+              (a.phone && maskPhone(a.phone) === maskPhone(depositUserCode))
+          ) as any;
+        }
+      } catch {}
+    }
+
+    if (!userAcc || !userAcc.referredByCode) {
+      console.log('[ReferralService Cloud] No upline chain found for user:', cleanDepositCode);
+      return result;
+    }
+
+    console.log(`[ReferralService Cloud] Distributing 3-level commissions for deposit ৳${depositAmount} by ${cleanDepositCode}`);
+
+    // 4. Traverse up to 3 levels:
+    // Level 1: 7%
+    // Level 2: 3%
+    // Level 3: 1%
+    let currentChildCode = userAcc.referralCode || userAcc.userCode || cleanDepositCode;
+    let uplineRef = userAcc.referredByCode;
+
+    for (let level = 1; level <= 3; level++) {
+      if (!uplineRef) break;
+
+      // Find upline user in allUsers
+      const uplineUser = allUsers.find(
+        (u) =>
+          codesMatch(u.userCode, uplineRef) ||
+          codesMatch(u.referralCode, uplineRef) ||
+          codesMatch(u.memberId, uplineRef) ||
+          u.uid === uplineRef ||
+          (u.phone && maskPhone(u.phone) === maskPhone(uplineRef))
+      );
+
+      if (!uplineUser) {
+        console.log(`[ReferralService Cloud] Level ${level} upline "${uplineRef}" not found in Firestore.`);
+        break;
+      }
+
+      const uplineCode = uplineUser.referralCode || uplineUser.memberId || uplineUser.userCode;
+      const rate = TIER_COMMISSION_RATES[level as 1 | 2 | 3] || 0;
+      const commission = Number((depositAmount * rate).toFixed(2));
+
+      if (commission > 0) {
+        result.commissionsDistributed.push({
+          uplineCode,
+          level,
+          amount: commission,
+        });
+
+        // Credit upline in Firestore with transaction record
+        await creditUserCommissionInFirestore(uplineUser.uid, commission, {
+          level,
+          ratePercent: rate * 100,
+          sourceUserCode: currentChildCode,
+          depositAmount,
+          trxId: depositTxnId,
+        });
+
+        console.log(`[ReferralService Cloud] Level ${level} (${rate * 100}%): Credited ৳${commission} to ${uplineUser.username || uplineCode}`);
+
+        // Update local rewards if upline is currently logged in or on this device
+        if (typeof window !== 'undefined') {
+          const userSpecificKey = `${STORAGE_KEY_REWARDS}_${uplineCode}`;
+          const currentSaved = Number(
+            localStorage.getItem(userSpecificKey) || localStorage.getItem(STORAGE_KEY_REWARDS) || '0'
+          );
+          const updated = Number((currentSaved + commission).toFixed(2));
+          localStorage.setItem(userSpecificKey, updated.toString());
+
+          if (
+            currentUserCode &&
+            (codesMatch(uplineCode, currentUserCode) ||
+              codesMatch(uplineUser.memberId, currentUserCode) ||
+              codesMatch(uplineUser.uid, currentUserCode))
+          ) {
+            result.creditedUpline = true;
+            localStorage.setItem(STORAGE_KEY_REWARDS, updated.toString());
+          }
+        }
+      }
+
+      // Next level upline
+      currentChildCode = uplineCode;
+      uplineRef = uplineUser.referredByCode;
+    }
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('referral_rewards_updated'));
+    }
+  } catch (err) {
+    console.warn('[ReferralService Cloud] Notice during cloud commission distribution:', err);
+  }
+
+  return result;
+}
+
 export function distributeReferralDepositCommissions(
   depositUserCode: string,
   depositAmount: number,
-  currentUserCode?: string
+  currentUserCode?: string,
+  depositTxnId?: string
 ): { creditedUpline: boolean; commissionsDistributed: Array<{ uplineCode: string; level: number; amount: number }> } {
   const result = {
     creditedUpline: false,
@@ -630,6 +803,25 @@ export function distributeReferralDepositCommissions(
   };
 
   if (depositAmount <= 0) return result;
+
+  // Deduplication check
+  if (depositTxnId) {
+    const localDedupKey = `novavest_local_comm_done_${depositTxnId}`;
+    if (typeof window !== 'undefined' && localStorage.getItem(localDedupKey)) {
+      return result;
+    }
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(localDedupKey, '1');
+    }
+  }
+
+  // Trigger authoritative 3-level Cloud distribution in background
+  distributeReferralDepositCommissionsCloud(
+    depositUserCode,
+    depositAmount,
+    currentUserCode,
+    depositTxnId
+  ).catch((e) => console.warn('[ReferralService] Cloud distribution notice:', e));
 
   try {
     const raw = localStorage.getItem(STORAGE_KEY_ACCOUNTS);
@@ -783,7 +975,13 @@ export function distributeReferralDepositCommissions(
         }).catch(() => {});
 
         // Direct credit to user's wallet in Firestore
-        creditUserCommissionInFirestore(uplineAcc.userId || uplineCode, commission).catch(() => {});
+        creditUserCommissionInFirestore(uplineAcc.userId || uplineCode, commission, {
+          level,
+          ratePercent: rate * 100,
+          sourceUserCode: currentChildCode,
+          depositAmount,
+          trxId: depositTxnId,
+        }).catch(() => {});
       }
 
       // Move up to next parent

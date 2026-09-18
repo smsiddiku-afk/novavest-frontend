@@ -11,19 +11,26 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // ───────────────────────────────────────────────────────────
-// PAYMENT GATEWAY CONFIGURATIONS
+// PAYMENT GATEWAY CONFIGURATIONS & CPANEL BACKEND URLS
 // ───────────────────────────────────────────────────────────
 
-// Channel 1: Nekpay Integration Configuration
-// URL: https://nekpay-backend.onrender.com/api/v1/nekpay/create-order
-// Method: POST
-// Headers: Content-Type: application/json
-// Body: { "amount": selectedAmount, "payerName": "Customer" }
+// cPanel Backend API & Deposit URL Configurations
+export const CPANEL_API_BASE_URL = process.env.CPANEL_API_BASE_URL || 'https://api.nvtenergy.online';
+export const CPANEL_DEPOSIT_URL = process.env.CPANEL_DEPOSIT_URL || `${CPANEL_API_BASE_URL}/deposit`;
+
+// Channel 1: Nekpay Integration Configuration (hosted on cPanel backend)
+// Endpoint: https://api.nvtenergy.online/api/v1/nekpay/create-order
 const NEKPAY_CONFIG = {
-  createOrderUrl: 'https://nekpay-backend.onrender.com/api/v1/nekpay/create-order',
+  createOrderUrl: `${CPANEL_API_BASE_URL}/api/v1/nekpay/create-order`,
 };
 
-// Channel 2: OKExPay / WPay Integration Configuration
+// Channel 2: WatchPay Integration Configuration (hosted on cPanel backend)
+// Endpoint: https://api.nvtenergy.online/create-order-watchpay
+const WATCHPAY_CONFIG = {
+  createOrderUrl: `${CPANEL_API_BASE_URL}/create-order-watchpay`,
+};
+
+// Channel 2 Legacy / Fallback: OKExPay / WPay Integration Configuration
 // Host: https://sandbox.okexpay.dev
 // Endpoint: /v1/Collect
 // Credentials: mchId: "1000", Key: "4035fcd2d720e1b06ea455bdde411012"
@@ -67,6 +74,28 @@ async function startServer() {
     paymentLogs.unshift(entry);
     if (paymentLogs.length > 50) paymentLogs.pop();
     return entry;
+  };
+
+  // Helper to forward deposit requests, transaction callbacks, and webhook submissions directly to cPanel
+  const forwardToCpanelDeposit = async (payload: Record<string, any>, customUrl?: string) => {
+    const targetUrl = customUrl || CPANEL_DEPOSIT_URL;
+    try {
+      fetch(targetUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'User-Agent': 'NovaVest-Server/1.0',
+        },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(4000),
+      }).catch((e) => {
+        // non-blocking
+        console.warn(`[cPanel Forward Notice (${targetUrl})]:`, e?.message || e);
+      });
+    } catch (err: any) {
+      console.warn(`[cPanel Forward Error (${targetUrl})]:`, err?.message || err);
+    }
   };
 
   // Helper to format date in YYYY-MM-DD HH:mm:ss format
@@ -119,11 +148,104 @@ async function startServer() {
   });
 
   // ───────────────────────────────────────────────────────────
+  // UNIFIED DEPOSIT API ROUTE (DIRECT CPANEL ROUTING)
+  // POST /deposit, POST /api/deposit, POST /api/v1/deposit
+  // ───────────────────────────────────────────────────────────
+  app.post(['/deposit', '/api/deposit', '/api/v1/deposit'], async (req, res) => {
+    try {
+      const { amount, payerName = 'Customer', userId = 'USER1001', channel = 'channel1', method = 'bKash' } = req.body;
+      const numAmount = Number(amount);
+
+      if (!numAmount || numAmount <= 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'Valid deposit amount required (minimum 100 BDT)',
+        });
+      }
+
+      // Forward deposit submission directly to cPanel deposit URL
+      forwardToCpanelDeposit({
+        amount: numAmount,
+        payerName: String(payerName).trim() || 'Customer',
+        userId,
+        channel,
+        method,
+        timestamp: new Date().toISOString(),
+      });
+
+      // Route to chosen gateway on cPanel backend
+      const targetUrl = channel === 'channel2' ? WATCHPAY_CONFIG.createOrderUrl : NEKPAY_CONFIG.createOrderUrl;
+      const response = await fetch(targetUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'User-Agent': 'NovaVest-Server/1.0',
+        },
+        body: JSON.stringify({
+          amount: numAmount,
+          payerName: String(payerName).trim() || 'Customer',
+          userId,
+        }),
+      });
+
+      const responseText = await response.text();
+      let responseData: any = {};
+      try {
+        responseData = JSON.parse(responseText);
+      } catch (e) {
+        responseData = { raw: responseText };
+      }
+
+      if (response.ok && responseData.success && responseData.paymentLink) {
+        const orderNo = responseData.orderNo || `DEP-${Date.now()}`;
+        ordersDatabase.set(orderNo, {
+          orderId: orderNo,
+          amount: numAmount,
+          channel,
+          channelName: channel === 'channel2' ? 'চ্যানেল ২ (WatchPay)' : 'চ্যানেল ১ (Nekpay)',
+          status: 'PENDING',
+          paymentLink: responseData.paymentLink,
+          payerName,
+          userId,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+
+        addLog({
+          channel: 'DEPOSIT',
+          type: 'PAYIN_REQUEST',
+          orderId: orderNo,
+          status: 'SUCCESS',
+          details: { numAmount, payerName, responseData },
+        });
+
+        return res.json({
+          success: true,
+          channel,
+          paymentLink: responseData.paymentLink,
+          orderNo,
+          message: 'Deposit order created successfully via cPanel backend',
+        });
+      }
+
+      return res.status(502).json({
+        success: false,
+        error: responseData.message || responseData.error || 'Failed to create deposit order via cPanel backend',
+        details: responseData,
+      });
+    } catch (err: any) {
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to connect to cPanel backend API',
+        details: err.message,
+      });
+    }
+  });
+
+  // ───────────────────────────────────────────────────────────
   // CHANNEL 1: NEKPAY PAYMENT INTEGRATION
-  // URL: https://nekpay-backend.onrender.com/api/v1/nekpay/create-order
-  // Method: POST
-  // Headers: Content-Type: application/json
-  // Body: { "amount": selectedAmount, "payerName": "Customer" }
+  // Endpoint: https://api.nvtenergy.online/api/v1/nekpay/create-order
   // ───────────────────────────────────────────────────────────
   app.post(['/api/v1/nekpay/create-order', '/api/payment/create-order'], async (req, res) => {
     try {
@@ -142,9 +264,18 @@ async function startServer() {
         payerName: String(payerName).trim() || 'Customer',
       };
 
-      console.log('Sending request to Nekpay:', NEKPAY_CONFIG.createOrderUrl, postBody);
+      // Also forward deposit request notification directly to cPanel deposit URL
+      forwardToCpanelDeposit({
+        amount: numAmount,
+        payerName: postBody.payerName,
+        userId,
+        channel: 'channel1',
+        createdAt: new Date().toISOString(),
+      });
 
-      // Call Nekpay backend
+      console.log('Sending request to cPanel Nekpay:', NEKPAY_CONFIG.createOrderUrl, postBody);
+
+      // Call Nekpay on cPanel backend
       const response = await fetch(NEKPAY_CONFIG.createOrderUrl, {
         method: 'POST',
         headers: {
@@ -231,7 +362,7 @@ async function startServer() {
 
   // ───────────────────────────────────────────────────────────
   // CHANNEL 2: WATCHPAY PAYMENT INTEGRATION
-  // Endpoint: https://nekpay-backend.onrender.com/create-order-watchpay
+  // Endpoint: https://api.nvtenergy.online/create-order-watchpay
   // ───────────────────────────────────────────────────────────
   app.post(['/api/v1/watchpay/create-order', '/api/v1/okexpay/create-order'], async (req, res) => {
     try {
@@ -247,11 +378,21 @@ async function startServer() {
 
       console.log(`[WatchPay] Initiating order: amount=${numAmount}, payerName=${payerName}`);
 
-      const response = await fetch('https://nekpay-backend.onrender.com/create-order-watchpay', {
+      // Forward deposit submission directly to cPanel deposit URL
+      forwardToCpanelDeposit({
+        amount: numAmount,
+        payerName: payerName || 'Customer',
+        userId,
+        channel: 'channel2',
+        createdAt: new Date().toISOString(),
+      });
+
+      const response = await fetch(WATCHPAY_CONFIG.createOrderUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
+          'User-Agent': 'NovaVest-Server/1.0',
         },
         body: JSON.stringify({
           amount: numAmount,
@@ -399,6 +540,10 @@ async function startServer() {
       details: { payload, signValid, isSuccess },
     });
 
+    // Forward callback directly to cPanel deposit and callback endpoints
+    forwardToCpanelDeposit({ ...payload, callbackSource: 'OKEXPAY', out_trade_no, status, isSuccess });
+    forwardToCpanelDeposit(payload, `${CPANEL_API_BASE_URL}/api/payments/okexpay-callback`);
+
     // CRITICAL: Respond with plain text "success" per OKExPay doc
     return res.status(200).type('text/plain').send('success');
   });
@@ -450,6 +595,10 @@ async function startServer() {
       details: { payload, isSuccess },
     });
 
+    // Forward webhook submission directly to cPanel deposit URL and callback endpoint
+    forwardToCpanelDeposit({ ...payload, callbackSource: 'WATCHPAY', orderNo, trxId, amount, isSuccess });
+    forwardToCpanelDeposit(payload, `${CPANEL_API_BASE_URL}/api/payments/watchpay-callback`);
+
     return res.status(200).json({ success: true, message: 'WatchPay callback processed' });
   });
 
@@ -461,10 +610,10 @@ async function startServer() {
     const cleanKey = String(orderNo || '').trim();
     let order = ordersDatabase.get(cleanKey) || ordersDatabase.get(cleanKey.toUpperCase());
 
-    // If order is not found or still pending, check live remote backend on Render
+    // If order is not found or still pending, check live remote backend on cPanel
     if (!order || order.status === 'PENDING') {
       try {
-        const remoteRes = await fetch(`https://nekpay-backend.onrender.com/order-status/${encodeURIComponent(cleanKey)}`, {
+        const remoteRes = await fetch(`${CPANEL_API_BASE_URL}/order-status/${encodeURIComponent(cleanKey)}`, {
           headers: { 'Accept': 'application/json' },
           signal: AbortSignal.timeout(4000),
         });
@@ -644,6 +793,10 @@ async function startServer() {
       details: { payload, isSuccess },
     });
 
+    // Forward Go-Go-Pay callback directly to cPanel deposit URL and callback endpoint
+    forwardToCpanelDeposit({ ...payload, callbackSource: 'GOGOPAY', orderNo, trxId, amount, isSuccess });
+    forwardToCpanelDeposit(payload, `${CPANEL_API_BASE_URL}/api/payments/gogopay-callback`);
+
     return res.status(200).json({ success: true, message: 'Go-Go-Pay webhook processed' });
   });
 
@@ -706,6 +859,10 @@ async function startServer() {
       status: orderStatus === 'COMPLETED' ? 'SUCCESS' : 'PENDING',
       details: { cleanTrxId, numAmount, method, senderPhone, userId, status: orderStatus },
     });
+
+    // Forward transaction submission directly to cPanel deposit URL and verification endpoint
+    forwardToCpanelDeposit({ ...orderRecord, submissionType: 'TXNID_SUBMISSION' });
+    forwardToCpanelDeposit(orderRecord, `${CPANEL_API_BASE_URL}/api/payments/submit-txnid`);
 
     // For unverified/fake TrxIDs: Start automated 20-second verification timer
     // If not approved by admin or gateway webhook within 20s, automatically REJECT it!
@@ -826,6 +983,10 @@ async function startServer() {
       status: isSuccess ? 'SUCCESS' : isCancelled ? 'CANCELLED' : 'PENDING',
       details: { payload, newStatus, isSuccess, isCancelled },
     });
+
+    // Forward gateway callback directly to cPanel deposit URL and callback endpoint
+    forwardToCpanelDeposit({ ...payload, callbackSource: 'GATEWAY_CALLBACK', orderNo: lookupKey, trxId, newStatus, isSuccess });
+    forwardToCpanelDeposit(payload, `${CPANEL_API_BASE_URL}/api/payments/gateway-callback`);
 
     return res.status(200).json({
       success: true,

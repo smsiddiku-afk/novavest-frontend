@@ -26,6 +26,7 @@ import {
   orderBy,
   limit,
   arrayUnion,
+  addDoc,
 } from 'firebase/firestore';
 import { UserProfile } from '../types';
 
@@ -1615,55 +1616,140 @@ export const subscribeToReferralNetwork = (
  */
 export const creditUserCommissionInFirestore = async (
   userIdOrCode: string,
-  commissionAmount: number
-): Promise<void> => {
+  commissionAmount: number,
+  details?: {
+    level?: number;
+    ratePercent?: number;
+    sourceUserCode?: string;
+    depositAmount?: number;
+    trxId?: string;
+  }
+): Promise<boolean> => {
   const cleanId = cleanDocId(userIdOrCode, '');
   const amt = Number(commissionAmount);
-  if (!cleanId || !amt || amt <= 0) return;
-  try {
-    const userRef = safeDoc('users', cleanId);
-    if (userRef) {
-      await safeSetDoc(
-        userRef,
-        {
-          walletBalance: increment(amt),
-          totalReferralEarnings: increment(amt),
-          updatedAt: serverTimestamp(),
-        },
-        { merge: true }
-      );
-    }
+  if (!cleanId || !amt || amt <= 0) return false;
 
-    // Query by referralCode if doc doesn't exist by ID
-    const q = query(collection(db, 'users'), where('referralCode', '==', cleanId));
-    const qSnap = await getDocs(q);
-    if (!qSnap.empty) {
-      await safeSetDoc(
-        qSnap.docs[0].ref,
-        {
-          walletBalance: increment(amt),
-          totalReferralEarnings: increment(amt),
-          updatedAt: serverTimestamp(),
-        },
-        { merge: true }
-      );
-    } else {
-      const q2 = query(collection(db, 'users'), where('memberId', '==', cleanId));
-      const q2Snap = await getDocs(q2);
-      if (!q2Snap.empty) {
-        await safeSetDoc(
-          q2Snap.docs[0].ref,
-          {
-            walletBalance: increment(amt),
-            totalReferralEarnings: increment(amt),
-            updatedAt: serverTimestamp(),
-          },
-          { merge: true }
-        );
+  try {
+    let targetDocSnap: any = null;
+
+    // 1. Check direct doc existence by ID/UID first
+    const directRef = safeDoc('users', cleanId);
+    if (directRef) {
+      const directSnap = await getDoc(directRef);
+      if (directSnap.exists()) {
+        targetDocSnap = directSnap;
       }
     }
+
+    // 2. Search queries across all variants if not directly matching doc ID
+    if (!targetDocSnap) {
+      const cleanIdNoNVT = cleanId.replace(/^NVT/i, '');
+      const cleanIdWithNVT = cleanId.startsWith('NVT') ? cleanId : `NVT${cleanId}`;
+      const searchCodes = Array.from(new Set([cleanId, cleanIdNoNVT, cleanIdWithNVT])).filter(Boolean);
+
+      // Search by referralCode
+      for (const code of searchCodes) {
+        const q = query(collection(db, 'users'), where('referralCode', '==', code));
+        const qSnap = await getDocs(q);
+        if (!qSnap.empty) {
+          targetDocSnap = qSnap.docs[0];
+          break;
+        }
+      }
+
+      // Search by memberId
+      if (!targetDocSnap) {
+        for (const code of searchCodes) {
+          const q = query(collection(db, 'users'), where('memberId', '==', code));
+          const qSnap = await getDocs(q);
+          if (!qSnap.empty) {
+            targetDocSnap = qSnap.docs[0];
+            break;
+          }
+        }
+      }
+
+      // Search by phone digits
+      if (!targetDocSnap) {
+        const cleanDigits = cleanId.replace(/\D/g, '');
+        if (cleanDigits.length >= 8) {
+          const allUsers = await getDocs(collection(db, 'users'));
+          for (const d of allUsers.docs) {
+            const uPhone = (d.data().phone || '').replace(/\D/g, '');
+            if (uPhone && uPhone.includes(cleanDigits)) {
+              targetDocSnap = d;
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    if (!targetDocSnap) {
+      console.warn('[Firebase] Could not locate user document for commission credit:', cleanId);
+      return false;
+    }
+
+    const targetRef = targetDocSnap.ref;
+    const existingData = targetDocSnap.data() || {};
+    const currentTxns = Array.isArray(existingData.transactions) ? existingData.transactions : [];
+
+    const now = new Date();
+    const formattedTime =
+      now.toLocaleDateString('en-GB') +
+      ' ' +
+      now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+
+    const lvl = details?.level || 1;
+    const rateText = details?.ratePercent ? `${details.ratePercent}%` : lvl === 1 ? '7%' : lvl === 2 ? '3%' : '1%';
+    const sourceText = details?.sourceUserCode ? ` (${details.sourceUserCode})` : '';
+
+    const newTxn = {
+      id: `COMM-${Date.now()}-L${lvl}-${Math.random().toString(36).slice(-4)}`,
+      type: 'bonus',
+      amount: amt,
+      timestamp: formattedTime,
+      date: now.toLocaleDateString('en-GB'),
+      time: now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+      status: 'completed',
+      description: `লেভেল ${lvl} রেফার কমিশন ${rateText}${sourceText}`,
+      title: `রেফার কমিশন (লেভেল ${lvl})`,
+      hash: details?.trxId || `COMM-L${lvl}`,
+      isCredit: true,
+    };
+
+    await safeSetDoc(
+      targetRef,
+      {
+        walletBalance: increment(amt),
+        totalReferralEarnings: increment(amt),
+        transactions: [newTxn, ...currentTxns.slice(0, 99)],
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
+
+    // Record in commissions collection in Firestore
+    try {
+      await addDoc(collection(db, 'commissions'), {
+        recipientUid: targetDocSnap.id,
+        recipientCode: existingData.referralCode || existingData.memberId || cleanId,
+        recipientName: existingData.name || existingData.username || 'User',
+        sourceUserCode: details?.sourceUserCode || '',
+        level: lvl,
+        rate: rateText,
+        depositAmount: details?.depositAmount || 0,
+        commissionAmount: amt,
+        createdAt: serverTimestamp(),
+        timestamp: now.toISOString(),
+      });
+    } catch (_) {}
+
+    console.log(`[Firebase] Successfully credited ৳${amt} commission to user ${targetDocSnap.id} (Level ${lvl})`);
+    return true;
   } catch (err) {
     console.warn('[Firebase] Notice crediting commission to user in Firestore:', err);
+    return false;
   }
 };
 

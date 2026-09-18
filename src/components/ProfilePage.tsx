@@ -75,6 +75,7 @@ import { ENERGY_PACKAGES_7 } from '../data/energyPackages';
 import { translations } from '../utils/translations';
 import { persistAuthUser, isSameUser } from '../utils/authService';
 import { distributeReferralDepositCommissions } from '../utils/referralService';
+import { createCpanelDepositOrder, sendDepositToCpanel } from '../services/paymentConfig';
 import {
   recordFirestoreDeposit,
   updateFirestoreDepositStatus,
@@ -368,12 +369,13 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             };
           });
 
-          // Distribute referral deposit commissions
+          // Distribute 3-level referral deposit commissions
           try {
             distributeReferralDepositCommissions(
               user.referralCode || user.memberId || user.phone || '',
               depositAmount,
-              user.referralCode || user.memberId || ''
+              user.referralCode || user.memberId || '',
+              data?.order?.trxId || pending.orderNo
             );
           } catch (commErr) {
             console.warn('[Referral Comm Distribute Warn]', commErr);
@@ -520,6 +522,17 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
         let serverResult: any = null;
         try {
+          // Send transaction submission directly to cPanel backend API
+          sendDepositToCpanel({
+            amount: depositAmount,
+            method: method || 'bKash',
+            trxId,
+            senderPhone: sender,
+            userId: activeUid,
+            channel: 'manual',
+            timestamp: new Date().toISOString(),
+          });
+
           const sRes = await fetch('/api/payments/submit-txnid', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -760,6 +773,21 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
         console.log('Go-Go-Pay create-order response:', data);
 
         if (data.success && data.paymentLink) {
+          const orderNo = data.orderNo;
+          // Store in localStorage for return recovery
+          try {
+            localStorage.setItem(
+              'pending_gateway_deposit',
+              JSON.stringify({
+                orderNo,
+                amount: Number(amount),
+                method: method || 'bKash',
+                channel: 'gogopay',
+                timestamp: Date.now(),
+              })
+            );
+          } catch (_) {}
+
           window.open(data.paymentLink, '_blank');
           showToast(
             currentLang === 'bn'
@@ -768,7 +796,6 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           );
 
           // Automated polling for order completion
-          const orderNo = data.orderNo;
           if (orderNo) {
             let attempts = 0;
             const pollInterval = setInterval(async () => {
@@ -815,6 +842,22 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                     ],
                   }));
 
+                  // Distribute 3-level referral deposit commissions
+                  try {
+                    distributeReferralDepositCommissions(
+                      user.referralCode || user.memberId || user.phone || '',
+                      Number(amount),
+                      user.referralCode || user.memberId || '',
+                      checkData.order?.trxId || orderNo
+                    );
+                  } catch (commErr) {
+                    console.warn('[Referral Comm Distribute Warn]', commErr);
+                  }
+
+                  try {
+                    localStorage.removeItem('pending_gateway_deposit');
+                  } catch (_) {}
+
                   showToast(
                     currentLang === 'bn'
                       ? `Go-Go-Pay রিচার্জ সফল! ৳${Number(amount).toLocaleString()} ওয়ালেটে জমা হয়েছে।`
@@ -857,38 +900,29 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
         let data: any = null;
         try {
-          const res = await fetch('/api/v1/nekpay/create-order', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              amount: Number(amount),
-              payerName: 'Customer',
-              userId: activeUid,
-            }),
-          });
-          data = await res.json();
-        } catch (proxyErr) {
-          console.warn('[Nekpay] Proxy fetch attempt failed, trying direct Render backend:', proxyErr);
-          const directRes = await fetch('https://nekpay-backend.onrender.com/api/v1/nekpay/create-order', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              amount: Number(amount),
-              payerName: 'Customer',
-              userId: activeUid,
-            }),
-          });
-          data = await directRes.json();
+          data = await createCpanelDepositOrder('channel1', Number(amount), 'Customer', activeUid);
+        } catch (fetchErr) {
+          console.warn('[Nekpay] createCpanelDepositOrder failed:', fetchErr);
         }
 
         console.log('Nekpay create-order response:', data);
 
-        if (data.success && data.paymentLink) {
+        if (data && data.success && data.paymentLink) {
           const orderNo = data.orderNo || `NEK${Date.now().toString().slice(-8)}`;
+
+          // Store in localStorage for return recovery
+          try {
+            localStorage.setItem(
+              'pending_gateway_deposit',
+              JSON.stringify({
+                orderNo,
+                amount: Number(amount),
+                method: method || 'bKash',
+                channel: 'channel1',
+                timestamp: Date.now(),
+              })
+            );
+          } catch (_) {}
 
           // Immediately record pending deposit in Firestore so it shows in transaction history
           await recordFirestoreDeposit(activeUid, {
@@ -987,16 +1021,21 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                     ),
                   }));
 
-                  // Distribute referral deposit commissions and activate user status
+                  // Distribute 3-level referral deposit commissions and activate user status
                   try {
                     distributeReferralDepositCommissions(
                       user.referralCode || user.memberId || user.phone || '',
                       Number(amount),
-                      user.referralCode || user.memberId || ''
+                      user.referralCode || user.memberId || '',
+                      checkData.order?.trxId || orderNo
                     );
                   } catch (commErr) {
                     console.warn('[Referral Comm Distribute Warn]', commErr);
                   }
+
+                  try {
+                    localStorage.removeItem('pending_gateway_deposit');
+                  } catch (_) {}
 
                   showToast(
                     currentLang === 'bn'
@@ -1039,31 +1078,9 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
       let data: any = null;
       try {
-        // Prioritize server proxy to unpack inner iframe and prevent browser SAMEORIGIN errors
-        const proxyRes = await fetch('/api/v1/watchpay/create-order', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            amount: Number(amount),
-            payerName: 'Customer',
-          }),
-        });
-        data = await proxyRes.json();
-      } catch (proxyErr) {
-        console.warn('[WatchPay] Proxy fetch failed, trying direct:', proxyErr);
-        const directRes = await fetch('https://nekpay-backend.onrender.com/create-order-watchpay', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            amount: Number(amount),
-            payerName: 'Customer',
-          }),
-        });
-        data = await directRes.json();
+        data = await createCpanelDepositOrder('channel2', Number(amount), 'Customer', activeUid);
+      } catch (fetchErr) {
+        console.warn('[WatchPay] createCpanelDepositOrder failed:', fetchErr);
       }
 
       console.log('WatchPay create-order response:', data);
@@ -1186,12 +1203,13 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                   ),
                 }));
 
-                // Distribute referral deposit commissions and activate user status
+                // Distribute 3-level referral deposit commissions and activate user status
                 try {
                   distributeReferralDepositCommissions(
                     user.referralCode || user.memberId || user.phone || '',
                     Number(amount),
-                    user.referralCode || user.memberId || ''
+                    user.referralCode || user.memberId || '',
+                    checkData.order?.trxId || orderNo
                   );
                 } catch (commErr) {
                   console.warn('[Referral Comm Distribute Warn]', commErr);
@@ -1256,6 +1274,19 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
       if (isSuccess && amount > 0) {
         const activeUid = auth.currentUser?.uid || user.memberId || 'USER1001';
+
+        // Forward payment return confirmation directly to cPanel deposit URL
+        sendDepositToCpanel({
+          amount,
+          method,
+          channel: gateway,
+          trxId: trxId || `TXN-${Date.now().toString().slice(-6)}`,
+          orderId: orderId || undefined,
+          status: 'COMPLETED',
+          type: 'PAYMENT_RETURN_CALLBACK',
+          userId: activeUid,
+          timestamp: new Date().toISOString(),
+        });
 
         // 1. Immediately update user wallet balance and record in Firestore
         recordFirestoreDeposit(activeUid, {
@@ -1439,6 +1470,18 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 : t
             ),
           }));
+
+          // Distribute 3-level referral deposit commissions
+          try {
+            distributeReferralDepositCommissions(
+              user.referralCode || user.memberId || user.phone || '',
+              Number(pTx.amount) || 0,
+              user.referralCode || user.memberId || '',
+              trxKey
+            );
+          } catch (commErr) {
+            console.warn('[Referral Comm Distribute Warn]', commErr);
+          }
         }
       } catch (err) {
         console.warn('[Pending Check Error]', err);

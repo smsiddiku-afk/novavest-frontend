@@ -9,6 +9,7 @@ import {
   resetPackagesToDefault,
   DEFAULT_INVESTMENT_PACKAGES
 } from "./utils/packageService";
+import { resolveImageSrc } from "./utils/imageUtils";
 
 const ADMIN_SECRET_KEY = "123456"; 
 
@@ -920,9 +921,10 @@ export default function AdminPanel() {
                       />
                       {packageFormData.image && (
                         <img
-                          src={packageFormData.image}
+                          src={resolveImageSrc(packageFormData.image, 'solar')}
                           alt="preview"
                           style={{ width: "40px", height: "40px", objectFit: "cover", borderRadius: "6px", border: "1px solid #334155" }}
+                          referrerPolicy="no-referrer"
                           onError={(e) => { e.target.style.display = 'none'; }}
                         />
                       )}
@@ -946,7 +948,7 @@ export default function AdminPanel() {
                       </button>
                       <button
                         type="button"
-                        onClick={() => setPackageFormData({ ...packageFormData, image: "https://images.unsplash.com/photo-1574943320219-553eb213f72d?auto=format&fit=crop&w=800&q=80" })}
+                        onClick={() => setPackageFormData({ ...packageFormData, image: "/images/smart_turbine_plant_1788466039952.jpg" })}
                         style={{ padding: "4px 8px", background: "#1e293b", border: "1px solid #334155", color: "#e2e8f0", borderRadius: "4px", fontSize: "11px", cursor: "pointer" }}
                       >
                         💧 Hydro Plant
@@ -1056,9 +1058,10 @@ export default function AdminPanel() {
                         <tr key={pkg.id} style={{ borderBottom: "1px solid #1e293b", opacity: isActive ? 1 : 0.65 }}>
                           <td style={{ padding: "10px" }}>
                             <img
-                              src={pkg.image || "/images/apex-helios-solar.jpg"}
+                              src={resolveImageSrc(pkg.image, 'solar')}
                               alt={pkg.nameEn}
                               style={{ width: "48px", height: "48px", objectFit: "cover", borderRadius: "6px", border: "1px solid #334155" }}
+                              referrerPolicy="no-referrer"
                               onError={(e) => { e.target.src = "/images/apex-helios-solar.jpg"; }}
                             />
                           </td>

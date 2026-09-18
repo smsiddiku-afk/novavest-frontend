@@ -533,7 +533,7 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
         : 'Partner with global renewable energy projects and earn daily profits. Your investment today creates a greener tomorrow.',
       badge: lang === 'bn' ? '🌱 সাসটেইনেবল এনার্জি • গ্লোবাল গ্রোথ' : '🌱 Sustainable Energy • Global Growth',
       image: '/images/energy-hero.jpg',
-      fallback: 'https://images.unsplash.com/photo-1509391365360-2e959784a276?auto=format&fit=crop&w=1200&q=80',
+      fallback: '/images/energy_hero_facility_1788465969350.jpg',
     },
     {
       id: 'slide-wind-turbines',
@@ -545,7 +545,7 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
         : 'Harnessing oceanic wind currents with zero emissions for continuous 50 Hz green power transmission.',
       badge: lang === 'bn' ? '⚡ ৫০ হার্জ গ্রিড সিঙ্ক্রোনাইজেশন' : '⚡ 50 Hz Grid Synchronization',
       image: '/images/novawind-facility.jpg',
-      fallback: 'https://images.unsplash.com/photo-1466611653911-95081537e5b7?auto=format&fit=crop&w=1200&q=80',
+      fallback: '/images/smart_turbine_plant_1788466039952.jpg',
     },
     {
       id: 'slide-solar-farm',
@@ -557,7 +557,7 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
         : 'Automated AI dispatchers stabilize voltage and frequency, supplying reliable power across commercial hubs.',
       badge: lang === 'bn' ? '☀️ ৯৮.৪% এফিসিয়েন্সি মেট্রিক্স' : '☀️ 98.4% Efficiency Matrix',
       image: '/images/solar_ai_substation_1788465992131.jpg',
-      fallback: 'https://images.unsplash.com/photo-1473341304170-971dccb5ac1e?auto=format&fit=crop&w=1200&q=80',
+      fallback: '/images/apex-helios-solar.jpg',
     },
     {
       id: 'slide-bess-storage',

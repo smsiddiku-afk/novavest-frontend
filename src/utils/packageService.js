@@ -1,5 +1,6 @@
 import { db, sanitizeFirestoreData, cleanDocId, safeDoc, safeSetDoc } from "../lib/firebase";
 import { collection, doc, getDocs, setDoc, deleteDoc } from "firebase/firestore";
+import { resolveImageSrc } from "./imageUtils";
 
 export const DEFAULT_INVESTMENT_PACKAGES = [
   {
@@ -56,7 +57,7 @@ export const DEFAULT_INVESTMENT_PACKAGES = [
     nameBn: 'প্রিমিয়াম প্ল্যান',
     taglineEn: 'Long Term Growth | Sustainable',
     taglineBn: 'দীর্ঘমেয়াদী প্রবৃদ্ধি | টেকসই শক্তি',
-    image: 'https://images.unsplash.com/photo-1574943320219-553eb213f72d?auto=format&fit=crop&w=800&q=80',
+    image: '/images/hydro-plant.jpg',
     minInvestmentUsd: 100,
     minInvestmentBdt: 12000,
     minInvestment: 12000,
@@ -192,6 +193,7 @@ async function fetchFromFirestore() {
       list.push({
         ...data,
         id: d.id,
+        image: resolveImageSrc(data.image, data.category || 'solar'),
         minInvestmentBdt: Number(data.minInvestmentBdt || data.minInvestment || 1000),
         minInvestment: Number(data.minInvestmentBdt || data.minInvestment || 1000),
         minInvestmentUsd: Number(data.minInvestmentUsd || Math.round((data.minInvestmentBdt || data.minInvestment || 1000) / 120)),

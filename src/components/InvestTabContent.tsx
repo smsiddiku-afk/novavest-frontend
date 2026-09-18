@@ -442,6 +442,7 @@ export const InvestTabContent: React.FC<InvestTabContentProps> = ({
             src="/images/apex-helios-solar.jpg"
             alt="Clean Energy Landscape"
             className="w-full h-full object-cover object-center mix-blend-luminosity"
+            referrerPolicy="no-referrer"
             onError={(e) => handleImageError(e, 'solar')}
           />
           <div className="absolute inset-0 bg-gradient-to-r from-[#072c23] via-transparent to-transparent" />
@@ -602,13 +603,20 @@ export const InvestTabContent: React.FC<InvestTabContentProps> = ({
               <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3.5 sm:gap-4">
                 {/* Left side: Thumbnail with Badge overlay */}
                 <div className="relative w-full sm:w-36 h-36 sm:h-32 rounded-xl sm:rounded-2xl overflow-hidden shrink-0 border border-emerald-500/25 bg-[#031d16] shadow-md">
+                  {/* Subtle placeholder background with icon if image is loading */}
+                  <div className="absolute inset-0 bg-gradient-to-br from-[#063b2f] via-[#03221b] to-[#01140f] flex items-center justify-center pointer-events-none opacity-40">
+                    {renderBadgeIcon(plan.badgeIconType)}
+                  </div>
+
                   <img
-                    src={resolveImageSrc(plan.image, plan.category === 'solar' ? 'solar' : 'wind')}
+                    src={resolveImageSrc(plan.image, (plan.category as any) || 'solar')}
                     alt={isBn ? plan.nameBn : plan.nameEn}
-                    className="w-full h-full object-cover object-center"
-                    onError={(e) => handleImageError(e, 'solar')}
+                    className="relative z-[1] w-full h-full object-cover object-center"
+                    referrerPolicy="no-referrer"
+                    loading="lazy"
+                    onError={(e) => handleImageError(e, (plan.category as any) || 'solar')}
                   />
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent pointer-events-none" />
+                  <div className="absolute inset-0 z-[2] bg-gradient-to-t from-black/60 via-transparent to-transparent pointer-events-none" />
 
                   {/* Top-Left Category Badge */}
                   <div className="absolute top-2 left-2 px-2.5 py-1 rounded-full bg-[#041e17]/85 backdrop-blur-md border border-emerald-500/30 flex items-center gap-1.5 shadow-sm">

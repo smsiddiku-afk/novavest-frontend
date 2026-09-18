@@ -73,9 +73,9 @@ export const WalletTabContent: React.FC<WalletTabContentProps> = ({
           initialTab="recharge"
           onBack={() => setSubView('promo')}
           onOpenHistory={onOpenHistory}
-          onConfirmRecharge={(amount, method, channel, manualDetails) => {
+          onConfirmRecharge={async (amount, method, channel, manualDetails) => {
             if (onOpenGateway) {
-              onOpenGateway(amount, method, channel, manualDetails);
+              return await onOpenGateway(amount, method, channel, manualDetails);
             } else if (onOpenRecharge) {
               onOpenRecharge();
             }

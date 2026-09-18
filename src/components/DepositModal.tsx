@@ -14,7 +14,7 @@ interface DepositModalProps {
     method: DepositMethod,
     channel?: PaymentChannelType,
     manualDetails?: ManualDepositDetails
-  ) => void | Promise<void>;
+  ) => Promise<any> | void;
   onOpenHistory?: () => void;
   onWithdraw?: (amount: number, method: PaymentMethodType, account: string) => void;
 }
@@ -41,8 +41,8 @@ export const DepositModal: React.FC<DepositModalProps> = ({
         initialTab="recharge"
         onBack={onClose}
         onOpenHistory={onOpenHistory}
-        onConfirmRecharge={(amt, method, channel, manualDetails) => {
-          return onProceed(amt, method, channel, manualDetails);
+        onConfirmRecharge={async (amt, method, channel, manualDetails) => {
+          return await onProceed(amt, method, channel, manualDetails);
         }}
         onConfirmWithdraw={onWithdraw}
       />

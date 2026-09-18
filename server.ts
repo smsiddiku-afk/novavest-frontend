@@ -275,7 +275,7 @@ async function startServer() {
 
       console.log('Sending request to cPanel Nekpay:', NEKPAY_CONFIG.createOrderUrl, postBody);
 
-      // Call Nekpay on cPanel backend
+      // Call Nekpay on cPanel backend with 10s timeout
       const response = await fetch(NEKPAY_CONFIG.createOrderUrl, {
         method: 'POST',
         headers: {
@@ -284,6 +284,7 @@ async function startServer() {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         },
         body: JSON.stringify(postBody),
+        signal: AbortSignal.timeout(10000),
       });
 
       const responseText = await response.text();
@@ -398,6 +399,7 @@ async function startServer() {
           amount: numAmount,
           payerName: payerName || 'Customer',
         }),
+        signal: AbortSignal.timeout(10000),
       });
 
       const data: any = await response.json();

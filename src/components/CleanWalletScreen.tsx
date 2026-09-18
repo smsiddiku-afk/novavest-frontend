@@ -58,12 +58,13 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
   showToast,
 }) => {
   const [activeTab, setActiveTab] = useState<'recharge' | 'withdraw'>(initialTab);
-  const [selectedChannel, setSelectedChannel] = useState<PaymentChannelType | null>(null);
+  const [selectedChannel, setSelectedChannel] = useState<PaymentChannelType | null>('channel1');
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethodType>('bKash');
   const [amount, setAmount] = useState<string>('100');
   const [withdrawAccount, setWithdrawAccount] = useState<string>('');
   const [localToast, setLocalToast] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [loadingStep, setLoadingStep] = useState<number>(0);
   const [redirectUrl, setRedirectUrl] = useState<string | null>(null);
 
   const displayToast = (msg: string) => {
@@ -99,15 +100,37 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
       return;
     }
 
+    let timer1: any = null;
+    let timer2: any = null;
+
     try {
       setIsSubmitting(true);
+      setLoadingStep(0);
+
+      // Smooth step progressions for visual clarity
+      timer1 = setTimeout(() => setLoadingStep(1), 600);
+      timer2 = setTimeout(() => setLoadingStep(2), 1500);
+
       await Promise.resolve(
         onConfirmRecharge(num, selectedMethod, selectedChannel)
       );
+
+      setLoadingStep(3);
     } catch (err) {
       console.error(err);
+      displayToast(
+        currentLang === 'bn'
+          ? 'পেমেন্ট সংযোগে সমস্যা হয়েছে, অনুগ্রহ করে আবার চেষ্টা করুন।'
+          : 'Payment connection error. Please try again.'
+      );
     } finally {
-      setIsSubmitting(false);
+      if (timer1) clearTimeout(timer1);
+      if (timer2) clearTimeout(timer2);
+      // Brief settling interval so user sees the transition smoothly
+      setTimeout(() => {
+        setIsSubmitting(false);
+        setLoadingStep(0);
+      }, 750);
     }
   };
 
@@ -596,12 +619,20 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
                 type="button"
                 disabled={isSubmitting || !selectedChannel}
                 onClick={handleRechargeSubmit}
-                className="w-full py-4.5 sm:py-5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 active:scale-[0.98] text-slate-950 font-black text-base sm:text-xl tracking-wide shadow-[0_8px_32px_rgba(16,185,129,0.35)] transition-all cursor-pointer flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
+                className={`w-full py-4.5 sm:py-5 rounded-2xl font-black text-base sm:text-xl tracking-wide transition-all cursor-pointer flex items-center justify-center gap-3 relative overflow-hidden ${
+                  isSubmitting
+                    ? 'bg-emerald-400 text-slate-950 shadow-[0_0_30px_rgba(16,185,129,0.6)] cursor-wait'
+                    : 'bg-emerald-500 hover:bg-emerald-400 active:scale-[0.98] text-slate-950 shadow-[0_8px_32px_rgba(16,185,129,0.35)]'
+                } disabled:opacity-60 disabled:cursor-not-allowed`}
               >
                 {isSubmitting ? (
-                  <span className="flex items-center gap-3 text-base font-bold">
-                    <span className="w-5 h-5 border-3 border-slate-950 border-t-transparent rounded-full animate-spin" />
-                    <span>Processing Payment...</span>
+                  <span className="flex items-center justify-center gap-3 text-base sm:text-lg font-black text-slate-950">
+                    <span className="w-5 h-5 sm:w-6 sm:h-6 border-3 border-slate-950 border-t-transparent rounded-full animate-spin shrink-0" />
+                    <span className="animate-pulse">
+                      {currentLang === 'bn'
+                        ? 'পেমেন্ট গেটওয়েতে সংযোগ হচ্ছে...'
+                        : 'Connecting to Gateway...'}
+                    </span>
                   </span>
                 ) : !selectedChannel ? (
                   <>
@@ -610,12 +641,12 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
                   </>
                 ) : (
                   <>
-                    <Zap className="w-6 h-6 fill-current" />
+                    <Zap className="w-6 h-6 fill-current animate-pulse" />
                     <span>
                       {selectedChannel === 'channel2'
                         ? `WatchPay (${selectedMethod}) • ৳${amount || '100'}`
                         : currentLang === 'bn'
-                        ? `NEKpay (${selectedMethod}) • ৳${amount || '১০০'}`
+                        ? `রিচার্জ করুন (${selectedMethod}) • ৳${amount || '১০০'}`
                         : `Proceed to Pay (${selectedMethod}) • ৳${amount || '100'}`}
                     </span>
                   </>
@@ -754,6 +785,87 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
           </>
         )}
       </div>
+      {/* ─────────────────────────────────────────────────────────────
+          FULL-SCREEN ANIMATED PAYMENT GATEWAY PREPARATION MODAL
+          Directly addresses user feedback: "Proced to pay ডিপোজিট অখানে ক্লিক দিলে একটা লোডিং এনিমেশন করে দাস ক্লিক দিলে বুঝা যায় না"
+         ───────────────────────────────────────────────────────────── */}
+      {isSubmitting && (
+        <div
+          id="deposit-gateway-loading-overlay"
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/85 backdrop-blur-md px-4 animate-in fade-in duration-200"
+        >
+          <div className="w-full max-w-sm rounded-3xl bg-[#062c22] border-2 border-emerald-500/50 p-6 sm:p-7 text-center shadow-[0_20px_60px_rgba(0,0,0,0.8)] relative overflow-hidden space-y-5">
+            {/* Ambient Background Glow Effect */}
+            <div className="absolute -top-16 -left-16 w-36 h-36 rounded-full bg-emerald-500/20 blur-2xl pointer-events-none" />
+            <div className="absolute -bottom-16 -right-16 w-36 h-36 rounded-full bg-emerald-400/20 blur-2xl pointer-events-none" />
+
+            {/* Glowing Spinner & Pulsing Energy Core */}
+            <div className="relative w-24 h-24 mx-auto flex items-center justify-center pt-2">
+              {/* Radar Expanding Rings */}
+              <div className="absolute inset-0 rounded-full border-2 border-emerald-400/30 animate-ping" />
+              <div className="absolute inset-2 rounded-full border-2 border-emerald-500/40 animate-pulse" />
+              {/* Outer High-Speed Spinner */}
+              <div className="w-20 h-20 rounded-full border-4 border-emerald-950 border-t-emerald-400 border-r-emerald-500 animate-spin" />
+              {/* Inner Glowing Badge */}
+              <div className="absolute inset-0 m-auto w-12 h-12 rounded-2xl bg-gradient-to-tr from-emerald-600 to-emerald-400 flex items-center justify-center shadow-lg shadow-emerald-500/50">
+                <Zap className="w-6 h-6 text-slate-950 fill-slate-950 animate-bounce" />
+              </div>
+            </div>
+
+            {/* Title & Status */}
+            <div>
+              <h3 className="text-lg sm:text-xl font-black text-white tracking-wide">
+                {currentLang === 'bn' ? 'পেমেন্ট গেটওয়ে প্রস্তুত হচ্ছে...' : 'Connecting to Gateway...'}
+              </h3>
+              <p className="text-xs sm:text-sm text-emerald-300 font-semibold mt-1">
+                {selectedMethod} • ৳{amount || '100'} • {selectedChannel === 'channel2' ? 'WatchPay' : 'NEKpay'}
+              </p>
+            </div>
+
+            {/* Live Step Progress Ticker */}
+            <div className="space-y-2.5 bg-[#042018] border border-emerald-500/25 rounded-2xl p-3.5 text-left text-xs">
+              <div className="flex items-center gap-2.5 text-slate-200 font-medium">
+                <div className={`w-2.5 h-2.5 rounded-full ${loadingStep >= 0 ? 'bg-emerald-400 animate-ping' : 'bg-slate-600'}`} />
+                <span className={loadingStep >= 0 ? 'text-emerald-300 font-bold' : 'text-slate-400'}>
+                  {currentLang === 'bn' ? '১. নিরাপদ পেমেন্ট অর্ডার তৈরি' : '1. Generating Secure Payment Order'}
+                </span>
+              </div>
+              <div className="flex items-center gap-2.5 text-slate-200 font-medium">
+                <div className={`w-2.5 h-2.5 rounded-full ${loadingStep >= 1 ? 'bg-emerald-400 animate-ping' : 'bg-slate-600'}`} />
+                <span className={loadingStep >= 1 ? 'text-emerald-300 font-bold' : 'text-slate-400'}>
+                  {currentLang === 'bn' ? '২. সিকিউর ক্যাশিয়ার গেটওয়ে সংযোগ' : '2. Connecting Secure Cashier Gateway'}
+                </span>
+              </div>
+              <div className="flex items-center gap-2.5 text-slate-200 font-medium">
+                <div className={`w-2.5 h-2.5 rounded-full ${loadingStep >= 2 ? 'bg-emerald-400 animate-ping' : 'bg-slate-600'}`} />
+                <span className={loadingStep >= 2 ? 'text-emerald-300 font-bold' : 'text-slate-400'}>
+                  {currentLang === 'bn' ? '৩. ক্যাশিয়ার পেজে প্রবেশ করা হচ্ছে...' : '3. Redirecting to Payment Cashier...'}
+                </span>
+              </div>
+            </div>
+
+            {/* Pulsing Animated Progress Bar */}
+            <div className="w-full bg-[#042018] rounded-full h-2.5 overflow-hidden border border-emerald-500/30">
+              <div
+                className="bg-gradient-to-r from-emerald-500 via-emerald-400 to-teal-300 h-full rounded-full transition-all duration-700 ease-out shadow-[0_0_10px_rgba(16,185,129,0.8)]"
+                style={{
+                  width: loadingStep === 0 ? '35%' : loadingStep === 1 ? '70%' : loadingStep === 2 ? '92%' : '100%',
+                }}
+              />
+            </div>
+
+            {/* Reassurance Notice */}
+            <div className="flex items-center justify-center gap-2 text-[11px] text-slate-400 font-medium pt-1">
+              <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>
+                {currentLang === 'bn'
+                  ? '২৫৬-বিট এনক্রিপশনে সম্পূর্ণ সুরক্ষিত। অনুগ্রহ করে অপেক্ষা করুন...'
+                  : 'Protected by 256-bit SSL encryption. Please wait...'}
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

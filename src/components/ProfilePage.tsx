@@ -2085,8 +2085,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             onOpenRecharge={() => setActiveSubModal('recharge')}
             onOpenWithdraw={() => setActiveSubModal('withdraw')}
             onOpenBankBinding={() => setActiveSubModal('payment')}
-            onOpenGateway={(amount, method, channel, manualDetails) => {
-              handleInitiateDeposit(amount, method, channel, manualDetails);
+            onOpenGateway={async (amount, method, channel, manualDetails) => {
+              return await handleInitiateDeposit(amount, method, channel, manualDetails);
             }}
             onOpenHistory={() => switchTab('transactions')}
             onBack={() => switchTab('home')}
@@ -3194,8 +3194,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           onClose={() => setActiveSubModal(null)}
           currentBalance={user.walletBalance}
           currentLang={currentLang}
-          onProceed={(amt, method, channel, manualDetails) => {
-            handleInitiateDeposit(amt, method, channel, manualDetails);
+          onProceed={async (amt, method, channel, manualDetails) => {
+            return await handleInitiateDeposit(amt, method, channel, manualDetails);
           }}
           onOpenHistory={() => {
             setActiveSubModal(null);

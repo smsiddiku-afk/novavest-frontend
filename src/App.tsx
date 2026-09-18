@@ -17,7 +17,7 @@ import {
   isSameUser,
   signOutFromFirebase,
 } from './utils/authService';
-import { registerUserInReferralNetwork } from './utils/referralService';
+import { registerUserInReferralNetwork, extractPendingReferralCode } from './utils/referralService';
 import { initCrisp, syncUserWithCrisp, fetchSupportSettings } from './utils/crispService';
 
 type ProtectedTab = 'home' | 'invest' | 'transactions' | 'wallet' | 'referral' | 'profile';
@@ -49,7 +49,8 @@ export default function App() {
     const isStoredAuth = !!getPersistedAuthUser();
 
     if (!isStoredAuth) {
-      if (initial === '/register') return '/register';
+      const pendingCode = extractPendingReferralCode();
+      if (initial === '/register' || pendingCode) return '/register';
       return '/login';
     } else {
       if (initial === '/login' || initial === '/register' || initial === '/') {
@@ -105,10 +106,12 @@ export default function App() {
   const navigate = (toPath: string, replace = false) => {
     if (typeof window !== 'undefined') {
       try {
+        const currentSearch = window.location.search || '';
+        const targetUrl = toPath.includes('?') ? toPath : `${toPath}${currentSearch}`;
         if (replace) {
-          window.history.replaceState(null, '', toPath);
+          window.history.replaceState(null, '', targetUrl);
         } else {
-          window.history.pushState(null, '', toPath);
+          window.history.pushState(null, '', targetUrl);
         }
       } catch {
         // In iframe or restricted environments, history updates might fail silently
@@ -146,6 +149,11 @@ export default function App() {
     if (currentPath === '/admin') return;
 
     if (!authUser) {
+      const pendingRef = extractPendingReferralCode();
+      if (pendingRef && currentPath !== '/register') {
+        navigate('/register', true);
+        return;
+      }
       if (currentPath !== '/login' && currentPath !== '/register') {
         navigate('/login', true);
       }

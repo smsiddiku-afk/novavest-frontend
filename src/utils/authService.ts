@@ -679,30 +679,39 @@ export const registerWithFirebase = async (
     // 3. Persist and register locally first
     persistAuthUser(newUser);
 
-    registerUserInReferralNetwork(
-      newUser.uid,
-      newUser.referralCode,
-      uplineCode || newUser.referredBy,
-      data.phone.trim(),
-      data.username.trim(),
-      newUser.memberId
-    );
+    try {
+      await registerUserInReferralNetwork(
+        newUser.uid,
+        newUser.referralCode,
+        uplineCode || newUser.referredBy,
+        data.phone.trim(),
+        data.username.trim(),
+        newUser.memberId
+      );
+    } catch (refErr) {
+      console.warn('[AuthService] registerUserInReferralNetwork notice:', refErr);
+    }
 
-    // 4. Background Firestore persistence (non-blocking)
-    Promise.all([
-      createFirestoreUserProfile(cred.user.uid, {
-        name: data.username.trim(),
-        phone: data.phone.trim(),
-        email: finalEmail,
-        memberId: generatedMemberId,
-        referralCode,
-        referredBy: uplineCode,
-        walletBalance: 0.0,
-      }),
-      data.username ? updateProfile(cred.user, { displayName: data.username.trim() }) : Promise.resolve(),
-    ]).catch((err) => {
-      console.warn('[AuthService] Background user document creation notice:', err);
-    });
+    // 4. Firestore persistence - ensure user profile & referral node are saved
+    try {
+      await Promise.race([
+        Promise.all([
+          createFirestoreUserProfile(cred.user.uid, {
+            name: data.username.trim(),
+            phone: data.phone.trim(),
+            email: finalEmail,
+            memberId: generatedMemberId,
+            referralCode,
+            referredBy: uplineCode,
+            walletBalance: 0.0,
+          }),
+          data.username ? updateProfile(cred.user, { displayName: data.username.trim() }) : Promise.resolve(),
+        ]),
+        new Promise((resolve) => setTimeout(resolve, 2500)),
+      ]);
+    } catch (err) {
+      console.warn('[AuthService] Firestore user profile creation notice:', err);
+    }
 
     attachFirestoreListener(newUser.uid!);
 

@@ -19,7 +19,12 @@ import {
 } from 'lucide-react';
 import { LegalDocType, RegisterFormData, Language } from '../types';
 import { registerWithFirebase } from '../utils/authService';
-import { registerUserInReferralNetwork, generateUniqueReferralCode } from '../utils/referralService';
+import {
+  registerUserInReferralNetwork,
+  generateUniqueReferralCode,
+  extractPendingReferralCode,
+  clearPendingReferralCode,
+} from '../utils/referralService';
 
 interface RegistrationCardProps {
   onSwitchToLogin: () => void;
@@ -55,13 +60,15 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
   const [email, setEmail] = useState('');
   const [emailVerificationCode, setEmailVerificationCode] = useState('');
   const [referralCode, setReferralCode] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const urlParams = new URLSearchParams(window.location.search);
-      const ref = urlParams.get('ref') || urlParams.get('referral');
-      if (ref) return ref.trim();
-    }
-    return 'NV8829';
+    return extractPendingReferralCode() || '';
   });
+
+  useEffect(() => {
+    const pending = extractPendingReferralCode();
+    if (pending) {
+      setReferralCode((prev) => prev || pending);
+    }
+  }, []);
 
   // OTP State
   const [sentOtpCode, setSentOtpCode] = useState<string | null>(null);
@@ -206,13 +213,15 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
         ? `+880 ${last10}`
         : `${countryCode} ${rawDigits.replace(/^0+/, '')}`;
 
+      const inviterCode = (referralCode || extractPendingReferralCode() || '').trim().toUpperCase();
+
       const result = await registerWithFirebase(
         {
           email: email.trim(),
           phone: standardPhone,
           username: username.trim(),
           password,
-          referralCode: referralCode.trim(),
+          referralCode: inviterCode,
         },
         lang
       );
@@ -221,21 +230,29 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
       if (result.success && result.user) {
         // নতুন ইউজারের নির্দিষ্ট রেফারেল কোড ও মেম্বার আইডি দিয়ে রেফারেল নেটওয়ার্কে যুক্ত করা
         const userRefCode = result.user.referralCode || result.user.memberId || generateUniqueReferralCode(username.trim());
-        registerUserInReferralNetwork(
-          result.user.uid || 'user_' + Date.now(),
-          userRefCode,
-          referralCode.trim(),
-          standardPhone,
-          username.trim(),
-          result.user.memberId
-        );
+        const finalUplineCode = inviterCode || result.user.referredBy || '';
+
+        try {
+          await registerUserInReferralNetwork(
+            result.user.uid || 'user_' + Date.now(),
+            userRefCode,
+            finalUplineCode,
+            standardPhone,
+            username.trim(),
+            result.user.memberId
+          );
+        } catch (regErr) {
+          console.warn('[RegistrationCard] registerUserInReferralNetwork notice:', regErr);
+        }
+
+        clearPendingReferralCode();
 
         onRegistrationSuccess({
           phone: standardPhone,
           username: username.trim(),
           password,
           confirmPassword,
-          referralCode: referralCode.trim(),
+          referralCode: finalUplineCode,
           email: email.trim(),
         });
       } else {
@@ -622,10 +639,23 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
               type="text"
               value={referralCode}
               onChange={(e) => setReferralCode(e.target.value.toUpperCase())}
-              placeholder="Referral Code"
+              placeholder={lang === 'bn' ? 'আমন্ত্রণ কোড (যদি থাকে)' : 'Referral Code (Optional)'}
               className="w-full h-full bg-transparent text-sm sm:text-base text-white placeholder:text-emerald-200/40 font-semibold tracking-wider focus:outline-none"
             />
+            {referralCode && (
+              <span className="shrink-0 text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                {lang === 'bn' ? 'সংযুক্ত' : 'Linked'}
+              </span>
+            )}
           </div>
+          {referralCode && (
+            <p className="text-[11px] text-emerald-400/80 mt-1 px-2 flex items-center gap-1 font-medium">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+              {lang === 'bn'
+                ? `আপনি ${referralCode} কোডের আমন্ত্রণে যুক্ত হচ্ছেন`
+                : `Joining with inviter code: ${referralCode}`}
+            </p>
+          )}
         </div>
 
         {/* Glowing Emerald Action Button: "নিবন্ধন করুন" */}

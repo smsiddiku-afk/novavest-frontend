@@ -1375,6 +1375,17 @@ export const saveReferralNodeToFirestore = async (node: ReferralNodeRecord): Pro
       }
     }
 
+    // Also alias by userId if present
+    if (node.userId) {
+      const cleanUid = cleanDocId(node.userId, '');
+      if (cleanUid && cleanUid !== cleanCode && cleanUid !== cleanMemberId) {
+        const ref3 = safeDoc('referral_nodes', cleanUid);
+        if (ref3) {
+          await safeSetDoc(ref3, payload, { merge: true });
+        }
+      }
+    }
+
     console.log('[Firebase] Referral node synced to Firestore:', cleanCode);
   } catch (err) {
     console.warn('[Firebase] Notice saving referral node to Firestore:', err);
@@ -1406,6 +1417,13 @@ export const syncReferralAccountsFromFirestore = async (): Promise<Record<string
           if (node.memberId && node.memberId !== node.userCode) {
             result[node.memberId] = result[node.userCode];
           }
+          if (node.userId && node.userId !== node.userCode) {
+            result[node.userId] = result[node.userCode];
+          }
+          if (node.phone) {
+            const cleanP = node.phone.replace(/\D/g, '');
+            if (cleanP) result[cleanP] = result[node.userCode];
+          }
         }
       });
     } catch (usersErr) {
@@ -1418,16 +1436,35 @@ export const syncReferralAccountsFromFirestore = async (): Promise<Record<string
       const snap = await getDocs(nodesCol);
       snap.forEach((d) => {
         const data = d.data() as ReferralNodeRecord;
-        if (data.userCode) {
-          const key = data.userCode.toUpperCase();
+        const rawCode = data.userCode || data.memberId || d.id;
+        if (rawCode) {
+          const key = rawCode.toString().trim().toUpperCase();
+          const cleanRefBy = (
+            data.referredByCode ||
+            (data as any).referredBy ||
+            (data as any).uplineCode ||
+            result[key]?.referredByCode ||
+            ''
+          )
+            .toString()
+            .trim()
+            .toUpperCase();
+
           result[key] = {
             ...(result[key] || {}),
             ...data,
             userCode: key,
-            referredByCode: (data.referredByCode || result[key]?.referredByCode || '').toUpperCase(),
+            referredByCode: cleanRefBy,
           };
           if (data.memberId) {
             result[data.memberId.toUpperCase()] = result[key];
+          }
+          if (data.userId) {
+            result[data.userId] = result[key];
+          }
+          if (data.phone) {
+            const cleanP = data.phone.replace(/\D/g, '');
+            if (cleanP) result[cleanP] = result[key];
           }
         }
       });
@@ -1501,6 +1538,13 @@ export const subscribeToReferralNetwork = (
           if (node.memberId && node.memberId !== node.userCode) {
             mergedAccounts[node.memberId] = mergedAccounts[node.userCode];
           }
+          if (node.userId && node.userId !== node.userCode) {
+            mergedAccounts[node.userId] = mergedAccounts[node.userCode];
+          }
+          if (node.phone) {
+            const cleanP = node.phone.replace(/\D/g, '');
+            if (cleanP) mergedAccounts[cleanP] = mergedAccounts[node.userCode];
+          }
         }
       });
       updateStore();
@@ -1516,16 +1560,35 @@ export const subscribeToReferralNetwork = (
     (snap) => {
       snap.forEach((d) => {
         const data = d.data() as ReferralNodeRecord;
-        if (data.userCode) {
-          const key = data.userCode.toUpperCase();
+        const rawCode = data.userCode || data.memberId || d.id;
+        if (rawCode) {
+          const key = rawCode.toString().trim().toUpperCase();
+          const cleanRefBy = (
+            data.referredByCode ||
+            (data as any).referredBy ||
+            (data as any).uplineCode ||
+            mergedAccounts[key]?.referredByCode ||
+            ''
+          )
+            .toString()
+            .trim()
+            .toUpperCase();
+
           mergedAccounts[key] = {
             ...(mergedAccounts[key] || {}),
             ...data,
             userCode: key,
-            referredByCode: (data.referredByCode || mergedAccounts[key]?.referredByCode || '').toUpperCase(),
+            referredByCode: cleanRefBy,
           };
           if (data.memberId) {
             mergedAccounts[data.memberId.toUpperCase()] = mergedAccounts[key];
+          }
+          if (data.userId) {
+            mergedAccounts[data.userId] = mergedAccounts[key];
+          }
+          if (data.phone) {
+            const cleanP = data.phone.replace(/\D/g, '');
+            if (cleanP) mergedAccounts[cleanP] = mergedAccounts[key];
           }
         }
       });

@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import {
   ChevronLeft,
   X,
+  RefreshCw,
   Share2,
   Copy,
   Check,
@@ -151,6 +152,24 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
     setAvailableRewards(teamTree.availableRewards);
   }, [teamTree.availableRewards]);
 
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleManualSync = async () => {
+    if (isRefreshing) return;
+    setIsRefreshing(true);
+    try {
+      const freshAccounts = await syncReferralAccountsFromFirestore();
+      if (freshAccounts && Object.keys(freshAccounts).length > 0) {
+        setLiveAccounts(freshAccounts);
+      }
+      showToast(currentLang === 'bn' ? 'টিম ডাটা আপডেট করা হয়েছে!' : 'Team data updated!');
+    } catch {
+      showToast(currentLang === 'bn' ? 'ডাটা সিঙ্ক সম্পন্ন হয়েছে' : 'Sync completed');
+    } finally {
+      setTimeout(() => setIsRefreshing(false), 600);
+    }
+  };
+
   const referralLink = `${window.location.origin}/register?ref=${userCode}`;
 
   const handleCopyCode = () => {
@@ -265,19 +284,37 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
             {currentLang === 'bn' ? 'রেফারেল ও টিম কমিশন' : 'Referral'}
           </h1>
 
-          <button
-            id="referral-close-btn"
-            type="button"
-            onClick={onBack}
-            className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors cursor-pointer active:scale-95 ${
-              themeMode === 'day'
-                ? 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                : 'bg-slate-800/60 hover:bg-slate-700/60 text-amber-300/90 hover:text-amber-200'
-            }`}
-            aria-label="Close"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-1.5">
+            <button
+              id="referral-refresh-btn"
+              type="button"
+              onClick={handleManualSync}
+              disabled={isRefreshing}
+              className={`w-9 h-9 rounded-full flex items-center justify-center transition-all cursor-pointer active:scale-95 ${
+                themeMode === 'day'
+                  ? 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                  : 'bg-slate-800/60 hover:bg-slate-700/60 text-amber-300 hover:text-amber-200'
+              }`}
+              title={currentLang === 'bn' ? 'ডাটা সিঙ্ক ও রিফ্রেশ' : 'Sync & Refresh'}
+              aria-label="Refresh"
+            >
+              <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin text-amber-400' : ''}`} />
+            </button>
+
+            <button
+              id="referral-close-btn"
+              type="button"
+              onClick={onBack}
+              className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors cursor-pointer active:scale-95 ${
+                themeMode === 'day'
+                  ? 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                  : 'bg-slate-800/60 hover:bg-slate-700/60 text-amber-300/90 hover:text-amber-200'
+              }`}
+              aria-label="Close"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* 2. Dual Tabs: Invite | Details (Golden underline active state matching Screenshot) */}

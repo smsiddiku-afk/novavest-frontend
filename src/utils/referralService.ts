@@ -149,7 +149,82 @@ export function getAccountIdentifiers(acc: any): string[] {
   if (acc.userId) set.add(acc.userId.toString().trim());
   if (acc.uid) set.add(acc.uid.toString().trim());
   if (acc.phone) getAllCodeVariants(acc.phone).forEach((v) => set.add(v));
+  if (acc.username) set.add(acc.username.toString().trim().toUpperCase());
   return Array.from(set);
+}
+
+export const PENDING_REFERRAL_KEY = 'nvt_pending_referral_code';
+
+/**
+ * Save pending referral code across both sessionStorage and localStorage
+ */
+export function savePendingReferralCode(code: string): void {
+  if (typeof window === 'undefined' || !code) return;
+  const clean = code.trim().toUpperCase();
+  if (!clean) return;
+  try {
+    sessionStorage.setItem(PENDING_REFERRAL_KEY, clean);
+    localStorage.setItem(PENDING_REFERRAL_KEY, clean);
+  } catch {}
+}
+
+/**
+ * Clear pending referral code once registered
+ */
+export function clearPendingReferralCode(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    sessionStorage.removeItem(PENDING_REFERRAL_KEY);
+    localStorage.removeItem(PENDING_REFERRAL_KEY);
+  } catch {}
+}
+
+/**
+ * Extract referral code from URL query (?ref=, ?referral=, ?code=, ?invite=)
+ * or URL hash or previously stored session/local storage
+ */
+export function extractPendingReferralCode(): string {
+  if (typeof window === 'undefined') return '';
+  try {
+    // 1. Check window.location.search
+    const urlParams = new URLSearchParams(window.location.search);
+    let code =
+      urlParams.get('ref') ||
+      urlParams.get('referral') ||
+      urlParams.get('code') ||
+      urlParams.get('invite') ||
+      urlParams.get('inviter');
+
+    // 2. Check window.location.hash
+    if (!code && window.location.hash) {
+      const hashStr = window.location.hash;
+      const qIdx = hashStr.indexOf('?');
+      if (qIdx !== -1) {
+        const hashParams = new URLSearchParams(hashStr.substring(qIdx));
+        code =
+          hashParams.get('ref') ||
+          hashParams.get('referral') ||
+          hashParams.get('code') ||
+          hashParams.get('invite') ||
+          hashParams.get('inviter');
+      }
+    }
+
+    // 3. Save to storage if found in URL
+    if (code && code.trim()) {
+      const clean = code.trim().toUpperCase();
+      savePendingReferralCode(clean);
+      return clean;
+    }
+
+    // 4. Check stored from prior visit/redirect
+    const fromSession = sessionStorage.getItem(PENDING_REFERRAL_KEY);
+    if (fromSession && fromSession.trim()) return fromSession.trim().toUpperCase();
+
+    const fromLocal = localStorage.getItem(PENDING_REFERRAL_KEY);
+    if (fromLocal && fromLocal.trim()) return fromLocal.trim().toUpperCase();
+  } catch {}
+  return '';
 }
 
 /**
@@ -183,16 +258,16 @@ export function maskPhone(phone: string): string {
 }
 
 /**
- * Register a user into the referral ledger
+ * Register a user into the referral ledger and persist to Firestore
  */
-export function registerUserInReferralNetwork(
+export async function registerUserInReferralNetwork(
   userId: string,
   userCode: string,
   referredByCode?: string,
   phone?: string,
   username?: string,
   memberId?: string
-): void {
+): Promise<void> {
   try {
     const raw = localStorage.getItem(STORAGE_KEY_ACCOUNTS);
     const accounts: Record<string, {
@@ -227,15 +302,23 @@ export function registerUserInReferralNetwork(
     if (cleanMemberId) {
       accounts[cleanMemberId] = nodeData;
     }
+    if (userId) {
+      accounts[userId] = nodeData;
+    }
 
     localStorage.setItem(STORAGE_KEY_ACCOUNTS, JSON.stringify(accounts));
 
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new Event('referral_rewards_updated'));
+      window.dispatchEvent(new Event('storage'));
     }
 
     // Cloud Firestore Sync: persist referral node
-    saveReferralNodeToFirestore(nodeData).catch(() => {});
+    try {
+      await saveReferralNodeToFirestore(nodeData);
+    } catch (err) {
+      console.warn('[ReferralService] Cloud Firestore node save notice:', err);
+    }
   } catch (err) {
     console.warn('[ReferralService] Failed to save to accounts store:', err);
   }
@@ -287,6 +370,21 @@ export function getReferralTreeForUser(
   if (cleanMemberId) {
     getAllCodeVariants(cleanMemberId).forEach((v) => rootIdentifiers.add(v));
   }
+
+  // Also discover if Root User's record is in uniqueAccounts and extract their phone, username, and user id
+  uniqueAccounts.forEach((acc) => {
+    if (!acc) return;
+    const ids = getAccountIdentifiers(acc);
+    if (ids.some((id) => rootIdentifiers.has(id))) {
+      ids.forEach((id) => rootIdentifiers.add(id));
+      if (acc.phone) {
+        getAllCodeVariants(acc.phone).forEach((v) => rootIdentifiers.add(v));
+      }
+      if (acc.username) {
+        rootIdentifiers.add(acc.username.toString().trim().toUpperCase());
+      }
+    }
+  });
 
   const isRootUser = (acc: any) => {
     const ids = getAccountIdentifiers(acc);

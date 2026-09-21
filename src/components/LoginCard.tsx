@@ -92,13 +92,11 @@ export const LoginCard: React.FC<LoginCardProps> = ({
         const rawDigits = phone.trim().replace(/\D/g, '');
         const last10 = rawDigits.slice(-10);
         if (countryCode === '+880') {
-          // Both 01712345678 and 1712345678 standardize to +880 1712345678
           identifier = `+880 ${last10}`;
         } else {
           identifier = `${countryCode} ${rawDigits.replace(/^0+/, '')}`;
         }
       } else {
-        // If in email mode, but user typed their phone number or memberId without @
         const cleanVal = email.trim();
         if (!cleanVal.includes('@')) {
           const rawDigits = cleanVal.replace(/\D/g, '');
@@ -182,7 +180,8 @@ export const LoginCard: React.FC<LoginCardProps> = ({
           <button
             type="button"
             id="tab-sign-in"
-            className="relative pb-1 text-base sm:text-lg font-bold text-emerald-400 transition-colors"
+            onClick={() => setGeneralError(null)}
+            className="relative pb-1 text-base sm:text-lg font-bold text-emerald-400 transition-colors cursor-pointer"
           >
             {t.signIn}
             <span className="absolute bottom-0 left-0 right-0 h-1 bg-emerald-400 rounded-full shadow-[0_0_12px_rgba(52,211,153,0.8)]" />
@@ -192,7 +191,7 @@ export const LoginCard: React.FC<LoginCardProps> = ({
             type="button"
             id="tab-sign-up"
             onClick={onSwitchToRegister}
-            className="relative pb-1 text-base sm:text-lg font-medium text-emerald-100/60 hover:text-emerald-200 transition-colors"
+            className="relative pb-1 text-base sm:text-lg font-medium text-emerald-100/60 hover:text-emerald-200 transition-colors cursor-pointer"
           >
             {t.signUp}
           </button>
@@ -202,7 +201,7 @@ export const LoginCard: React.FC<LoginCardProps> = ({
           type="button"
           id="lang-toggle-btn"
           onClick={handleLangToggle}
-          className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#041c14] hover:bg-[#06241b] text-emerald-300 text-xs font-medium border border-emerald-500/30 transition-all shadow-sm active:scale-95"
+          className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#041c14] hover:bg-[#06241b] text-emerald-300 text-xs font-medium border border-emerald-500/30 transition-all shadow-sm active:scale-95 cursor-pointer"
         >
           <Globe className="w-3.5 h-3.5 text-emerald-400" />
           <span>{t.langLabel}</span>
@@ -217,7 +216,7 @@ export const LoginCard: React.FC<LoginCardProps> = ({
             setLoginMode('phone');
             setGeneralError(null);
           }}
-          className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs sm:text-sm font-semibold transition-all ${
+          className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs sm:text-sm font-semibold transition-all cursor-pointer ${
             loginMode === 'phone'
               ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-sm shadow-emerald-500/30'
               : 'text-emerald-100/60 hover:text-emerald-100'
@@ -232,7 +231,7 @@ export const LoginCard: React.FC<LoginCardProps> = ({
             setLoginMode('email');
             setGeneralError(null);
           }}
-          className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs sm:text-sm font-semibold transition-all ${
+          className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs sm:text-sm font-semibold transition-all cursor-pointer ${
             loginMode === 'email'
               ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-sm shadow-emerald-500/30'
               : 'text-emerald-100/60 hover:text-emerald-100'
@@ -245,7 +244,6 @@ export const LoginCard: React.FC<LoginCardProps> = ({
 
       {/* Main Login Form */}
       <form onSubmit={handleSubmit} className="space-y-3 pt-1" noValidate>
-        {/* Error message banner */}
         {generalError && (
           <div className="p-3 rounded-xl bg-rose-950/50 border border-rose-500/40 text-rose-300 text-xs sm:text-sm flex items-start gap-2 animate-in fade-in">
             <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
@@ -253,7 +251,6 @@ export const LoginCard: React.FC<LoginCardProps> = ({
           </div>
         )}
 
-        {/* 1. Phone or Email Input */}
         {loginMode === 'phone' ? (
           <div>
             <div
@@ -268,7 +265,7 @@ export const LoginCard: React.FC<LoginCardProps> = ({
                 <button
                   type="button"
                   onClick={() => setShowCountryDropdown(!showCountryDropdown)}
-                  className="flex items-center gap-1 text-sm sm:text-base font-semibold text-emerald-200 hover:text-emerald-100"
+                  className="flex items-center gap-1 text-sm sm:text-base font-semibold text-emerald-200 hover:text-emerald-100 cursor-pointer"
                 >
                   <span>{countryCode}</span>
                   <ChevronDown className="w-3.5 h-3.5 text-emerald-400/80" />
@@ -284,7 +281,7 @@ export const LoginCard: React.FC<LoginCardProps> = ({
                           setCountryCode(code);
                           setShowCountryDropdown(false);
                         }}
-                        className="w-full text-left px-3 py-2 hover:bg-[#08382a] text-emerald-100 flex items-center justify-between"
+                        className="w-full text-left px-3 py-2 hover:bg-[#08382a] text-emerald-100 flex items-center justify-between cursor-pointer"
                       >
                         <span>{code}</span>
                         {countryCode === code && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />}
@@ -344,7 +341,6 @@ export const LoginCard: React.FC<LoginCardProps> = ({
           </div>
         )}
 
-        {/* 2. Password Room */}
         <div>
           <div
             className={`relative flex items-center min-h-[48px] sm:min-h-[54px] px-3.5 sm:px-4 rounded-xl sm:rounded-2xl bg-[#031c15]/90 border transition-all duration-200 ${
@@ -368,7 +364,7 @@ export const LoginCard: React.FC<LoginCardProps> = ({
             <button
               type="button"
               onClick={() => setShowPassword(!showPassword)}
-              className="text-emerald-400/80 hover:text-emerald-300 p-1 transition-colors"
+              className="text-emerald-400/80 hover:text-emerald-300 p-1 transition-colors cursor-pointer"
             >
               {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
             </button>
@@ -380,19 +376,17 @@ export const LoginCard: React.FC<LoginCardProps> = ({
           )}
         </div>
 
-        {/* Forgot password link */}
         <div className="flex justify-end pt-0.5">
           <button
             type="button"
             id="forgot-password-btn"
             onClick={handleOpenForgotModal}
-            className="text-xs sm:text-sm text-emerald-400 hover:text-emerald-300 font-medium transition-colors"
+            className="text-xs sm:text-sm text-emerald-400 hover:text-emerald-300 font-medium transition-colors cursor-pointer"
           >
             {t.forgotPassword}
           </button>
         </div>
 
-        {/* Glowing Emerald Action Button */}
         <div className="pt-1 sm:pt-1.5">
           <button
             id="login-submit-btn"
@@ -412,7 +406,6 @@ export const LoginCard: React.FC<LoginCardProps> = ({
         </div>
       </form>
 
-      {/* Forgot Password Modal */}
       {showForgotModal && (
         <div
           id="forgot-password-modal"
@@ -425,7 +418,7 @@ export const LoginCard: React.FC<LoginCardProps> = ({
                 setShowForgotModal(false);
                 setResetStatus(null);
               }}
-              className="absolute top-4 right-4 text-emerald-300/70 hover:text-white p-1 rounded-lg hover:bg-emerald-900/30 transition-colors"
+              className="absolute top-4 right-4 text-emerald-300/70 hover:text-white p-1 rounded-lg hover:bg-emerald-900/30 transition-colors cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>
@@ -486,7 +479,7 @@ export const LoginCard: React.FC<LoginCardProps> = ({
                     setShowForgotModal(false);
                     setResetStatus(null);
                   }}
-                  className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs sm:text-sm font-semibold transition-colors"
+                  className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs sm:text-sm font-semibold transition-colors cursor-pointer"
                 >
                   {lang === 'bn' ? 'বাতিল' : 'Cancel'}
                 </button>
@@ -494,7 +487,7 @@ export const LoginCard: React.FC<LoginCardProps> = ({
                 <button
                   type="submit"
                   disabled={resetLoading}
-                  className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 text-xs sm:text-sm font-bold shadow-md shadow-emerald-500/20 transition-all disabled:opacity-75 flex items-center justify-center gap-1.5"
+                  className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 text-xs sm:text-sm font-bold shadow-md shadow-emerald-500/20 transition-all disabled:opacity-75 flex items-center justify-center gap-1.5 cursor-pointer"
                 >
                   {resetLoading ? (
                     <span className="w-4 h-4 border-2 border-slate-950/40 border-t-slate-950 rounded-full animate-spin" />

@@ -51,6 +51,15 @@ export const TransactionsTabContent: React.FC<TransactionsTabContentProps> = ({
   const seenIds = new Set<string>();
   const transactions = combinedRawTransactions
     .filter((tx: any) => {
+      // User requirement: "Pending recharge dekhasse eta dekhabe na" -> Do not display pending recharge records
+      const rawType = String(tx.type || '').toLowerCase();
+      const rawStatus = String(tx.status || '').toLowerCase();
+      const isPending = rawStatus === 'pending' || rawStatus === 'অপেক্ষমাণ' || rawStatus === 'processing';
+      const isRecharge = rawType === 'recharge' || rawType === 'deposit' || rawType === 'payin';
+      if (isPending && isRecharge) {
+        return false;
+      }
+
       const keyId = tx.id || tx.hash;
       if (!keyId) return true;
       if (seenIds.has(keyId)) return false;

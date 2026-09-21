@@ -67,6 +67,7 @@ import {
 } from '../utils/translations';
 import { HowPowerGridWorksSection } from './HowPowerGridWorksSection';
 import { CompanyProfileModal } from './CompanyProfileModal';
+import { GlobalTvNewsBroadcast } from './GlobalTvNewsBroadcast';
 import { resolveImageSrc, handleImageError } from '../utils/imageUtils';
 import { openCrispChat } from '../utils/crispService';
 import { downloadNvtApk } from '../utils/appDownloader';
@@ -220,18 +221,18 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
     {
       id: 'ep-3',
       title: lang === 'bn' ? 'দৈনিক আয় ও দ্রুত টাকা উত্তোলনের নিয়মাবলী' : 'Daily Yield Payout & Instant Cashout Guide',
-      subtitle: lang === 'bn' ? 'বিকাশ, নগদ ও রকেটে ৫-৩০ মিনিটে সরাসরি ক্যাশআউট' : 'Cash out via bKash, Nagad & Rocket in 5-30 mins',
+      subtitle: lang === 'bn' ? 'বিকাশ ও নগদে ৫-৩০ মিনিটে সরাসরি ক্যাশআউট' : 'Cash out via bKash & Nagad in 5-30 mins',
       duration: '00:30',
       totalSec: 30,
       image: '/images/smart_turbine_plant_1788466039952.jpg',
       videoSrc: '/company-profile/videos/ppa-revenue-dispatch.mp4',
       narration: lang === 'bn'
-        ? 'নোভা টেরা এনার্জিতে আপনার বিনিয়োগ সম্পূর্ণ সুরক্ষিত ও নির্ভরযোগ্য। এখানে যেকোনো প্রকল্প চুক্তির মাধ্যমে আপনি প্রতিদিন নিয়মিত ও নিশ্চিত লভ্যাংশ পেতে পারেন। আর আপনার অর্জিত অর্থ বিকাশ, নগদ অথবা রকেটের মাধ্যমে মাত্র পাঁচ থেকে ত্রিশ মিনিটের মধ্যেই খুব সহজে উত্তোলন করে নিতে পারবেন।'
+        ? 'নোভা টেরা এনার্জিতে আপনার বিনিয়োগ সম্পূর্ণ সুরক্ষিত ও নির্ভরযোগ্য। এখানে যেকোনো প্রকল্প চুক্তির মাধ্যমে আপনি প্রতিদিন নিয়মিত ও নিশ্চিত লভ্যাংশ পেতে পারেন। আর আপনার অর্জিত অর্থ বিকাশ অথবা নগদের মাধ্যমে মাত্র পাঁচ থেকে ত্রিশ মিনিটের মধ্যেই খুব সহজে উত্তোলন করে নিতে পারবেন।'
         : 'Investing with Nova Terra Energy is fully secure and transparent. Activating a contract yields attractive daily returns credited to your wallet. You can withdraw your earnings quickly via bKash, Nagad, or Bank within five to thirty minutes.',
       captions: lang === 'bn'
         ? [
             { start: 0, end: 6, text: '💰 NVT এনার্জি: প্রতিদিন আকর্ষণীয় নিশ্চিত লভ্যাংশ' },
-            { start: 6, end: 12, text: '📲 বিকাশ, নগদ ও রকেটের মাধ্যমে নিরাপদ ডিপোজিট ও উত্তোলন' },
+            { start: 6, end: 12, text: '📲 বিকাশ ও নগদের মাধ্যমে নিরাপদ ডিপোজিট ও উত্তোলন' },
             { start: 12, end: 18, text: '⚡ ৫ থেকে ৩০ মিনিটের মধ্যে সরাসরি আপনার অ্যাকাউন্টে টাকা পৌঁছে যায়' },
             { start: 18, end: 999, text: '✅ ২৪/৭ হেল্পলাইন সাপোর্ট ও ডাউনলোডযোগ্য সরকারি অফিসিয়াল রসিদ' },
           ]
@@ -605,24 +606,24 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
     return () => clearInterval(alertTimer);
   }, [liveWithdrawalAlerts.length]);
 
-  // Live Payouts data (Min 400, Max 2000, majority 75% between 400 and 1000)
+  // Live Payouts data (Min 400, Max 2000, majority 75% between 400 and 1000 - bKash & Nagad only)
   const livePayouts = useMemo(() => [
     { phone: '017****5892', amount: lang === 'bn' ? '৳৫০০' : '৳ 500', method: 'bKash', time: lang === 'bn' ? 'এইমাত্র' : 'Just now', type: lang === 'bn' ? 'উত্তোলন সফল' : 'Withdrawal Paid', brandBg: 'bg-[#e2136e]', brandText: 'bKash' },
     { phone: '019****4412', amount: lang === 'bn' ? '৳৪২০' : '৳ 420', method: 'Nagad', time: lang === 'bn' ? '১ মিনিট আগে' : '1m ago', type: lang === 'bn' ? 'উত্তোলন সফল' : 'Withdrawal Paid', brandBg: 'bg-[#f7941d]', brandText: 'Nagad' },
-    { phone: '018****1154', amount: lang === 'bn' ? '৳১,৩৫০' : '৳ 1,350', method: 'Rocket', time: lang === 'bn' ? '২ মিনিট আগে' : '2m ago', type: lang === 'bn' ? 'উত্তোলন সফল' : 'Withdrawal Paid', brandBg: 'bg-[#8c3494]', brandText: 'Rocket' },
-    { phone: '016****7890', amount: lang === 'bn' ? '৳৬৫০' : '৳ 650', method: 'bKash', time: lang === 'bn' ? '৩ মিনিট আগে' : '3m ago', type: lang === 'bn' ? 'উত্তোলন সফল' : 'Withdrawal Paid', brandBg: 'bg-[#e2136e]', brandText: 'bKash' },
+    { phone: '018****1154', amount: lang === 'bn' ? '৳১,৩৫০' : '৳ 1,350', method: 'bKash', time: lang === 'bn' ? '২ মিনিট আগে' : '2m ago', type: lang === 'bn' ? 'উত্তোলন সফল' : 'Withdrawal Paid', brandBg: 'bg-[#e2136e]', brandText: 'bKash' },
+    { phone: '016****7890', amount: lang === 'bn' ? '৳৬৫০' : '৳ 650', method: 'Nagad', time: lang === 'bn' ? '৩ মিনিট আগে' : '3m ago', type: lang === 'bn' ? 'উত্তোলন সফল' : 'Withdrawal Paid', brandBg: 'bg-[#f7941d]', brandText: 'Nagad' },
     { phone: '013****6621', amount: lang === 'bn' ? '৳৭৮০' : '৳ 780', method: 'Nagad', time: lang === 'bn' ? '৩ মিনিট আগে' : '3m ago', type: lang === 'bn' ? 'টাকা গ্রহণ সফল' : 'Payout Received', brandBg: 'bg-[#f7941d]', brandText: 'Nagad' },
     { phone: '017****2394', amount: lang === 'bn' ? '৳৪০০' : '৳ 400', method: 'bKash', time: lang === 'bn' ? '৪ মিনিট আগে' : '4m ago', type: lang === 'bn' ? 'উত্তোলন সফল' : 'Withdrawal Paid', brandBg: 'bg-[#e2136e]', brandText: 'bKash' },
-    { phone: '015****9908', amount: lang === 'bn' ? '৳৮৫০' : '৳ 850', method: 'Rocket', time: lang === 'bn' ? '৫ মিনিট আগে' : '5m ago', type: lang === 'bn' ? 'উত্তোলন সফল' : 'Withdrawal Paid', brandBg: 'bg-[#8c3494]', brandText: 'Rocket' },
+    { phone: '015****9908', amount: lang === 'bn' ? '৳৮৫০' : '৳ 850', method: 'Nagad', time: lang === 'bn' ? '৫ মিনিট আগে' : '5m ago', type: lang === 'bn' ? 'উত্তোলন সফল' : 'Withdrawal Paid', brandBg: 'bg-[#f7941d]', brandText: 'Nagad' },
     { phone: '018****3410', amount: lang === 'bn' ? '৳১,৬০০' : '৳ 1,600', method: 'bKash', time: lang === 'bn' ? '৬ মিনিট আগে' : '6m ago', type: lang === 'bn' ? 'উত্তোলন সফল' : 'Withdrawal Paid', brandBg: 'bg-[#e2136e]', brandText: 'bKash' },
     { phone: '019****7823', amount: lang === 'bn' ? '৳৫৫০' : '৳ 550', method: 'Nagad', time: lang === 'bn' ? '৭ মিনিট আগে' : '7m ago', type: lang === 'bn' ? 'উত্তোলন সফল' : 'Withdrawal Paid', brandBg: 'bg-[#f7941d]', brandText: 'Nagad' },
     { phone: '017****4931', amount: lang === 'bn' ? '৳২,০০০' : '৳ 2,000', method: 'bKash', time: lang === 'bn' ? '৮ মিনিট আগে' : '8m ago', type: lang === 'bn' ? 'উত্তোলন সফল' : 'Withdrawal Paid', brandBg: 'bg-[#e2136e]', brandText: 'bKash' },
-    { phone: '016****4189', amount: lang === 'bn' ? '৳৯২০' : '৳ 920', method: 'bKash', time: lang === 'bn' ? '৯ মিনিট আগে' : '9m ago', type: lang === 'bn' ? 'উত্তোলন সফল' : 'Withdrawal Paid', brandBg: 'bg-[#e2136e]', brandText: 'bKash' },
-    { phone: '018****8234', amount: lang === 'bn' ? '৳৪৬০' : '৳ 460', method: 'Rocket', time: lang === 'bn' ? '১০ মিনিট আগে' : '10m ago', type: lang === 'bn' ? 'উত্তোলন সফল' : 'Withdrawal Paid', brandBg: 'bg-[#8c3494]', brandText: 'Rocket' },
+    { phone: '016****4189', amount: lang === 'bn' ? '৳৯২০' : '৳ 920', method: 'Nagad', time: lang === 'bn' ? '৯ মিনিট আগে' : '9m ago', type: lang === 'bn' ? 'উত্তোলন সফল' : 'Withdrawal Paid', brandBg: 'bg-[#f7941d]', brandText: 'Nagad' },
+    { phone: '018****8234', amount: lang === 'bn' ? '৳৪৬০' : '৳ 460', method: 'bKash', time: lang === 'bn' ? '১০ মিনিট আগে' : '10m ago', type: lang === 'bn' ? 'উত্তোলন সফল' : 'Withdrawal Paid', brandBg: 'bg-[#e2136e]', brandText: 'bKash' },
     { phone: '019****9012', amount: lang === 'bn' ? '৳১,০০০' : '৳ 1,000', method: 'Nagad', time: lang === 'bn' ? '১১ মিনিট আগে' : '11m ago', type: lang === 'bn' ? 'উত্তোলন সফল' : 'Withdrawal Paid', brandBg: 'bg-[#f7941d]', brandText: 'Nagad' },
     { phone: '017****6371', amount: lang === 'bn' ? '৳৭২০' : '৳ 720', method: 'bKash', time: lang === 'bn' ? '১২ মিনিট আগে' : '12m ago', type: lang === 'bn' ? 'উত্তোলন সফল' : 'Withdrawal Paid', brandBg: 'bg-[#e2136e]', brandText: 'bKash' },
-    { phone: '015****3948', amount: lang === 'bn' ? '৳১,৭৫০' : '৳ 1,750', method: 'Rocket', time: lang === 'bn' ? '১৩ মিনিট আগে' : '13m ago', type: lang === 'bn' ? 'উত্তোলন সফল' : 'Withdrawal Paid', brandBg: 'bg-[#8c3494]', brandText: 'Rocket' },
-    { phone: '013****5520', amount: lang === 'bn' ? '৳৪৮০' : '৳ 480', method: 'Nagad', time: lang === 'bn' ? '১৪ মিনিট আগে' : '14m ago', type: lang === 'bn' ? 'উত্তোলন সফল' : 'Withdrawal Paid', brandBg: 'bg-[#f7941d]', brandText: 'Nagad' },
+    { phone: '015****3948', amount: lang === 'bn' ? '৳১,৭৫০' : '৳ 1,750', method: 'Nagad', time: lang === 'bn' ? '১৩ মিনিট আগে' : '13m ago', type: lang === 'bn' ? 'উত্তোলন সফল' : 'Withdrawal Paid', brandBg: 'bg-[#f7941d]', brandText: 'Nagad' },
+    { phone: '013****5520', amount: lang === 'bn' ? '৳৪৮০' : '৳ 480', method: 'bKash', time: lang === 'bn' ? '১৪ মিনিট আগে' : '14m ago', type: lang === 'bn' ? 'উত্তোলন সফল' : 'Withdrawal Paid', brandBg: 'bg-[#e2136e]', brandText: 'bKash' },
   ], [lang]);
 
   // Live Payout rotator timer
@@ -867,9 +868,6 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
             <span className="text-xs sm:text-sm font-bold leading-tight block truncate w-full">
               {lang === 'bn' ? 'ডিপোজিট' : 'Deposit'}
             </span>
-            <span className="text-[9.5px] sm:text-[10px] text-blue-200 font-medium flex items-center gap-0.5 mt-0.5">
-              {lang === 'bn' ? 'অ্যাড ফান্ড' : 'Add Funds'} <ChevronRight className="w-2.5 h-2.5" />
-            </span>
           </button>
 
           {/* Card 2: Withdraw (Emerald Green, Up Arrow) */}
@@ -883,9 +881,6 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
             </div>
             <span className="text-xs sm:text-sm font-bold leading-tight block truncate w-full">
               {lang === 'bn' ? 'উত্তোলন' : 'Withdraw'}
-            </span>
-            <span className="text-[9.5px] sm:text-[10px] text-emerald-200 font-medium flex items-center gap-0.5 mt-0.5">
-              {lang === 'bn' ? 'ক্যাশ আউট' : 'Cash Out'} <ChevronRight className="w-2.5 h-2.5" />
             </span>
           </button>
 
@@ -901,9 +896,6 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
             <span className="text-xs sm:text-sm font-bold leading-tight block truncate w-full">
               {lang === 'bn' ? 'কোম্পানি' : 'Company Profile'}
             </span>
-            <span className="text-[9.5px] sm:text-[10px] text-amber-200 font-medium flex items-center gap-0.5 mt-0.5 truncate max-w-full">
-              {lang === 'bn' ? 'লাইসেন্স' : 'Licenses & Docs'} <ChevronRight className="w-2.5 h-2.5 shrink-0" />
-            </span>
           </button>
 
           {/* Card 4: Leadership (Violet/Purple, User) */}
@@ -918,9 +910,6 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
             <span className="text-xs sm:text-sm font-bold leading-tight block truncate w-full">
               {lang === 'bn' ? 'নেতৃত্ব' : 'Leadership'}
             </span>
-            <span className="text-[9.5px] sm:text-[10px] text-purple-200 font-medium flex items-center gap-0.5 mt-0.5 truncate max-w-full">
-              {lang === 'bn' ? 'ইঞ্জিনিয়ার' : 'Engineers'} <ChevronRight className="w-2.5 h-2.5 shrink-0" />
-            </span>
           </button>
 
           {/* Card 5: New Projects (Teal, Gift) */}
@@ -934,9 +923,6 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
             </div>
             <span className="text-xs sm:text-sm font-bold leading-tight block truncate w-full">
               {lang === 'bn' ? 'নতুন প্রজেক্ট' : 'New Projects'}
-            </span>
-            <span className="text-[9.5px] sm:text-[10px] text-teal-200 font-medium flex items-center gap-0.5 mt-0.5 truncate max-w-full">
-              {lang === 'bn' ? 'আসন্ন ২০২৬' : 'Upcoming 2026-27'} <ChevronRight className="w-2.5 h-2.5 shrink-0" />
             </span>
           </button>
 
@@ -956,9 +942,6 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
             <span className="text-xs sm:text-sm font-bold leading-tight block truncate w-full">
               {lang === 'bn' ? 'ইনভাইট' : 'Invite'}
             </span>
-            <span className="text-[9.5px] sm:text-[10px] text-pink-200 font-medium flex items-center gap-0.5 mt-0.5 truncate max-w-full">
-              {lang === 'bn' ? 'রেফার ও আয়' : 'Refer & Earn'} <ChevronRight className="w-2.5 h-2.5 shrink-0" />
-            </span>
           </button>
 
           {/* Card 7: Power Grid (Electric Blue, Zap) */}
@@ -972,9 +955,6 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
             </div>
             <span className="text-xs sm:text-sm font-bold leading-tight block truncate w-full">
               {lang === 'bn' ? 'পাওয়ার গ্রিড' : 'Power Grid'}
-            </span>
-            <span className="text-[9.5px] sm:text-[10px] text-blue-200 font-medium flex items-center gap-0.5 mt-0.5 truncate max-w-full">
-              {lang === 'bn' ? 'লাইভ স্ট্যাটাস' : 'Live Status'} <ChevronRight className="w-2.5 h-2.5 shrink-0" />
             </span>
           </button>
 
@@ -990,9 +970,6 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
             </div>
             <span className="text-xs sm:text-sm font-bold leading-tight block truncate w-full">
               {lang === 'bn' ? 'লাইভ চ্যাট' : 'Live Chat'}
-            </span>
-            <span className="text-[9.5px] sm:text-[10px] text-cyan-200 font-medium flex items-center gap-0.5 mt-0.5 truncate max-w-full">
-              {lang === 'bn' ? 'মেসেজ করুন' : 'Chat Now'} <ChevronRight className="w-2.5 h-2.5 shrink-0" />
             </span>
           </button>
         </div>
@@ -1241,6 +1218,11 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
           ))}
         </div>
       </div>
+
+      {/* ───────────────────────────────────────────────────────────
+          GLOBAL TV SPECIAL NEWS BROADCAST (ভয়েস ও রিয়েল নিউজ উপস্থাপনা)
+      ─────────────────────────────────────────────────────────── */}
+      <GlobalTvNewsBroadcast lang={lang} themeMode={themeMode} />
 
       {/* ───────────────────────────────────────────────────────────
           6.1 HOW THE POWER GRID WORKS (কিভাবে পাওয়ার গ্রিড কাজ করে)

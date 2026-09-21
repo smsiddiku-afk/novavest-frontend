@@ -20,9 +20,9 @@ import {
 import { registerUserInReferralNetwork, extractPendingReferralCode } from './utils/referralService';
 import { initCrisp, syncUserWithCrisp, fetchSupportSettings } from './utils/crispService';
 
-type ProtectedTab = 'home' | 'invest' | 'transactions' | 'wallet' | 'referral' | 'profile';
+type ProtectedTab = 'home' | 'invest' | 'positions' | 'transactions' | 'wallet' | 'referral' | 'profile';
 
-const PROTECTED_TABS: ProtectedTab[] = ['home', 'invest', 'transactions', 'wallet', 'referral', 'profile'];
+const PROTECTED_TABS: ProtectedTab[] = ['home', 'invest', 'positions', 'transactions', 'wallet', 'referral', 'profile'];
 
 // Helper to get normalized path
 const getCleanPath = (): string => {
@@ -53,6 +53,11 @@ export default function App() {
       if (initial === '/register' || pendingCode) return '/register';
       return '/login';
     } else {
+      const search = typeof window !== 'undefined' ? window.location.search : '';
+      const isPaymentReturn = search.includes('payment_status') || search.includes('orderNo') || search.includes('trade_no') || search.includes('trx_id');
+      if (isPaymentReturn) {
+        return '/profile';
+      }
       if (initial === '/login' || initial === '/register' || initial === '/') {
         return '/home';
       }
@@ -158,6 +163,12 @@ export default function App() {
         navigate('/login', true);
       }
     } else {
+      const search = typeof window !== 'undefined' ? window.location.search : '';
+      const isPaymentReturn = search.includes('payment_status') || search.includes('orderNo') || search.includes('trade_no') || search.includes('trx_id');
+      if (isPaymentReturn && currentPath !== '/profile') {
+        navigate('/profile', true);
+        return;
+      }
       if (currentPath === '/login' || currentPath === '/register' || currentPath === '/') {
         navigate('/home', true);
       }
@@ -294,6 +305,8 @@ export default function App() {
   let currentTab: ProtectedTab = 'home';
   if (pathSegment === 'promo' || pathSegment === 'bonus') {
     currentTab = 'wallet';
+  } else if (pathSegment === 'history' || pathSegment === 'transactions' || pathSegment === 'positions' || pathSegment === 'position') {
+    currentTab = 'positions';
   } else if (PROTECTED_TABS.includes(pathSegment as ProtectedTab)) {
     currentTab = pathSegment as ProtectedTab;
   }

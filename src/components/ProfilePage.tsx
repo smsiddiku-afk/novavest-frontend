@@ -18,6 +18,8 @@ import {
   Home,
   TrendingUp,
   ArrowLeftRight,
+  Briefcase,
+  Layers,
   X,
   Wifi,
   Battery,
@@ -61,7 +63,9 @@ import { downloadNvtApk } from '../utils/appDownloader';
 import { AppDownloadModal } from './AppDownloadModal';
 import { EnergyHomeTab } from './EnergyHomeTab';
 import { InvestTabContent, INVESTMENT_PLANS } from './InvestTabContent';
+import { PositionsTabContent } from './PositionsTabContent';
 import { TransactionsTabContent } from './TransactionsTabContent';
+import { WalletHistoryModal } from './WalletHistoryModal';
 import { WalletTabContent } from './WalletTabContent';
 import { ReferralPage } from './ReferralPage';
 import { AddWalletPaymentModal } from './AddWalletPaymentModal';
@@ -91,13 +95,13 @@ import { ManualDepositDetails, PaymentChannelType } from './CleanWalletScreen';
 
 interface ProfilePageProps {
   initialUser?: Partial<UserProfile>;
-  initialTab?: 'home' | 'invest' | 'transactions' | 'wallet' | 'referral' | 'profile';
+  initialTab?: 'home' | 'invest' | 'positions' | 'transactions' | 'wallet' | 'referral' | 'profile';
   currentLang?: Language;
   onToggleLang?: (lang: Language) => void;
   onNavigateBack: () => void;
   onLogout: () => void;
   onGoToHome?: () => void;
-  onTabChange?: (tab: 'home' | 'invest' | 'transactions' | 'wallet' | 'referral' | 'profile') => void;
+  onTabChange?: (tab: 'home' | 'invest' | 'positions' | 'transactions' | 'wallet' | 'referral' | 'profile') => void;
 }
 
 export const ProfilePage: React.FC<ProfilePageProps> = ({
@@ -422,12 +426,13 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
   >(null);
 
   const [localTab, setLocalTab] = useState<
-    'home' | 'invest' | 'transactions' | 'wallet' | 'referral' | 'profile'
+    'home' | 'invest' | 'positions' | 'transactions' | 'wallet' | 'referral' | 'profile'
   >(initialTab || 'home');
   const currentTab = initialTab || localTab;
+  const [isWalletHistoryModalOpen, setIsWalletHistoryModalOpen] = useState(false);
 
   // Directly switch tab and notify parent on user interaction
-  const switchTab = (tab: 'home' | 'invest' | 'transactions' | 'wallet' | 'referral' | 'profile') => {
+  const switchTab = (tab: 'home' | 'invest' | 'positions' | 'transactions' | 'wallet' | 'referral' | 'profile') => {
     setLocalTab(tab);
     scrollAppToTop();
     if (onTabChange) {
@@ -924,47 +929,6 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             );
           } catch (_) {}
 
-          // Immediately record pending deposit in Firestore so it shows in transaction history
-          await recordFirestoreDeposit(activeUid, {
-            amount: Number(amount),
-            method: method || 'bKash',
-            channel: 'channel1',
-            trxId: orderNo,
-            orderNo,
-            status: 'pending',
-          });
-
-          const formattedTime =
-            new Date().toLocaleDateString('en-GB') +
-            ' ' +
-            new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-
-          updateUser((prev) => {
-            const cleanPrev = (prev.transactions || []).filter(
-              (t: any) => t.id !== orderNo && t.hash !== orderNo
-            );
-            return {
-              ...prev,
-              transactions: [
-                {
-                  id: orderNo,
-                  type: 'recharge',
-                  title: currentLang === 'bn' ? `ওয়ালেট রিচার্জ (${method || 'bKash'})` : `Wallet Recharge (${method || 'bKash'})`,
-                  amount: Number(amount),
-                  timestamp: formattedTime,
-                  date: new Date().toLocaleDateString('en-GB'),
-                  time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-                  status: 'pending',
-                  description: `Nekpay Order: ${orderNo} - অপেক্ষমাণ`,
-                  hash: orderNo,
-                  channel: `${method || 'bKash'} (Nekpay)`,
-                  isCredit: false,
-                },
-                ...cleanPrev,
-              ],
-            };
-          });
-
           let opened = null;
           try {
             opened = window.open(data.paymentLink, '_blank');
@@ -1089,16 +1053,6 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
         const targetUrl = data.paymentLink;
         const orderNo = data.orderNo || `WPY${Date.now().toString().slice(-8)}`;
 
-        // Record pending deposit in Firestore so it immediately shows in transaction history
-        await recordFirestoreDeposit(activeUid, {
-          amount: Number(amount),
-          method: method || 'Nagad',
-          channel: 'channel2',
-          trxId: orderNo,
-          orderNo,
-          status: 'pending',
-        });
-
         // Store in localStorage for easy return recovery
         try {
           localStorage.setItem(
@@ -1112,37 +1066,6 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             })
           );
         } catch (_) {}
-
-        const formattedTime =
-          new Date().toLocaleDateString('en-GB') +
-          ' ' +
-          new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-
-        updateUser((prev) => {
-          const cleanPrev = (prev.transactions || []).filter(
-            (t: any) => t.id !== orderNo && t.hash !== orderNo
-          );
-          return {
-            ...prev,
-            transactions: [
-              {
-                id: orderNo,
-                type: 'recharge',
-                title: currentLang === 'bn' ? `ওয়ালেট রিচার্জ (${method || 'Nagad'})` : `Wallet Recharge (${method || 'Nagad'})`,
-                amount: Number(amount),
-                timestamp: formattedTime,
-                date: new Date().toLocaleDateString('en-GB'),
-                time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-                status: 'pending',
-                description: `WatchPay Order: ${orderNo} - অপেক্ষমাণ`,
-                hash: orderNo,
-                channel: `${method || 'Nagad'} (WatchPay)`,
-                isCredit: false,
-              },
-              ...cleanPrev,
-            ],
-          };
-        });
 
         let opened = null;
         try {
@@ -1636,14 +1559,22 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     const pkgDailyRate = matchedPlan ? matchedPlan.dailyReturnPercent : 2.5;
     const dailyEarned = Math.round((amount * pkgDailyRate) / 100);
 
+    const nowTime = Date.now();
     const newInvestment = {
-      id: `INV-${Date.now()}`,
+      id: `INV-${nowTime}`,
       name: projectName,
       amount: amount,
       dailyYield: dailyEarned,
       vipLevel: pkgVip,
       date: new Date().toLocaleDateString('en-GB'),
+      createdAt: nowTime,
+      lastProfitClaimAt: nowTime,
+      nextProfitAt: nowTime + 24 * 60 * 60 * 1000,
       totalEarned: 0,
+      status: 'active' as const,
+      dailyReturnPercent: pkgDailyRate,
+      category: matchedPlan?.category || (projectName.includes('বায়োগ্যাস') || projectName.includes('Biogas') ? 'Biogas' : 'Solar'),
+      claimedCount: 0,
     };
 
     const activeId = user.uid || user.memberId || 'guest';
@@ -1708,8 +1639,64 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
     showToast(
       currentLang === 'bn'
-        ? `অভিনন্দন! "${projectName}" প্রজেক্টে ৳${amount.toLocaleString()} সফলভাবে বিনিয়োগ করা হয়েছে!`
-        : `Congratulations! Successfully invested ৳${amount.toLocaleString()} in "${projectName}"!`
+        ? `অভিনন্দন! "${projectName}" সফলভাবে কেনা হয়েছে। ২৪ ঘণ্টা কাউন্টডাউন দেখতে "পজিশন" অপশনে যান!`
+        : `Congratulations! Successfully purchased "${projectName}". View 24h countdown in Positions!`
+    );
+  };
+
+  // Claim 24-hour profit for a position
+  const handleClaimPositionProfit = (positionId: string) => {
+    const rawInvestments = user.activeInvestments || [];
+    const targetIdx = rawInvestments.findIndex((inv: any) => inv.id === positionId);
+    if (targetIdx === -1) return;
+
+    const targetPos = rawInvestments[targetIdx];
+    const yieldAmount = Number(targetPos.dailyYield) || Math.round((Number(targetPos.amount) || 0) * 0.025);
+    const nowTime = Date.now();
+
+    const updatedInvestments = [...rawInvestments];
+    updatedInvestments[targetIdx] = {
+      ...targetPos,
+      totalEarned: (Number(targetPos.totalEarned) || 0) + yieldAmount,
+      lastProfitClaimAt: nowTime,
+      nextProfitAt: nowTime + 24 * 60 * 60 * 1000,
+      claimedCount: (Number(targetPos.claimedCount) || 0) + 1,
+    };
+
+    const profitTxn = {
+      id: `YIELD-${Date.now()}`,
+      type: 'yield',
+      title: currentLang === 'bn' ? `দৈনিক প্রফিট লাভ (${targetPos.name || 'প্যাকেজ'})` : `Daily Yield Reward (${targetPos.name || 'Package'})`,
+      desc: currentLang === 'bn' ? `২৪ ঘণ্টার মুনাফা ওয়ালেটে যুক্ত হয়েছে` : `24-hour yield credited to wallet`,
+      amount: yieldAmount,
+      rawAmount: yieldAmount,
+      status: currentLang === 'bn' ? 'সফল' : 'Completed',
+      time: `আজ, ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`,
+      date: new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }),
+      channel: 'Project Yield',
+      isCredit: true,
+    };
+
+    updateUser((prev) => ({
+      ...prev,
+      walletBalance: prev.walletBalance + yieldAmount,
+      totalEarnings: (prev.totalEarnings || 0) + yieldAmount,
+      activeInvestments: updatedInvestments,
+      transactions: [profitTxn, ...(prev.transactions || [])],
+    }));
+
+    const activeId = user.uid || user.memberId;
+    if (activeId) {
+      try {
+        localStorage.setItem(`user_investments_${activeId}`, JSON.stringify(updatedInvestments));
+        updateFirestoreWalletBalance(activeId, user.walletBalance + yieldAmount).catch(() => {});
+      } catch {}
+    }
+
+    showToast(
+      currentLang === 'bn'
+        ? `অভিনন্দন! আপনার প্যাকেজ থেকে ৳${yieldAmount} দৈনিক প্রফিট সফলভাবে ওয়ালেটে যোগ হয়েছে!`
+        : `Congratulations! ৳${yieldAmount} 24h profit credited to your wallet!`
     );
   };
 
@@ -1788,8 +1775,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           {[
             { id: 'home', labelBn: 'হোম', labelEn: 'Home', icon: Home },
             { id: 'invest', labelBn: 'ইনভেস্ট', labelEn: 'Invest', icon: TrendingUp },
-            { id: 'transactions', labelBn: 'লেনদেন', labelEn: 'History', icon: ArrowLeftRight },
-            { id: 'wallet', labelBn: 'প্রমো বোনাস', labelEn: 'Promo Bonus', icon: Award },
+            { id: 'positions', labelBn: 'পজিশন', labelEn: 'Positions', icon: Briefcase },
+            { id: 'wallet', labelBn: 'প্রমোশন', labelEn: 'Promotion', icon: Award },
             { id: 'referral', labelBn: 'রেফারেল', labelEn: 'Team', icon: Users },
             { id: 'profile', labelBn: 'প্রোফাইল', labelEn: 'Profile', icon: User },
           ].map((item) => {
@@ -2059,18 +2046,19 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             onOpenRecharge={() => setActiveSubModal('recharge')}
             onToggleLang={onToggleLang}
             onOpenNotifications={() => setActiveSubModal('notifications')}
-            onOpenMyInvestments={() => switchTab('transactions')}
+            onOpenMyInvestments={() => switchTab('positions')}
           />
         )}
 
-        {/* 4. Transactions Tab */}
-        {currentTab === 'transactions' && (
-          <TransactionsTabContent
-            userBalance={user.walletBalance}
-            userTransactions={user.transactions || []}
-            activeInvestments={user.activeInvestments || []}
+        {/* 4. Positions Tab (Replacing old Transactions Tab) */}
+        {(currentTab === 'positions' || currentTab === 'transactions') && (
+          <PositionsTabContent
+            user={user}
             currentLang={currentLang}
             themeMode={themeMode}
+            onNavigateToInvest={() => switchTab('invest')}
+            onNavigateToWallet={() => switchTab('wallet')}
+            onClaimPositionProfit={handleClaimPositionProfit}
           />
         )}
 
@@ -2088,7 +2076,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             onOpenGateway={async (amount, method, channel, manualDetails) => {
               return await handleInitiateDeposit(amount, method, channel, manualDetails);
             }}
-            onOpenHistory={() => switchTab('transactions')}
+            onOpenHistory={() => setIsWalletHistoryModalOpen(true)}
             onBack={() => switchTab('home')}
             onClaimPromoReward={(amt, lvl) => {
               updateUser((prev) => ({
@@ -2933,13 +2921,13 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             )}
           </button>
 
-          {/* History (Clock icon matching screenshot) */}
+          {/* Positions (Briefcase icon) */}
           <button
-            id="bottom-nav-history-btn"
+            id="bottom-nav-positions-btn"
             type="button"
-            onClick={() => switchTab('transactions')}
+            onClick={() => switchTab('positions')}
             className={`relative flex flex-col items-center py-1 px-3 rounded-2xl transition-all cursor-pointer active:scale-95 ${
-              currentTab === 'transactions'
+              currentTab === 'positions' || currentTab === 'transactions'
                 ? themeMode === 'day'
                   ? 'text-emerald-600 font-extrabold bg-emerald-50'
                   : 'text-[#00e676] font-extrabold bg-[#00e676]/10'
@@ -2948,15 +2936,15 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 : 'text-slate-400 hover:text-slate-200 font-medium'
             }`}
           >
-            <Clock className={`w-5 h-5 ${
-              currentTab === 'transactions'
+            <Briefcase className={`w-5 h-5 ${
+              currentTab === 'positions' || currentTab === 'transactions'
                 ? themeMode === 'day'
                   ? 'text-emerald-600'
                   : 'text-[#00e676] drop-shadow-[0_0_8px_rgba(0,230,118,0.5)]'
                 : themeMode === 'day' ? 'text-slate-500' : 'text-slate-400'
             }`} />
-            <span className="text-[11px] mt-0.5">{currentLang === 'bn' ? 'হিস্ট্রি' : 'History'}</span>
-            {currentTab === 'transactions' && (
+            <span className="text-[11px] mt-0.5">{currentLang === 'bn' ? 'পজিশন' : 'Positions'}</span>
+            {(currentTab === 'positions' || currentTab === 'transactions') && (
               <span className={`absolute -bottom-1 w-5 h-1 rounded-full ${
                 themeMode === 'day' ? 'bg-emerald-600' : 'bg-[#00e676] shadow-[0_0_8px_#00e676]'
               }`} />
@@ -2985,7 +2973,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                   : 'text-[#00e676] drop-shadow-[0_0_8px_rgba(0,230,118,0.5)]'
                 : themeMode === 'day' ? 'text-slate-500' : 'text-slate-400'
             }`} />
-            <span className="text-[11px] mt-0.5">{currentLang === 'bn' ? 'প্রমো বোনাস' : 'Promo Bonus'}</span>
+            <span className="text-[11px] mt-0.5">{currentLang === 'bn' ? 'প্রমোশন' : 'Promotion'}</span>
             {currentTab === 'wallet' && (
               <span className={`absolute -bottom-1 w-5 h-1 rounded-full ${
                 themeMode === 'day' ? 'bg-emerald-600' : 'bg-[#00e676] shadow-[0_0_8px_#00e676]'
@@ -3061,12 +3049,11 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             <button
               type="button"
               onClick={() => {
-                setActiveSubModal(null);
-                switchTab('transactions');
+                setIsWalletHistoryModalOpen(true);
               }}
               className="px-3 py-1.5 rounded-full bg-[#042018] hover:bg-[#07362a] border border-emerald-500/30 text-emerald-300 text-xs font-semibold flex items-center gap-1 transition-colors cursor-pointer"
             >
-              <span>{currentLang === 'bn' ? 'হিস্ট্রি' : 'History'}</span>
+              <span>{currentLang === 'bn' ? 'লেনদেন হিস্ট্রি' : 'History'}</span>
             </button>
           </header>
 
@@ -3134,8 +3121,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               <button
                 type="button"
                 onClick={() => {
-                  setActiveSubModal(null);
-                  switchTab('transactions');
+                  setIsWalletHistoryModalOpen(true);
                 }}
                 className="p-4 rounded-2xl bg-[#062c22] border border-emerald-500/25 hover:border-emerald-500/50 transition-all text-left space-y-2 cursor-pointer group"
               >
@@ -3198,8 +3184,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             return await handleInitiateDeposit(amt, method, channel, manualDetails);
           }}
           onOpenHistory={() => {
-            setActiveSubModal(null);
-            switchTab('transactions');
+            setIsWalletHistoryModalOpen(true);
           }}
         />
       )}
@@ -4266,6 +4251,15 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           </div>
         </div>
       )}
+
+      {/* Wallet History Modal */}
+      <WalletHistoryModal
+        isOpen={isWalletHistoryModalOpen}
+        onClose={() => setIsWalletHistoryModalOpen(false)}
+        transactions={user.transactions || []}
+        currentLang={currentLang}
+        themeMode={themeMode}
+      />
     </div>
   );
 };

@@ -1,5 +1,6 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
@@ -58,8 +59,8 @@ async function startServer() {
 
   // Middleware
   app.set('trust proxy', true);
-  app.use(express.json());
-  app.use(express.urlencoded({ extended: true }));
+  app.use(express.json({ limit: '50mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
   // In-memory stores
   const ordersDatabase = new Map<string, any>();
@@ -95,6 +96,65 @@ async function startServer() {
       });
     } catch (err: any) {
       console.warn(`[cPanel Forward Error (${targetUrl})]:`, err?.message || err);
+    }
+  };
+
+  // Extract client domain origin so returnUrl points back to user's real website domain
+  const getClientOrigin = (req: express.Request): string => {
+    if (req.body && req.body.clientOrigin) {
+      return String(req.body.clientOrigin).trim().replace(/\/+$/, '');
+    }
+    if (req.headers && req.headers.origin) {
+      return String(req.headers.origin).trim().replace(/\/+$/, '');
+    }
+    if (req.headers && req.headers.referer) {
+      try {
+        return new URL(String(req.headers.referer)).origin.replace(/\/+$/, '');
+      } catch (_) {}
+    }
+    return 'https://nvtenergy.online';
+  };
+
+  // Sanitize gateway payment link so callback/returnUrl points to the user's active domain, never old hosting links
+  const sanitizePaymentLink = (
+    rawLink: string,
+    clientOrigin: string,
+    orderNo: string,
+    amount: number,
+    channel: string = 'channel1'
+  ): string => {
+    if (!rawLink || typeof rawLink !== 'string') return rawLink;
+    const cleanOrigin = clientOrigin.replace(/\/+$/, '');
+    const returnTarget = `${cleanOrigin}/?payment_status=SUCCESS&orderNo=${encodeURIComponent(orderNo)}&amount=${amount}&channel=${encodeURIComponent(channel)}&gateway=nekpay`;
+
+    let processed = rawLink;
+
+    // Direct replacement of any Firebase hosting URL occurrences (raw & encoded)
+    try {
+      processed = processed
+        .replace(/https%3A%2F%2Fnovavest-a711c\.web\.app[^&"'\s]*/gi, encodeURIComponent(returnTarget))
+        .replace(/https:\/\/novavest-a711c\.web\.app[^&"'\s]*/gi, returnTarget)
+        .replace(/https%3A%2F%2Fnovavest-a711c\.firebaseapp\.com[^&"'\s]*/gi, encodeURIComponent(returnTarget))
+        .replace(/https:\/\/novavest-a711c\.firebaseapp\.com[^&"'\s]*/gi, returnTarget);
+    } catch (_) {}
+
+    try {
+      const url = new URL(processed);
+      // Clean target callback URL on user's active website domain for all possible redirect keys
+      const redirectKeys = ['returnUrl', 'return_url', 'redirectUrl', 'redirect_url', 'callbackUrl', 'callback_url', 'successUrl', 'success_url'];
+      let matchedAny = false;
+      for (const k of redirectKeys) {
+        if (url.searchParams.has(k)) {
+          url.searchParams.set(k, returnTarget);
+          matchedAny = true;
+        }
+      }
+      if (!matchedAny) {
+        url.searchParams.set('returnUrl', returnTarget);
+      }
+      return url.toString();
+    } catch (e) {
+      return processed;
     }
   };
 
@@ -175,6 +235,10 @@ async function startServer() {
 
       // Route to chosen gateway on cPanel backend
       const targetUrl = channel === 'channel2' ? WATCHPAY_CONFIG.createOrderUrl : NEKPAY_CONFIG.createOrderUrl;
+      const clientOrigin = getClientOrigin(req);
+      const preOrderNo = `DEP-${Date.now()}`;
+      const returnTarget = `${clientOrigin.replace(/\/+$/, '')}/?payment_status=SUCCESS&orderNo=${encodeURIComponent(preOrderNo)}&amount=${numAmount}&channel=${encodeURIComponent(channel)}&gateway=nekpay`;
+
       const response = await fetch(targetUrl, {
         method: 'POST',
         headers: {
@@ -186,6 +250,15 @@ async function startServer() {
           amount: numAmount,
           payerName: String(payerName).trim() || 'Customer',
           userId,
+          orderNo: preOrderNo,
+          order_no: preOrderNo,
+          return_url: returnTarget,
+          returnUrl: returnTarget,
+          callback_url: returnTarget,
+          redirect_url: returnTarget,
+          redirectUrl: returnTarget,
+          success_url: returnTarget,
+          cancel_url: `${clientOrigin.replace(/\/+$/, '')}/profile`,
         }),
       });
 
@@ -199,13 +272,17 @@ async function startServer() {
 
       if (response.ok && responseData.success && responseData.paymentLink) {
         const orderNo = responseData.orderNo || `DEP-${Date.now()}`;
+        const clientOrigin = getClientOrigin(req);
+        const cleanPaymentLink = sanitizePaymentLink(responseData.paymentLink, clientOrigin, orderNo, numAmount, channel);
+
         ordersDatabase.set(orderNo, {
           orderId: orderNo,
           amount: numAmount,
           channel,
           channelName: channel === 'channel2' ? 'চ্যানেল ২ (WatchPay)' : 'চ্যানেল ১ (Nekpay)',
           status: 'PENDING',
-          paymentLink: responseData.paymentLink,
+          paymentLink: cleanPaymentLink,
+          rawPaymentLink: responseData.paymentLink,
           payerName,
           userId,
           createdAt: new Date().toISOString(),
@@ -217,13 +294,13 @@ async function startServer() {
           type: 'PAYIN_REQUEST',
           orderId: orderNo,
           status: 'SUCCESS',
-          details: { numAmount, payerName, responseData },
+          details: { numAmount, payerName, cleanPaymentLink },
         });
 
         return res.json({
           success: true,
           channel,
-          paymentLink: responseData.paymentLink,
+          paymentLink: cleanPaymentLink,
           orderNo,
           message: 'Deposit order created successfully via cPanel backend',
         });
@@ -259,9 +336,23 @@ async function startServer() {
         });
       }
 
+      const clientOrigin = getClientOrigin(req);
+      const preOrderNo = `NEK-${Date.now()}`;
+      const returnTarget = `${clientOrigin.replace(/\/+$/, '')}/?payment_status=SUCCESS&orderNo=${encodeURIComponent(preOrderNo)}&amount=${numAmount}&channel=channel1&gateway=nekpay`;
+
       const postBody = {
         amount: numAmount,
         payerName: String(payerName).trim() || 'Customer',
+        userId: userId || 'USER1001',
+        orderNo: preOrderNo,
+        order_no: preOrderNo,
+        return_url: returnTarget,
+        returnUrl: returnTarget,
+        callback_url: returnTarget,
+        redirect_url: returnTarget,
+        redirectUrl: returnTarget,
+        success_url: returnTarget,
+        cancel_url: `${clientOrigin.replace(/\/+$/, '')}/profile`,
       };
 
       // Also forward deposit request notification directly to cPanel deposit URL
@@ -299,6 +390,8 @@ async function startServer() {
 
       if (response.ok && responseData.success && responseData.paymentLink) {
         const orderNo = responseData.orderNo || `NEK-${Date.now()}`;
+        const clientOrigin = getClientOrigin(req);
+        const cleanPaymentLink = sanitizePaymentLink(responseData.paymentLink, clientOrigin, orderNo, numAmount, 'channel1');
 
         // Save order in memory database
         ordersDatabase.set(orderNo, {
@@ -307,7 +400,8 @@ async function startServer() {
           channel: 'nekpay',
           channelName: 'চ্যানেল ১ (Nekpay)',
           status: 'PENDING',
-          paymentLink: responseData.paymentLink,
+          paymentLink: cleanPaymentLink,
+          rawPaymentLink: responseData.paymentLink,
           payerName: postBody.payerName,
           userId,
           createdAt: new Date().toISOString(),
@@ -319,13 +413,13 @@ async function startServer() {
           type: 'PAYIN_REQUEST',
           orderId: orderNo,
           status: 'SUCCESS',
-          details: { postBody, responseData },
+          details: { postBody, cleanPaymentLink },
         });
 
         return res.json({
           success: true,
           channel: 'channel1',
-          paymentLink: responseData.paymentLink,
+          paymentLink: cleanPaymentLink,
           orderNo,
           message: 'Order created successfully with Nekpay',
         });
@@ -388,6 +482,10 @@ async function startServer() {
         createdAt: new Date().toISOString(),
       });
 
+      const clientOrigin = getClientOrigin(req);
+      const preOrderNo = `WPY-${Date.now()}`;
+      const returnTarget = `${clientOrigin.replace(/\/+$/, '')}/?payment_status=SUCCESS&orderNo=${encodeURIComponent(preOrderNo)}&amount=${numAmount}&channel=channel2&gateway=watchpay`;
+
       const response = await fetch(WATCHPAY_CONFIG.createOrderUrl, {
         method: 'POST',
         headers: {
@@ -398,6 +496,16 @@ async function startServer() {
         body: JSON.stringify({
           amount: numAmount,
           payerName: payerName || 'Customer',
+          userId: userId || 'USER1001',
+          orderNo: preOrderNo,
+          order_no: preOrderNo,
+          return_url: returnTarget,
+          returnUrl: returnTarget,
+          callback_url: returnTarget,
+          redirect_url: returnTarget,
+          redirectUrl: returnTarget,
+          success_url: returnTarget,
+          cancel_url: `${clientOrigin.replace(/\/+$/, '')}/profile`,
         }),
         signal: AbortSignal.timeout(10000),
       });
@@ -659,17 +767,6 @@ async function startServer() {
       });
     }
 
-    // Auto-expire and reject fake/unverified orders once the verification deadline has elapsed
-    if (order.status === 'PENDING' && order.verificationDeadline && Date.now() > order.verificationDeadline) {
-      order.status = 'CANCELLED';
-      order.verified = false;
-      order.rejectionReason = 'ব্যাংকিং বা গেটওয়েতে কোনো লেনদেন মেলেনি (ভুয়া বা অমিল TrxID)';
-      order.updatedAt = new Date().toISOString();
-      ordersDatabase.set(cleanKey, order);
-      if (order.orderId) ordersDatabase.set(order.orderId, order);
-      if (order.trxId) ordersDatabase.set(order.trxId, order);
-    }
-
     res.json({
       success: true,
       found: true,
@@ -719,13 +816,17 @@ async function startServer() {
 
       if (response.ok && responseData.success && responseData.paymentLink) {
         const orderNo = responseData.orderNo || `GOGO-${Date.now()}`;
+        const clientOrigin = getClientOrigin(req);
+        const cleanPaymentLink = sanitizePaymentLink(responseData.paymentLink, clientOrigin, orderNo, numAmount, 'gogopay');
+
         ordersDatabase.set(orderNo, {
           orderId: orderNo,
           amount: numAmount,
           channel: 'gogopay',
           channelName: 'Go-Go-Pay Live Gateway',
           status: 'PENDING',
-          paymentLink: responseData.paymentLink,
+          paymentLink: cleanPaymentLink,
+          rawPaymentLink: responseData.paymentLink,
           userId,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
@@ -734,7 +835,7 @@ async function startServer() {
         return res.json({
           success: true,
           channel: 'gogopay',
-          paymentLink: responseData.paymentLink,
+          paymentLink: cleanPaymentLink,
           orderNo,
           message: 'Go-Go-Pay live order created successfully',
         });
@@ -830,10 +931,9 @@ async function startServer() {
     const existing = ordersDatabase.get(cleanTrxId);
     const isAlreadyCompleted = Boolean(existing && (existing.status === 'COMPLETED' || existing.status === 'SUCCESS'));
 
-    // Security: All submitted TrxIDs start strictly as PENDING until confirmed by gateway or admin
+    // Security: All submitted TrxIDs start strictly as PENDING until confirmed by cPanel, gateway or admin
     const orderStatus = isAlreadyCompleted ? 'COMPLETED' : 'PENDING';
     const isVerified = orderStatus === 'COMPLETED';
-    const verificationDeadline = isVerified ? undefined : Date.now() + 20000; // 20s verification window for unverified/fake TrxIDs
 
     const orderRecord: any = {
       orderId: orderNo,
@@ -846,7 +946,6 @@ async function startServer() {
       status: orderStatus,
       verified: isVerified,
       userId,
-      verificationDeadline,
       createdAt: existing?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -866,39 +965,14 @@ async function startServer() {
     forwardToCpanelDeposit({ ...orderRecord, submissionType: 'TXNID_SUBMISSION' });
     forwardToCpanelDeposit(orderRecord, `${CPANEL_API_BASE_URL}/api/payments/submit-txnid`);
 
-    // For unverified/fake TrxIDs: Start automated 20-second verification timer
-    // If not approved by admin or gateway webhook within 20s, automatically REJECT it!
-    if (!isVerified) {
-      setTimeout(() => {
-        const cur = ordersDatabase.get(orderNo);
-        if (cur && cur.status === 'PENDING') {
-          cur.status = 'CANCELLED';
-          cur.verified = false;
-          cur.rejectionReason = 'ব্যাংকিং বা গেটওয়েতে কোনো লেনদেন মেলেনি (ভুয়া বা অমিল TrxID)';
-          cur.updatedAt = new Date().toISOString();
-          ordersDatabase.set(orderNo, cur);
-          ordersDatabase.set(cleanTrxId, cur);
-
-          addLog({
-            channel: 'DEPOSIT',
-            type: 'PAYIN_REQUEST',
-            orderId: orderNo,
-            status: 'CANCELLED',
-            details: { cleanTrxId, reason: cur.rejectionReason },
-          });
-        }
-      }, 20000);
-    }
-
     return res.json({
       success: true,
       verified: isVerified,
       status: orderStatus,
-      verificationDeadline,
       order: orderRecord,
       message: orderStatus === 'COMPLETED'
         ? 'ডিপোজিট সফলভাবে ভেরিফাই ও অনুমোদিত হয়েছে!'
-        : 'TrxID জমা হয়েছে। গেটওয়ে ও ব্যাংকিং সিস্টেমে যাচাই চলছে...',
+        : 'TrxID সফলভাবে জমা হয়েছে। cPanel ভেরিফিকেশনের পর ব্যালেন্স যুক্ত হবে।',
     });
   });
 
@@ -915,16 +989,6 @@ async function startServer() {
         status: 'PENDING',
         message: 'TrxID not yet registered or pending verification',
       });
-    }
-
-    // Auto-expire and reject fake/unverified orders once the verification deadline has elapsed
-    if (order.status === 'PENDING' && order.verificationDeadline && Date.now() > order.verificationDeadline) {
-      order.status = 'CANCELLED';
-      order.verified = false;
-      order.rejectionReason = 'ব্যাংকিং বা গেটওয়েতে কোনো লেনদেন মেলেনি (ভুয়া বা অমিল TrxID)';
-      order.updatedAt = new Date().toISOString();
-      ordersDatabase.set(cleanId, order);
-      if (order.orderId) ordersDatabase.set(order.orderId, order);
     }
 
     return res.json({
@@ -1133,6 +1197,71 @@ async function startServer() {
   // Payment Logs
   app.get(['/api/payments/logs', '/api/v1/winypay/logs'], (req, res) => {
     res.json({ success: true, logs: paymentLogs });
+  });
+
+  // ───────────────────────────────────────────────────────────
+  // GLOBAL TV NEWS AUDIO UPLOAD & REGENERATION ENDPOINT
+  // ───────────────────────────────────────────────────────────
+  app.post('/api/upload-news-audio', async (req, res) => {
+    try {
+      const { audioBase64 } = req.body || {};
+      if (!audioBase64) {
+        return res.status(400).json({ success: false, error: 'No audio data provided' });
+      }
+
+      const base64Data = String(audioBase64).replace(/^data:audio\/[a-zA-Z0-9.\-_]+;base64,/, '');
+      const audioBuffer = Buffer.from(base64Data, 'base64');
+
+      const publicAudioDir = path.join(process.cwd(), 'public', 'company-profile', 'audio');
+      if (!fs.existsSync(publicAudioDir)) {
+        fs.mkdirSync(publicAudioDir, { recursive: true });
+      }
+      const targetAudio = path.join(publicAudioDir, 'mohana-sarkar-globaltv-news.mp3');
+      fs.writeFileSync(targetAudio, audioBuffer);
+
+      // Also copy to dist if dist exists
+      const distAudioDir = path.join(process.cwd(), 'dist', 'company-profile', 'audio');
+      if (fs.existsSync(distAudioDir)) {
+        fs.writeFileSync(path.join(distAudioDir, 'mohana-sarkar-globaltv-news.mp3'), audioBuffer);
+      }
+
+      // Re-generate the video with the exact uploaded audio using ffmpeg in background
+      const publicVideoDir = path.join(process.cwd(), 'public', 'company-profile', 'videos');
+      if (!fs.existsSync(publicVideoDir)) {
+        fs.mkdirSync(publicVideoDir, { recursive: true });
+      }
+      const videoOut = path.join(publicVideoDir, 'globaltv-news-report.mp4');
+      const imgPath = path.join(process.cwd(), 'public', 'news-broadcast', 'anchor_mohana.jpg');
+
+      import('child_process').then(({ exec }) => {
+        exec(`ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${targetAudio}"`, (pErr, stdout) => {
+          const duration = Math.ceil(parseFloat(stdout.trim()) || 90);
+          const ffmpegCmd = `ffmpeg -y -loop 1 -t ${duration} -i "${imgPath}" -i "${targetAudio}" -c:v libx264 -tune stillimage -c:a aac -b:a 192k -pix_fmt yuv420p -vf "scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720" -shortest "${videoOut}"`;
+          exec(ffmpegCmd, (fErr) => {
+            if (!fErr) {
+              console.log('Successfully regenerated globaltv-news-report.mp4 with uploaded audio');
+              const distVideoDir = path.join(process.cwd(), 'dist', 'company-profile', 'videos');
+              if (fs.existsSync(distVideoDir)) {
+                try {
+                  fs.copyFileSync(videoOut, path.join(distVideoDir, 'globaltv-news-report.mp4'));
+                } catch (_) {}
+              }
+            } else {
+              console.warn('ffmpeg video regen warning:', fErr);
+            }
+          });
+        });
+      });
+
+      return res.json({
+        success: true,
+        message: 'ভয়েস সফলভাবে আপলোড ও সেভ করা হয়েছে!',
+        size: audioBuffer.length
+      });
+    } catch (err: any) {
+      console.error('Error saving uploaded news audio:', err);
+      return res.status(500).json({ success: false, error: err.message || 'Failed to save audio' });
+    }
   });
 
   // ───────────────────────────────────────────────────────────

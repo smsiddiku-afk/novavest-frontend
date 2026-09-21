@@ -72,6 +72,14 @@ export interface UserProfile {
     dailyYield: number;
     vipLevel: number;
     date: string;
+    createdAt?: number | string;
+    lastProfitClaimAt?: number;
+    nextProfitAt?: number;
+    totalEarned?: number;
+    status?: 'active' | 'completed';
+    dailyReturnPercent?: number;
+    category?: string;
+    claimedCount?: number;
   }>;
   transactions?: any[];
   isAuthenticatorSet?: boolean;

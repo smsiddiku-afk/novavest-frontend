@@ -432,7 +432,9 @@ export const createFirestoreUserProfile = async (
       phone: profile.phone,
       username: profile.name,
       joinedAt: now.toISOString(),
-      investAmount: safeBalance,
+      investAmount: 0,
+      totalRecharge: 0,
+      status: 'pending',
       updatedAt: serverTimestamp(),
     };
 
@@ -455,7 +457,9 @@ export const createFirestoreUserProfile = async (
           phone: profile.phone,
           username: profile.name,
           joinedAt: now.toISOString(),
-          investAmount: safeBalance,
+          investAmount: 0,
+          totalRecharge: 0,
+          status: 'pending',
         };
         if (cleanMemberId) {
           accs[cleanMemberId] = accs[referralCode];
@@ -1216,7 +1220,13 @@ export interface InvestmentRecord {
   vipLevel: number;
   date: string;
   totalEarned?: number;
-  createdAt?: string;
+  createdAt?: number | string;
+  lastProfitClaimAt?: number;
+  nextProfitAt?: number;
+  status?: 'active' | 'completed';
+  dailyReturnPercent?: number;
+  category?: string;
+  claimedCount?: number;
 }
 
 export const recordInvestmentInFirestore = async (
@@ -1317,8 +1327,17 @@ export const extractReferralNodeFromUserDoc = (data: any, id: string): ReferralN
   if (!code) return null;
 
   const rawMemberId = (data.memberId || '').toString().trim().toUpperCase();
-  const rawReferredBy = (data.referredBy || data.referredByCode || '').toString().trim().toUpperCase();
-  const phone = (data.phone || '').toString().trim();
+  const rawReferredBy = (
+    data.referredBy ||
+    data.referredByCode ||
+    data.uplineCode ||
+    data.inviterCode ||
+    data.referrerCode ||
+    data.sponsor ||
+    data.parentCode ||
+    ''
+  ).toString().trim().toUpperCase();
+  const phone = (data.phone || data.mobile || data.phoneNumber || '').toString().trim();
   const name = (data.name || data.username || 'User').toString().trim();
 
   let joinedAt = new Date().toISOString();
@@ -1332,7 +1351,18 @@ export const extractReferralNodeFromUserDoc = (data: any, id: string): ReferralN
     joinedAt = typeof data.joinedAt === 'string' ? data.joinedAt : new Date().toISOString();
   }
 
-  const investAmount = Number(data.totalInvested || data.investAmount || data.walletBalance || 0);
+  const hasActiveInvestments =
+    Array.isArray(data.activeInvestments) &&
+    data.activeInvestments.some((inv: any) => Number(inv.amount || inv.investAmount || 0) > 0);
+  const rawInvest = Number(
+    data.totalInvested ||
+    data.investAmount ||
+    data.totalRecharge ||
+    data.totalDeposit ||
+    0
+  );
+  const investAmount = isNaN(rawInvest) ? 0 : rawInvest;
+  const isActive = investAmount > 0 || hasActiveInvestments;
 
   return {
     userId: id || data.uid || '',
@@ -1342,8 +1372,9 @@ export const extractReferralNodeFromUserDoc = (data: any, id: string): ReferralN
     phone,
     username: name,
     joinedAt,
-    investAmount: isNaN(investAmount) ? 0 : investAmount,
-  };
+    investAmount,
+    status: isActive ? 'active' : 'pending',
+  } as any;
 };
 
 export const saveReferralNodeToFirestore = async (node: ReferralNodeRecord): Promise<void> => {

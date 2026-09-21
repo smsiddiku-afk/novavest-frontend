@@ -902,7 +902,7 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
                     </h5>
                     <p className="text-slate-300 text-[11px] leading-relaxed">
                       {currentLang === 'bn'
-                        ? 'অর্জিত রেফারেল রিওয়ার্ড সম্পূর্ণ লক-মুক্ত। এক ক্লিকে মূল ব্যালেন্সে স্থানান্তর করে বিকাশ, নগদ বা রকেটে টাকায় তুলতে পারবেন।'
+                        ? 'অর্জিত রেফারেল রিওয়ার্ড সম্পূর্ণ লক-মুক্ত। এক ক্লিকে মূল ব্যালেন্সে স্থানান্তর করে বিকাশ বা নগদে টাকায় তুলতে পারবেন।'
                         : 'Claimed commission transfers seamlessly to your main wallet with 0% hidden deductions, ready for instant mobile banking payout.'}
                     </p>
                   </div>
@@ -1016,7 +1016,7 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
                     <div className="px-3 pb-3 pt-0 text-[11px] text-slate-300 border-t border-slate-800/60 leading-relaxed mt-1">
                       {currentLang === 'bn'
                         ? 'উপরে "উত্তোলনযোগ্য ক্যাশ রিওয়ার্ড"-এর পাশে থাকা "দাবি করুন" বাটনে চাপ দিলে ব্যালেন্স সাথে সাথে মূল ওয়ালেটে চলে যাবে। এরপর বিকাশ বা নগদ দিয়ে যেকোনো সময় টাকা তুলে নিন।'
-                        : 'Click "Claim" in the Available Cash Rewards section above to transfer rewards into your main wallet, then initiate a standard withdrawal to bKash, Nagad, or Rocket.'}
+                        : 'Click "Claim" in the Available Cash Rewards section above to transfer rewards into your main wallet, then initiate a standard withdrawal to bKash or Nagad.'}
                     </div>
                   )}
                 </div>
@@ -1161,13 +1161,9 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
                           <span className="font-mono font-bold text-white text-xs sm:text-sm">
                             {member.phone}
                           </span>
-                          {member.status === 'active' && member.investAmount > 0 ? (
+                          {member.status === 'active' && (
                             <span className="px-1.5 py-0.5 rounded-md bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[9px] font-semibold">
                               {currentLang === 'bn' ? 'সক্রিয়' : 'Active'}
-                            </span>
-                          ) : (
-                            <span className="px-1.5 py-0.5 rounded-md bg-amber-500/15 text-amber-400 border border-amber-500/30 text-[9px] font-semibold">
-                              {currentLang === 'bn' ? 'রিচার্জ বাকি' : 'Pending Recharge'}
                             </span>
                           )}
                         </div>
@@ -1202,23 +1198,6 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
                     : 'No members found in this tier yet.'}
                 </div>
               )}
-            </div>
-
-            {/* Regulatory Assurance Note */}
-            <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800 text-center space-y-1">
-              <div className="flex items-center justify-center gap-1.5 text-slate-400 text-[11px]">
-                <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                <span>
-                  {currentLang === 'bn'
-                    ? 'বিইআরসি ও আইএসও অনুমোদিত ক্লিন এনার্জি কমিশন পলিসি'
-                    : 'BERC & ISO 50001 compliant transparent referral rewards'}
-                </span>
-              </div>
-              <p className="text-[10px] text-slate-400">
-                {currentLang === 'bn'
-                  ? 'প্রতিদিনের কমিশন রাত ১২:০০ টার পর স্বয়ংক্রিয়ভাবে অডিট ও আপডেট করা হয়।'
-                  : 'Daily referral rewards are audited and settled automatically every midnight.'}
-              </p>
             </div>
           </div>
         )}

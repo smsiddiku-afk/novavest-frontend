@@ -5,6 +5,8 @@ import {
   ChevronRight,
   Check,
   Users,
+  RotateCw,
+  UserCheck,
 } from 'lucide-react';
 import { Language } from '../types';
 import { getReferralTreeForUser } from '../utils/referralService';
@@ -12,6 +14,8 @@ import { getPersistedAuthUser } from '../utils/authService';
 import {
   recordPromoClaimInFirestore,
   getFirestorePromoClaims,
+  syncReferralAccountsFromFirestore,
+  subscribeToReferralNetwork,
 } from '../lib/firebase';
 import {
   SolarHeaderIcon,
@@ -145,16 +149,80 @@ export const PromoBonusScreen: React.FC<PromoBonusScreenProps> = ({
   const effectiveMemberId = propUserMemberId || authUser?.memberId || '';
 
   const [refreshTick, setRefreshTick] = useState(0);
+  const [liveAccounts, setLiveAccounts] = useState<Record<string, any>>(() => {
+    try {
+      const raw = localStorage.getItem('novavest_registered_accounts');
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  });
+  const [isSyncing, setIsSyncing] = useState(false);
 
+  // Sync referral accounts live from Cloud Firestore and listen for changes
   useEffect(() => {
-    const handleUpdate = () => setRefreshTick((t) => t + 1);
+    let isMounted = true;
+    setIsSyncing(true);
+
+    // Initial sync from Firestore
+    syncReferralAccountsFromFirestore()
+      .then((cloudAccounts) => {
+        if (isMounted && cloudAccounts && Object.keys(cloudAccounts).length > 0) {
+          setLiveAccounts((prev) => ({ ...prev, ...cloudAccounts }));
+          setRefreshTick((t) => t + 1);
+        }
+      })
+      .catch((err) => console.warn('[PromoBonus] Initial referral sync error:', err))
+      .finally(() => {
+        if (isMounted) setIsSyncing(false);
+      });
+
+    // Real-time live listener across devices
+    const unsubscribe = subscribeToReferralNetwork((streamed) => {
+      if (isMounted && streamed && Object.keys(streamed).length > 0) {
+        setLiveAccounts((prev) => ({ ...prev, ...streamed }));
+        setRefreshTick((t) => t + 1);
+      }
+    });
+
+    const handleUpdate = () => {
+      try {
+        const raw = localStorage.getItem('novavest_registered_accounts');
+        if (raw) setLiveAccounts(JSON.parse(raw));
+      } catch {}
+      setRefreshTick((t) => t + 1);
+    };
+
     window.addEventListener('referral_rewards_updated', handleUpdate);
-    return () => window.removeEventListener('referral_rewards_updated', handleUpdate);
+    window.addEventListener('storage', handleUpdate);
+
+    return () => {
+      isMounted = false;
+      unsubscribe();
+      window.removeEventListener('referral_rewards_updated', handleUpdate);
+      window.removeEventListener('storage', handleUpdate);
+    };
   }, []);
 
+  const handleManualSync = async () => {
+    if (isSyncing) return;
+    setIsSyncing(true);
+    try {
+      const cloud = await syncReferralAccountsFromFirestore();
+      if (cloud && Object.keys(cloud).length > 0) {
+        setLiveAccounts((prev) => ({ ...prev, ...cloud }));
+        setRefreshTick((t) => t + 1);
+      }
+    } catch (err) {
+      console.warn('[PromoBonus] Manual sync error:', err);
+    } finally {
+      setTimeout(() => setIsSyncing(false), 500);
+    }
+  };
+
   const realTree = useMemo(
-    () => getReferralTreeForUser(effectiveUserCode, effectiveMemberId),
-    [effectiveUserCode, effectiveMemberId, refreshTick]
+    () => getReferralTreeForUser(effectiveUserCode, effectiveMemberId, liveAccounts),
+    [effectiveUserCode, effectiveMemberId, refreshTick, liveAccounts]
   );
 
   const level1Count = realTree.level1Count;
@@ -316,7 +384,7 @@ export const PromoBonusScreen: React.FC<PromoBonusScreenProps> = ({
         {/* Top Card: Team Member Details (with Sun/Solar circular illustration)     */}
         {/* ========================================================================= */}
         <div className="w-full rounded-[22px] p-3.5 sm:p-4 mb-3.5 bg-[#032318]/90 border border-[#0d5940]/70 shadow-[0_6px_25px_rgba(0,0,0,0.5),0_0_18px_rgba(16,185,129,0.08)]">
-          {/* Top Row: Solar Badge + Title + Total Active Pill */}
+          {/* Top Row: Solar Badge + Title + Total Active Pill + Sync Button */}
           <div className="flex items-center justify-between pb-3 mb-2.5 border-b border-[#0e523b]/60">
             <div className="flex items-center gap-3">
               {/* Circular Glowing Solar Panel Badge matching screenshot */}
@@ -325,29 +393,45 @@ export const PromoBonusScreen: React.FC<PromoBonusScreenProps> = ({
               </div>
 
               {/* Title with Green Team Icon */}
-              <div className="flex items-center gap-1.5">
-                <div className="w-6 h-6 rounded-full bg-[#10b981]/20 flex items-center justify-center text-[#34d399]">
-                  <Users className="w-3.5 h-3.5" />
+              <div className="flex flex-col">
+                <div className="flex items-center gap-1.5">
+                  <div className="w-6 h-6 rounded-full bg-[#10b981]/20 flex items-center justify-center text-[#34d399]">
+                    <Users className="w-3.5 h-3.5" />
+                  </div>
+                  <span className="text-[15px] sm:text-[16px] font-bold text-white tracking-normal">
+                    {lang === 'en' ? 'Team Member Details' : 'টিম সদস্য বিবরণী'}
+                  </span>
                 </div>
-                <span className="text-[15px] sm:text-[16px] font-bold text-white tracking-normal">
-                  {lang === 'en' ? 'Team Member Details' : 'টিম সদস্য বিবরণী'}
+                <span className="text-[10px] text-emerald-400/80 font-mono mt-0.5">
+                  {lang === 'en' ? `Code: ${effectiveUserCode}` : `রেফার কোড: ${effectiveUserCode}`}
                 </span>
               </div>
             </div>
 
-            {/* Total Active Badge */}
-            <div className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs bg-[#053323] border border-[#0f664a]/80 shadow-sm">
-              <span className="text-[11px] text-[#6ee7b7] font-normal">
-                {lang === 'en' ? 'Total Active:' : 'মোট সক্রিয়:'}
-              </span>
-              <span className="font-mono font-bold text-white text-[13px]">{totalActiveCount}</span>
+            {/* Right Side: Total Active Badge + Refresh Sync */}
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs bg-[#053323] border border-[#0f664a]/80 shadow-sm">
+                <span className="text-[11px] text-[#6ee7b7] font-normal">
+                  {lang === 'en' ? 'Total Active:' : 'মোট সক্রিয়:'}
+                </span>
+                <span className="font-mono font-bold text-white text-[13px]">{totalActiveCount}</span>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleManualSync}
+                title={lang === 'en' ? 'Sync Team Data' : 'টিম ডেটা রিফ্রেশ করুন'}
+                className="w-7 h-7 rounded-full bg-[#04281c] border border-[#10b981]/40 flex items-center justify-center text-[#34d399] hover:bg-[#063b2a] transition-all cursor-pointer active:scale-90"
+              >
+                <RotateCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-emerald-300' : ''}`} />
+              </button>
             </div>
           </div>
 
           {/* 3-Column Level Stats (1st Level, 2nd Level, 3rd Level) */}
           <div className="grid grid-cols-3 gap-2 sm:gap-2.5">
             {/* Level 1 (Direct) */}
-            <div className="bg-[#021810]/95 border border-[#0e523b]/70 rounded-[14px] p-2.5 flex flex-col items-center justify-center text-center shadow-inner">
+            <div className="rounded-[14px] p-2.5 flex flex-col items-center justify-center text-center shadow-inner border bg-[#021810]/95 border-[#0e523b]/70">
               <SolarMiniIcon className="w-6 h-6 sm:w-7 sm:h-7 mb-1" />
               <span className="text-[11px] font-normal text-slate-300">
                 {lang === 'en' ? '1st Level' : '১ম লেভেল'}
@@ -364,7 +448,7 @@ export const PromoBonusScreen: React.FC<PromoBonusScreenProps> = ({
             </div>
 
             {/* Level 2 (Sub-team) */}
-            <div className="bg-[#021810]/95 border border-[#0e523b]/70 rounded-[14px] p-2.5 flex flex-col items-center justify-center text-center shadow-inner">
+            <div className="rounded-[14px] p-2.5 flex flex-col items-center justify-center text-center shadow-inner border bg-[#021810]/95 border-[#0e523b]/70">
               <SolarMiniIcon className="w-6 h-6 sm:w-7 sm:h-7 mb-1" />
               <span className="text-[11px] font-normal text-slate-300">
                 {lang === 'en' ? '2nd Level' : '২য় লেভেল'}
@@ -381,7 +465,7 @@ export const PromoBonusScreen: React.FC<PromoBonusScreenProps> = ({
             </div>
 
             {/* Level 3 (Network) */}
-            <div className="bg-[#021810]/95 border border-[#0e523b]/70 rounded-[14px] p-2.5 flex flex-col items-center justify-center text-center shadow-inner">
+            <div className="rounded-[14px] p-2.5 flex flex-col items-center justify-center text-center shadow-inner border bg-[#021810]/95 border-[#0e523b]/70">
               <SolarMiniIcon className="w-6 h-6 sm:w-7 sm:h-7 mb-1" />
               <span className="text-[11px] font-normal text-slate-300">
                 {lang === 'en' ? '3rd Level' : '৩য় লেভেল'}

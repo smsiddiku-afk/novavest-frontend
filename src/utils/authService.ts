@@ -476,21 +476,62 @@ export const signInWithFirebase = async (
     } else {
       // 2. User typed a phone number, username, or memberId
       phoneLookupDone = true;
-      foundEmailFromPhone = await findEmailByPhone(rawInput);
-      if (foundEmailFromPhone) {
-        emailCandidates.push(foundEmailFromPhone);
-        emailCandidates.push(foundEmailFromPhone.toLowerCase());
+
+      // Check synchronous local storage mapping first (0ms instant lookup)
+      if (typeof window !== 'undefined' && window.localStorage) {
+        try {
+          const keysToTry = [
+            `nvt_phone_email_${digits}`,
+            `nvt_phone_email_${last10}`,
+            `nvt_phone_email_880${last10}`,
+            `nvt_phone_email_0${last10}`,
+            `nvt_phone_email_${rawInput.trim()}`,
+          ];
+          for (const k of keysToTry) {
+            const cached = localStorage.getItem(k);
+            if (cached && cached.includes('@')) {
+              emailCandidates.push(cached.trim().toLowerCase());
+              emailCandidates.push(cached.trim());
+              foundEmailFromPhone = cached.trim();
+              break;
+            }
+          }
+        } catch {
+          // ignore
+        }
       }
-      if (last10) {
-        emailCandidates.push(`${last10}@novavest.local`);
+
+      // Add canonical phone-to-email patterns immediately in priority order
+      if (last10 && last10.length === 10) {
         emailCandidates.push(`880${last10}@novavest.local`);
         emailCandidates.push(`0${last10}@novavest.local`);
+        emailCandidates.push(`${digits}@novavest.local`);
+        emailCandidates.push(`${last10}@novavest.local`);
         emailCandidates.push(`8800${last10}@novavest.local`);
-      }
-      if (digits) {
+      } else if (digits) {
+        emailCandidates.push(`880${digits}@novavest.local`);
+        emailCandidates.push(`0${digits}@novavest.local`);
         emailCandidates.push(`${digits}@novavest.local`);
       }
-      emailCandidates.push(`${rawInput}@novavest.local`);
+
+      emailCandidates.push(`${rawInput.trim()}@novavest.local`);
+
+      // Parallel background lookup only if not already found locally (bounded by 1000ms max)
+      if (!foundEmailFromPhone) {
+        try {
+          const remoteFound = await Promise.race([
+            findEmailByPhone(rawInput),
+            new Promise<null>((res) => setTimeout(() => res(null), 1000)),
+          ]);
+          if (remoteFound) {
+            foundEmailFromPhone = remoteFound;
+            emailCandidates.unshift(remoteFound.toLowerCase());
+            emailCandidates.unshift(remoteFound);
+          }
+        } catch {
+          // continue with deterministic candidates
+        }
+      }
     }
 
     // Deduplicate candidate emails while strictly maintaining order
@@ -621,7 +662,7 @@ export const registerWithFirebase = async (
   const last10 = digits.slice(-10);
 
   if (!finalEmail) {
-    finalEmail = `${digits || 'user_' + Date.now()}@novavest.local`;
+    finalEmail = last10 && last10.length === 10 ? `880${last10}@novavest.local` : `${digits || 'user_' + Date.now()}@novavest.local`;
   }
 
   const uplineCode = data.referralCode?.trim().toUpperCase() || undefined;
@@ -636,6 +677,7 @@ export const registerWithFirebase = async (
         localStorage.setItem(`nvt_phone_email_880${last10}`, finalEmail);
         localStorage.setItem(`nvt_phone_email_8800${last10}`, finalEmail);
       }
+      localStorage.setItem(`nvt_phone_email_${data.phone.trim()}`, finalEmail);
     } catch {
       // ignore
     }

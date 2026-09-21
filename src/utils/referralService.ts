@@ -86,43 +86,75 @@ export const STORAGE_KEY_COMMISSION_LOGS = 'novavest_commission_logs';
  */
 export function getAllCodeVariants(code?: string): string[] {
   if (!code) return [];
-  const clean = code.toString().trim().toUpperCase();
-  if (!clean) return [];
+  let rawStr = code.toString().trim();
+  if (!rawStr) return [];
 
+  // If user pasted a full URL as referral code, extract the ref parameter or path
+  if (rawStr.includes('http') || rawStr.includes('?') || rawStr.includes('&')) {
+    try {
+      const match = rawStr.match(/[?&](?:ref|referral|code|invite|inviter)=([^&#]+)/i);
+      if (match && match[1]) {
+        rawStr = match[1];
+      }
+    } catch {}
+  }
+
+  const clean = rawStr.toUpperCase();
   const set = new Set<string>();
   set.add(clean);
 
-  // If starts with NVT
-  if (clean.startsWith('NVT')) {
-    const raw = clean.slice(3);
-    if (raw) {
-      set.add(raw);
-      set.add(`NV${raw}`);
+  // Strip spaces, dashes, slashes, underscores
+  const stripped = clean.replace(/[\s\-_\/]/g, '');
+  if (stripped) {
+    set.add(stripped);
+  }
+
+  const checkPrefixes = [clean, stripped];
+  checkPrefixes.forEach((item) => {
+    if (item.startsWith('NVT')) {
+      const raw = item.slice(3);
+      if (raw) {
+        set.add(raw);
+        set.add(`NV${raw}`);
+        set.add(`NVT${raw}`);
+        set.add(`NV-${raw}`);
+        set.add(`NVT-${raw}`);
+      }
     }
-  }
-
-  // If starts with NV (and not NVT)
-  if (clean.startsWith('NV') && !clean.startsWith('NVT')) {
-    const raw = clean.slice(2);
-    if (raw) {
-      set.add(raw);
-      set.add(`NVT${raw}`);
+    if (item.startsWith('NV') && !item.startsWith('NVT')) {
+      const raw = item.slice(2);
+      if (raw) {
+        set.add(raw);
+        set.add(`NV${raw}`);
+        set.add(`NVT${raw}`);
+        set.add(`NV-${raw}`);
+        set.add(`NVT-${raw}`);
+      }
     }
-  }
+  });
 
-  // Pure digits: add NVT and NV prefixes
-  const pureDigits = clean.replace(/\D/g, '');
-  if (pureDigits && pureDigits === clean) {
-    set.add(`NVT${clean}`);
-    set.add(`NV${clean}`);
-  }
+  // Pure digits: e.g. "8829" or "481923"
+  const pureDigits = stripped.replace(/\D/g, '');
+  if (pureDigits) {
+    if (pureDigits === stripped) {
+      set.add(pureDigits);
+      set.add(`NV${pureDigits}`);
+      set.add(`NVT${pureDigits}`);
+      set.add(`NV-${pureDigits}`);
+      set.add(`NVT-${pureDigits}`);
+    }
 
-  // Phone number normalization
-  if (pureDigits.length >= 10) {
-    set.add(pureDigits);
-    set.add(pureDigits.slice(-10));
-    if (pureDigits.length === 11 && pureDigits.startsWith('0')) {
-      set.add(pureDigits.slice(1));
+    // Phone number handling (Bangladesh +880 and 01...)
+    if (pureDigits.length >= 10) {
+      const last10 = pureDigits.slice(-10);
+      set.add(pureDigits);
+      set.add(last10);
+      set.add(`0${last10}`);
+      set.add(`880${last10}`);
+      set.add(`+880${last10}`);
+      set.add(`+880 ${last10}`);
+      set.add(`0${last10.slice(0, 4)} ${last10.slice(4)}`);
+      set.add(`+880 ${last10.slice(0, 4)}-${last10.slice(4)}`);
     }
   }
 
@@ -135,12 +167,13 @@ export function getAllCodeVariants(code?: string): string[] {
 export function codesMatch(code1?: string, code2?: string): boolean {
   if (!code1 || !code2) return false;
   const v1 = getAllCodeVariants(code1);
-  const v2 = getAllCodeVariants(code2);
-  return v1.some((x) => v2.includes(x));
+  const v2 = new Set(getAllCodeVariants(code2));
+  return v1.some((x) => v2.has(x));
 }
 
 /**
  * Extract all normalized identifier variants from an account object
+ * NOTE: Username is strictly excluded to prevent accidental collisions across accounts with generic names
  */
 export function getAccountIdentifiers(acc: any): string[] {
   if (!acc) return [];
@@ -151,7 +184,6 @@ export function getAccountIdentifiers(acc: any): string[] {
   if (acc.userId) set.add(acc.userId.toString().trim());
   if (acc.uid) set.add(acc.uid.toString().trim());
   if (acc.phone) getAllCodeVariants(acc.phone).forEach((v) => set.add(v));
-  if (acc.username) set.add(acc.username.toString().trim().toUpperCase());
   return Array.from(set);
 }
 
@@ -359,21 +391,29 @@ export function getReferralTreeForUser(
 
   Object.values(accounts).forEach((acc: any) => {
     if (!acc) return;
-    const uid = (acc.userId || acc.phone || acc.userCode || '').toString().trim();
-    if (!uid) return;
-    if (seenUserKeys.has(uid)) return;
-    seenUserKeys.add(uid);
+    const primaryUid = (acc.userId || acc.uid || '').toString().trim();
+    const primaryPhone = (acc.phone ? acc.phone.replace(/\D/g, '').slice(-10) : '').trim();
+    const primaryCode = (acc.userCode || acc.memberId || '').toString().trim().toUpperCase();
+
+    // Composite unique key prevents merging distinct users that lack a uid
+    const uniqueKey =
+      primaryUid ||
+      (primaryPhone ? `phone_${primaryPhone}` : '') ||
+      (primaryCode ? `code_${primaryCode}` : '');
+    if (!uniqueKey) return;
+    if (seenUserKeys.has(uniqueKey)) return;
+    seenUserKeys.add(uniqueKey);
     uniqueAccounts.push(acc);
   });
 
-  // Collect all identifiers for Root User
+  // Collect all identifiers for Root User (Strict codes and phone only - never username)
   const rootIdentifiers = new Set<string>();
   getAllCodeVariants(cleanUserCode).forEach((v) => rootIdentifiers.add(v));
   if (cleanMemberId) {
     getAllCodeVariants(cleanMemberId).forEach((v) => rootIdentifiers.add(v));
   }
 
-  // Also discover if Root User's record is in uniqueAccounts and extract their phone, username, and user id
+  // Also discover if Root User's record is in uniqueAccounts and extract their phone, userId, and uid
   uniqueAccounts.forEach((acc) => {
     if (!acc) return;
     const ids = getAccountIdentifiers(acc);
@@ -382,8 +422,11 @@ export function getReferralTreeForUser(
       if (acc.phone) {
         getAllCodeVariants(acc.phone).forEach((v) => rootIdentifiers.add(v));
       }
-      if (acc.username) {
-        rootIdentifiers.add(acc.username.toString().trim().toUpperCase());
+      if (acc.userId) {
+        rootIdentifiers.add(acc.userId.toString().trim());
+      }
+      if (acc.uid) {
+        rootIdentifiers.add(acc.uid.toString().trim());
       }
     }
   });
@@ -402,6 +445,31 @@ export function getReferralTreeForUser(
   const members: TeamMember[] = [];
   const visitedAccountIds = new Set<string>();
 
+  const getAccountId = (acc: any): string => {
+    const uid = (acc.userId || acc.uid || '').toString().trim();
+    const phone = (acc.phone ? acc.phone.replace(/\D/g, '').slice(-10) : '').trim();
+    const code = (acc.userCode || acc.memberId || '').toString().trim().toUpperCase();
+    return uid || (phone ? `p_${phone}` : '') || (code ? `c_${code}` : `rnd_${Math.random()}`);
+  };
+
+  const isAccountActive = (acc: any): boolean => {
+    if (!acc) return false;
+    // Strict business rule: A member is ONLY active if they have recharged or made a paid investment.
+    // Signup welcome bonus, initial wallet balance, or registration status alone NEVER makes them active.
+    const invest = Number(
+      acc.investAmount ||
+      acc.totalInvested ||
+      acc.totalRecharge ||
+      acc.totalDeposit ||
+      0
+    );
+    const hasPaidInv =
+      Array.isArray(acc.activeInvestments) &&
+      acc.activeInvestments.some((inv: any) => Number(inv.amount || inv.investAmount || 0) > 0);
+
+    return invest > 0 || hasPaidInv;
+  };
+
   // -------------------------------------------------------------
   // LEVEL 1: Direct Referrals
   // -------------------------------------------------------------
@@ -411,14 +479,21 @@ export function getReferralTreeForUser(
   uniqueAccounts.forEach((acc) => {
     if (isRootUser(acc)) return;
     if (matchesIdentifiers(acc.referredByCode, rootIdentifiers)) {
-      const accId = acc.userId || acc.userCode;
+      const accId = getAccountId(acc);
       if (!visitedAccountIds.has(accId)) {
         visitedAccountIds.add(accId);
         l1Accounts.push(acc);
         getAccountIdentifiers(acc).forEach((id) => l1Identifiers.add(id));
 
-        const invest = Number(acc.investAmount || 0);
+        const invest = Number(
+          acc.investAmount ||
+          acc.totalInvested ||
+          acc.totalRecharge ||
+          acc.totalDeposit ||
+          0
+        );
         const comm = Number((invest * TIER_COMMISSION_RATES[1]).toFixed(2));
+        const active = isAccountActive(acc);
         members.push({
           id: `REF-L1-${acc.userCode || accId}`,
           phone: maskPhone(acc.phone),
@@ -427,7 +502,7 @@ export function getReferralTreeForUser(
           date: acc.joinedAt ? new Date(acc.joinedAt).toLocaleDateString('en-GB') : 'Today',
           investAmount: invest,
           commissionEarned: comm,
-          status: invest > 0 ? 'active' : 'pending',
+          status: active ? 'active' : 'pending',
           referralCode: acc.userCode,
           referredBy: cleanUserCode,
           referredByName: 'You (Direct)',
@@ -446,7 +521,7 @@ export function getReferralTreeForUser(
   if (l1Identifiers.size > 0) {
     uniqueAccounts.forEach((acc) => {
       if (isRootUser(acc)) return;
-      const accId = acc.userId || acc.userCode;
+      const accId = getAccountId(acc);
       if (visitedAccountIds.has(accId)) return;
 
       if (matchesIdentifiers(acc.referredByCode, l1Identifiers)) {
@@ -455,14 +530,20 @@ export function getReferralTreeForUser(
         getAccountIdentifiers(acc).forEach((id) => l2Identifiers.add(id));
 
         // Find parent in L1 for display
-        const parentL1 = l1Accounts.find((p) =>
-          getAccountIdentifiers(p).some((pid) =>
-            getAllCodeVariants(acc.referredByCode).includes(pid)
-          )
-        );
+        const parentL1 = l1Accounts.find((p) => {
+          const pIds = new Set(getAccountIdentifiers(p));
+          return getAllCodeVariants(acc.referredByCode).some((v) => pIds.has(v));
+        });
 
-        const invest = Number(acc.investAmount || 0);
+        const invest = Number(
+          acc.investAmount ||
+          acc.totalInvested ||
+          acc.totalRecharge ||
+          acc.totalDeposit ||
+          0
+        );
         const comm = Number((invest * TIER_COMMISSION_RATES[2]).toFixed(2));
+        const active = isAccountActive(acc);
         members.push({
           id: `REF-L2-${acc.userCode || accId}`,
           phone: maskPhone(acc.phone),
@@ -471,7 +552,7 @@ export function getReferralTreeForUser(
           date: acc.joinedAt ? new Date(acc.joinedAt).toLocaleDateString('en-GB') : 'Recently',
           investAmount: invest,
           commissionEarned: comm,
-          status: invest > 0 ? 'active' : 'pending',
+          status: active ? 'active' : 'pending',
           referralCode: acc.userCode,
           referredBy: parentL1 ? parentL1.userCode : acc.referredByCode,
           referredByName: parentL1 ? maskPhone(parentL1.phone) : 'L1 Member',
@@ -489,7 +570,7 @@ export function getReferralTreeForUser(
   if (l2Identifiers.size > 0) {
     uniqueAccounts.forEach((acc) => {
       if (isRootUser(acc)) return;
-      const accId = acc.userId || acc.userCode;
+      const accId = getAccountId(acc);
       if (visitedAccountIds.has(accId)) return;
 
       if (matchesIdentifiers(acc.referredByCode, l2Identifiers)) {
@@ -497,14 +578,20 @@ export function getReferralTreeForUser(
         l3Accounts.push(acc);
 
         // Find parent in L2 for display
-        const parentL2 = l2Accounts.find((p) =>
-          getAccountIdentifiers(p).some((pid) =>
-            getAllCodeVariants(acc.referredByCode).includes(pid)
-          )
-        );
+        const parentL2 = l2Accounts.find((p) => {
+          const pIds = new Set(getAccountIdentifiers(p));
+          return getAllCodeVariants(acc.referredByCode).some((v) => pIds.has(v));
+        });
 
-        const invest = Number(acc.investAmount || 0);
+        const invest = Number(
+          acc.investAmount ||
+          acc.totalInvested ||
+          acc.totalRecharge ||
+          acc.totalDeposit ||
+          0
+        );
         const comm = Number((invest * TIER_COMMISSION_RATES[3]).toFixed(2));
+        const active = isAccountActive(acc);
         members.push({
           id: `REF-L3-${acc.userCode || accId}`,
           phone: maskPhone(acc.phone),
@@ -513,7 +600,7 @@ export function getReferralTreeForUser(
           date: acc.joinedAt ? new Date(acc.joinedAt).toLocaleDateString('en-GB') : 'Recently',
           investAmount: invest,
           commissionEarned: comm,
-          status: invest > 0 ? 'active' : 'pending',
+          status: active ? 'active' : 'pending',
           referralCode: acc.userCode,
           referredBy: parentL2 ? parentL2.userCode : acc.referredByCode,
           referredByName: parentL2 ? maskPhone(parentL2.phone) : 'L2 Member',
@@ -523,9 +610,9 @@ export function getReferralTreeForUser(
   }
 
   // Calculate active counts
-  const activeLevel1Count = l1Accounts.filter((a) => Number(a.investAmount || 0) > 0).length;
-  const activeLevel2Count = l2Accounts.filter((a) => Number(a.investAmount || 0) > 0).length;
-  const activeLevel3Count = l3Accounts.filter((a) => Number(a.investAmount || 0) > 0).length;
+  const activeLevel1Count = l1Accounts.filter(isAccountActive).length;
+  const activeLevel2Count = l2Accounts.filter(isAccountActive).length;
+  const activeLevel3Count = l3Accounts.filter(isAccountActive).length;
   const totalActiveCount = activeLevel1Count + activeLevel2Count + activeLevel3Count;
 
   // Retrieve commission logs for this user

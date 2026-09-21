@@ -100,22 +100,13 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
       return;
     }
 
-    let timer1: any = null;
-    let timer2: any = null;
-
     try {
       setIsSubmitting(true);
-      setLoadingStep(0);
-
-      // Smooth step progressions for visual clarity
-      timer1 = setTimeout(() => setLoadingStep(1), 600);
-      timer2 = setTimeout(() => setLoadingStep(2), 1500);
+      setLoadingStep(1);
 
       await Promise.resolve(
         onConfirmRecharge(num, selectedMethod, selectedChannel)
       );
-
-      setLoadingStep(3);
     } catch (err) {
       console.error(err);
       displayToast(
@@ -124,13 +115,8 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
           : 'Payment connection error. Please try again.'
       );
     } finally {
-      if (timer1) clearTimeout(timer1);
-      if (timer2) clearTimeout(timer2);
-      // Brief settling interval so user sees the transition smoothly
-      setTimeout(() => {
-        setIsSubmitting(false);
-        setLoadingStep(0);
-      }, 750);
+      setIsSubmitting(false);
+      setLoadingStep(0);
     }
   };
 

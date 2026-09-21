@@ -1486,7 +1486,7 @@ export function EnergyHomePage({
             <div className="p-3 rounded-xl bg-slate-900 border border-slate-800 text-xs text-slate-300 space-y-1">
               <div className="flex justify-between">
                 <span className="text-slate-400">Supported Gateways:</span>
-                <span className="font-semibold text-white">bKash, Nagad, Rocket, Bank</span>
+                <span className="font-semibold text-white">bKash, Nagad, Bank</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-400">Crediting Time:</span>

@@ -97,14 +97,26 @@ export const LoginCard: React.FC<LoginCardProps> = ({
         } else {
           identifier = `${countryCode} ${rawDigits.replace(/^0+/, '')}`;
         }
+      } else {
+        // If in email mode, but user typed their phone number or memberId without @
+        const cleanVal = email.trim();
+        if (!cleanVal.includes('@')) {
+          const rawDigits = cleanVal.replace(/\D/g, '');
+          const last10 = rawDigits.slice(-10);
+          if (last10.length === 10) {
+            identifier = `+880 ${last10}`;
+          }
+        }
       }
 
       const result = await signInWithFirebase(identifier, password, lang);
 
-      setIsSubmitting(false);
       if (result.success && result.user) {
+        setGeneralError(null);
+        setIsSubmitting(false);
         onLoginSuccess(identifier);
       } else {
+        setIsSubmitting(false);
         setGeneralError(
           result.error || (lang === 'bn' ? 'লগইন ব্যর্থ হয়েছে।' : 'Login failed. Please try again.')
         );

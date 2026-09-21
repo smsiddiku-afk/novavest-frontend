@@ -140,7 +140,7 @@ export const ENERGY_FAQS: FaqItem[] = [
     id: 'faq-4',
     category: 'finance',
     question: 'How are withdrawals processed and what are the limits?',
-    answer: 'Withdrawal requests are processed securely into verified mobile wallets (bKash, Nagad, Rocket) or direct bank transfers within 10 to 60 minutes during banking hours. Minimum withdrawal is ৳500 with zero surprise deductions.'
+    answer: 'Withdrawal requests are processed securely into verified mobile wallets (bKash, Nagad) or direct bank transfers within 10 to 60 minutes during banking hours. Minimum withdrawal is ৳500 with zero surprise deductions.'
   },
   {
     id: 'faq-5',

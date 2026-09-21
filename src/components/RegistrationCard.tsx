@@ -213,6 +213,23 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
         ? `+880 ${last10}`
         : `${countryCode} ${rawDigits.replace(/^0+/, '')}`;
 
+      // --- ডুপ্লিকেট ফোন নম্বর চেক করার জন্য ফায়ারস্টোর কুয়েরি ---
+      const { db } = await import('../utils/firebase');
+      const { collection, getDocs, query, where } = await import('firebase/firestore');
+      
+      const phoneQuery = query(collection(db, 'users'), where('phone', '==', standardPhone));
+      const phoneSnap = await getDocs(phoneQuery);
+
+      if (!phoneSnap.empty) {
+        setIsSubmitting(false);
+        setErrors((prev) => ({
+          ...prev,
+          phone: lang === 'bn' ? 'এই ফোন নম্বর দিয়ে ইতিমধ্যে একটি অ্যাকাউন্ট রয়েছে।' : 'An account with this phone number already exists.',
+        }));
+        return;
+      }
+      // --------------------------------------------------------
+
       const inviterCode = (referralCode || extractPendingReferralCode() || '').trim().toUpperCase();
 
       const result = await registerWithFirebase(
@@ -228,7 +245,6 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
 
       setIsSubmitting(false);
       if (result.success && result.user) {
-        // নতুন ইউজারের নির্দিষ্ট রেফারেল কোড ও মেম্বার আইডি দিয়ে রেফারেল নেটওয়ার্কে যুক্ত করা
         const userRefCode = result.user.referralCode || result.user.memberId || generateUniqueReferralCode(username.trim());
         const finalUplineCode = inviterCode || result.user.referredBy || '';
 

@@ -104,39 +104,18 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
       setIsSubmitting(true);
       setLoadingStep(1);
       
-      await new Promise(r => setTimeout(r, 600));
+      await new Promise(r => setTimeout(r, 400));
       setLoadingStep(2);
 
-      const result = await Promise.resolve(
+      await Promise.resolve(
         onConfirmRecharge(num, selectedMethod, selectedChannel)
       );
 
-      if (result && typeof result === 'object') {
-        if (result.success && result.status === 'approved') {
-          displayToast(
-            currentLang === 'bn' 
-              ? 'পেমেন্ট সফল হয়েছে এবং ব্যালেন্স যোগ করা হয়েছে!' 
-              : 'Payment successful and balance credited!'
-          );
-        } else if (result.status === 'pending') {
-          displayToast(
-            currentLang === 'bn' 
-              ? 'পেমেন্ট ভেরিফিকেশন পেন্ডিং রয়েছে। যাচাইয়ের পর ব্যালেন্স যোগ হবে।' 
-              : 'Payment is pending verification. Balance will be credited after review.'
-          );
-        } else {
-          displayToast(
-            result.message || (currentLang === 'bn' ? 'ত্রুটিপূর্ণ ট্রানজেকশন!' : 'Invalid transaction!')
-          );
-        }
-      } else {
-        displayToast(
-          currentLang === 'bn' 
-            ? 'ডিপোজিট রিকোয়েস্ট সফলভাবে জমা হয়েছে।' 
-            : 'Deposit request submitted successfully.'
-        );
-      }
-
+      displayToast(
+        currentLang === 'bn'
+          ? 'পেমেন্ট গেটওয়েতে রিডাইরেক্ট করা হচ্ছে...'
+          : 'Redirecting to payment gateway...'
+      );
     } catch (err) {
       console.error(err);
       displayToast(

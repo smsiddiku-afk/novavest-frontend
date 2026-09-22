@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 
 interface SpinningLogoProps {
   size?: 'sm' | 'md' | 'lg' | 'xl';

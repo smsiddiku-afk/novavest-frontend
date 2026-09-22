@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ArrowDownToLine, ArrowUpFromLine, Zap, Gift, CheckCircle2, Clock, XCircle, X, Copy, Check, FileText, TrendingUp } from 'lucide-react';
 import { Language } from '../types';
 import { translations } from '../utils/translations';

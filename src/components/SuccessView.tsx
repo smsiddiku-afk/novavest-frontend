@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { CheckCircle2, ShieldCheck, ArrowRight } from 'lucide-react';
 import { RegisterFormData } from '../types';
 

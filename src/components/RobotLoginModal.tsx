@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { CheckCircle2, ShieldCheck, Sparkles } from 'lucide-react';
 import { robotAudio } from '../utils/robotAudio';
 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { PromoBonusScreen } from './PromoBonusScreen';
 import { CleanWalletScreen, PaymentMethodType, PaymentChannelType, ManualDepositDetails } from './CleanWalletScreen';
 import { Language } from '../types';

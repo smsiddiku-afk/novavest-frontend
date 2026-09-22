@@ -172,9 +172,6 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
     } else if (password !== confirmPassword) {
       newErrors.confirmPassword =
         lang === 'bn' ? 'দুটি পাসওয়ার্ড মেলেনি' : 'Passwords do not match';
-    }
-
-    if (!email.trim()) {
       newErrors.email = lang === 'bn' ? 'আপনার ইমেল ঠিকানা লিখুন' : 'Please enter your email';
     } else {
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;

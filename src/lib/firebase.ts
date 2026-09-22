@@ -107,10 +107,16 @@ export function testFirestoreConnection() {
 testFirestoreConnection();
 
 /**
- * Normalizes phone numbers for matching (strips non-digits)
+ * Normalizes phone numbers for matching (converts Bengali numerals and strips non-digits)
  */
 export const normalizePhone = (phone: string): string => {
-  return (phone || '').replace(/\D/g, '');
+  if (!phone) return '';
+  const bnDigits: Record<string, string> = {
+    '০': '0', '১': '1', '২': '2', '৩': '3', '৪': '4',
+    '৫': '5', '৬': '6', '৭': '7', '৮': '8', '৯': '9',
+  };
+  const converted = String(phone).replace(/[০-৯]/g, (ch) => bnDigits[ch] || ch);
+  return converted.replace(/\D/g, '');
 };
 
 /**
@@ -706,6 +712,66 @@ export const findEmailByPhone = async (rawPhone: string): Promise<string | null>
     console.warn('[Firebase] Query phone notice:', err);
     return null;
   }
+};
+
+/**
+ * Checks if a phone number is already registered across Firestore, server memory, and local caches.
+ * Enforces strict single-account-per-phone rule.
+ */
+export const isPhoneAlreadyRegistered = async (
+  rawPhone: string
+): Promise<{ registered: boolean; email?: string; existingEmail?: string; existingMemberId?: string }> => {
+  if (!rawPhone || !rawPhone.trim()) {
+    return { registered: false };
+  }
+
+  const normalized = normalizePhone(rawPhone);
+  const last10 = normalized.length >= 10 ? normalized.slice(-10) : normalized;
+
+  // 1. Instant check against server-side phone registry
+  if (last10 && last10.length >= 8) {
+    try {
+      const srvRes = await fetch(`/api/auth/check-phone?phone=${encodeURIComponent(last10)}`, {
+        signal: AbortSignal.timeout(2000),
+      });
+      if (srvRes.ok) {
+        const srvData = await srvRes.json();
+        if (srvData && srvData.registered) {
+          return {
+            registered: true,
+            email: srvData.email,
+            existingEmail: srvData.email,
+            existingMemberId: srvData.memberId,
+          };
+        }
+      }
+    } catch (_) {}
+  }
+
+  // 2. Direct check in registered_phones collection
+  if (last10) {
+    try {
+      const pDoc = safeDoc('registered_phones', last10);
+      if (pDoc) {
+        const snap = await Promise.race([
+          getDoc(pDoc),
+          new Promise<null>((r) => setTimeout(() => r(null), 2000)),
+        ]);
+        if (snap && snap.exists && snap.exists()) {
+          const d = snap.data();
+          return { registered: true, email: d?.email, existingEmail: d?.email, existingMemberId: d?.memberId };
+        }
+      }
+    } catch (_) {}
+  }
+
+  // 3. Fallback to comprehensive findEmailByPhone check
+  const email = await findEmailByPhone(rawPhone);
+  if (email) {
+    return { registered: true, email, existingEmail: email };
+  }
+
+  return { registered: false };
 };
 
 /**

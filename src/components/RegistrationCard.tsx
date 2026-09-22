@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { LegalDocType, RegisterFormData, Language } from '../types';
 import { registerWithFirebase } from '../utils/authService';
+import { isPhoneAlreadyRegistered } from '../lib/firebase';
 import {
   registerUserInReferralNetwork,
   generateUniqueReferralCode,
@@ -212,6 +213,29 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
       const standardPhone = countryCode === '+880'
         ? `+880 ${last10}`
         : `${countryCode} ${rawDigits.replace(/^0+/, '')}`;
+
+      // Enforce strict one-account-per-phone rule before attempting registration
+      const [check1, check2] = await Promise.all([
+        isPhoneAlreadyRegistered(standardPhone),
+        isPhoneAlreadyRegistered(last10),
+      ]);
+
+      if (check1.registered || check2.registered) {
+        setIsSubmitting(false);
+        setErrors((prev) => ({
+          ...prev,
+          phone:
+            lang === 'bn'
+              ? 'এই মোবাইল নম্বর দিয়ে ইতিমধ্যে একটি অ্যাকাউন্ট তৈরি করা হয়েছে।'
+              : 'An account with this phone number already exists.',
+        }));
+        setGeneralError(
+          lang === 'bn'
+            ? 'এই মোবাইল নম্বর দিয়ে ইতিমধ্যে একটি অ্যাকাউন্ট রয়েছে। একটি নম্বর দিয়ে শুধুমাত্র একটি আইডি করা সম্ভব। অনুগ্রহ করে লগইন করুন।'
+            : 'An account already exists with this phone number. Only one ID per phone number is allowed. Please log in.'
+        );
+        return;
+      }
 
       const inviterCode = (referralCode || extractPendingReferralCode() || '').trim().toUpperCase();
 

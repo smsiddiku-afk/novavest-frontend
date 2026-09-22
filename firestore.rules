@@ -76,5 +76,13 @@ service cloud.firestore {
     match /withdrawals/{withdrawId} {
       allow read, write: if true;
     }
+
+    match /phone_index/{phoneKey} {
+      allow read, write: if true;
+    }
+
+    match /registered_phones/{phoneKey} {
+      allow read, write: if true;
+    }
   }
 }

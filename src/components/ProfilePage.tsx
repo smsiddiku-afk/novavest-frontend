@@ -874,12 +874,14 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               }
             }, 3000);
           }
+          return data;
         } else {
           showToast(
             currentLang === 'bn'
-              ? `⚠️ পেমেন্ট সংযোগ ব্যর্থ: ${data.error || 'Go-Go-Pay গেটওয়ে ত্রুটি'}`
-              : `⚠️ Payment failed: ${data.error || 'Go-Go-Pay gateway error'}`
+              ? `⚠️ পেমেন্ট সংযোগ ব্যর্থ: ${data?.error || 'Go-Go-Pay গেটওয়ে ত্রুটি'}`
+              : `⚠️ Payment failed: ${data?.error || 'Go-Go-Pay gateway error'}`
           );
+          return data;
         }
       } catch (err: any) {
         console.error('[Go-Go-Pay Deposit Error]', err);
@@ -888,10 +890,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             ? '⚠️ Go-Go-Pay গেটওয়ে সার্ভিসে সংযোগ করা যাচ্ছে না'
             : '⚠️ Failed to connect to Go-Go-Pay gateway'
         );
-      } finally {
-        setActiveSubModal(null);
       }
-      return;
+      return null;
     }
 
     // 3. CHANNEL 1: NEKPAY GATEWAY
@@ -1012,12 +1012,14 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               }
             }, 3000);
           }
+          return data;
         } else {
           showToast(
             currentLang === 'bn'
-              ? `⚠️ পেমেন্ট সংযোগ ব্যর্থ: ${data.error || 'Nekpay গেটওয়ে ত্রুটি'}`
-              : `⚠️ Payment failed: ${data.error || 'Nekpay gateway error'}`
+              ? `⚠️ পেমেন্ট সংযোগ ব্যর্থ: ${data?.error || 'Nekpay গেটওয়ে ত্রুটি'}`
+              : `⚠️ Payment failed: ${data?.error || 'Nekpay gateway error'}`
           );
+          return data;
         }
       } catch (err: any) {
         console.error('[Nekpay Deposit Error]', err);
@@ -1026,10 +1028,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             ? '⚠️ গেটওয়ে সার্ভিসে সংযোগ করা যাচ্ছে না'
             : '⚠️ Failed to connect to payment gateway'
         );
-      } finally {
-        setActiveSubModal(null);
       }
-      return;
+      return null;
     }
 
     // 4. CHANNEL 2: WATCHPAY GATEWAY
@@ -1151,12 +1151,14 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             }
           }, 3000);
         }
+        return data;
       } else {
         showToast(
           currentLang === 'bn'
             ? `⚠️ পেমেন্ট সংযোগ ব্যর্থ: ${data?.message || data?.error || 'WatchPay গেটওয়ে ত্রুটি'}`
             : `⚠️ Payment failed: ${data?.message || data?.error || 'WatchPay gateway error'}`
         );
+        return data;
       }
     } catch (err: any) {
       console.error('[WatchPay Deposit Error]', err);
@@ -1165,9 +1167,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           ? '⚠️ WatchPay গেটওয়ে সার্ভিসে সংযোগ করা যাচ্ছে না'
           : '⚠️ Failed to connect to WatchPay gateway'
       );
-    } finally {
-      setActiveSubModal(null);
     }
+    return null;
   };
 
   // Check URL parameters for payment callback/return results (Go-Go-Pay, Nekpay, OKExPay)

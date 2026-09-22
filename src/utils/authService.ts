@@ -10,6 +10,7 @@ import {
   findEmailByPhone,
   findPhoneByEmail,
   normalizePhone,
+  isPhoneAlreadyRegistered,
 } from '../lib/firebase';
 import { registerUserInReferralNetwork } from './referralService';
 import {
@@ -501,6 +502,25 @@ export const signInWithFirebase = async (
         }
       }
 
+      // Fast check from server-side registry (persistent & sub-20ms)
+      if (!foundEmailFromPhone && last10) {
+        try {
+          const srvRes = await fetch(`/api/auth/phone-to-email?phone=${encodeURIComponent(last10)}`, {
+            signal: AbortSignal.timeout(2000),
+          });
+          if (srvRes.ok) {
+            const srvData = await srvRes.json();
+            if (srvData && srvData.found && srvData.email) {
+              foundEmailFromPhone = srvData.email;
+              emailCandidates.unshift(srvData.email.toLowerCase());
+              emailCandidates.unshift(srvData.email);
+            }
+          }
+        } catch {
+          // continue
+        }
+      }
+
       // Add canonical phone-to-email patterns immediately in priority order
       if (last10 && last10.length === 10) {
         emailCandidates.push(`880${last10}@novavest.local`);
@@ -516,12 +536,12 @@ export const signInWithFirebase = async (
 
       emailCandidates.push(`${rawInput.trim()}@novavest.local`);
 
-      // Parallel background lookup only if not already found locally (bounded by 1000ms max)
+      // Firestore lookup with generous 3500ms timeout
       if (!foundEmailFromPhone) {
         try {
           const remoteFound = await Promise.race([
             findEmailByPhone(rawInput),
-            new Promise<null>((res) => setTimeout(() => res(null), 1000)),
+            new Promise<null>((res) => setTimeout(() => res(null), 3500)),
           ]);
           if (remoteFound) {
             foundEmailFromPhone = remoteFound;
@@ -560,15 +580,28 @@ export const signInWithFirebase = async (
     }
 
     if (!cred) {
-      // If user typed a phone number and no matching user account was found in Firestore or Auth
-      if (phoneLookupDone && !foundEmailFromPhone && lastAuthErr?.code === 'auth/invalid-credential') {
-        return {
-          success: false,
-          error:
-            lang === 'bn'
-              ? 'এই ফোন নম্বরে কোনো অ্যাকাউন্ট পাওয়া যায়নি। সঠিক নম্বর দিন অথবা নতুন অ্যাকাউন্ট তৈরি করুন।'
-              : 'No account found for this phone number. Please check the number or sign up.',
-        };
+      // If user typed a phone number, check whether the phone actually exists
+      if (phoneLookupDone && lastAuthErr?.code === 'auth/invalid-credential') {
+        const phoneCheck = await isPhoneAlreadyRegistered(rawInput);
+        if (phoneCheck.registered || foundEmailFromPhone) {
+          // Phone exists, password was wrong
+          return {
+            success: false,
+            error:
+              lang === 'bn'
+                ? 'পাসওয়ার্ডটি সঠিক নয়। অনুগ্রহ করে সঠিক পাসওয়ার্ড দিন অথবা "পাসওয়ার্ড ভুলে গেছেন" ব্যবহার করুন।'
+                : 'Incorrect password. Please enter the correct password or reset your password.',
+          };
+        } else {
+          // Phone really doesn't exist
+          return {
+            success: false,
+            error:
+              lang === 'bn'
+                ? 'এই ফোন নম্বরে কোনো অ্যাকাউন্ট পাওয়া যায়নি। সঠিক নম্বর দিন অথবা নতুন অ্যাকাউন্ট তৈরি করুন।'
+                : 'No account found for this phone number. Please check the number or sign up.',
+          };
+        }
       }
       throw lastAuthErr;
     }
@@ -720,6 +753,21 @@ export const registerWithFirebase = async (
 
     // 3. Persist and register locally first
     persistAuthUser(newUser);
+
+    // Register phone in persistent server registry
+    try {
+      fetch('/api/auth/register-phone', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phone: data.phone.trim(),
+          last10,
+          uid: cred.user.uid,
+          email: finalEmail,
+          memberId: generatedMemberId,
+        }),
+      }).catch(() => {});
+    } catch {}
 
     try {
       await registerUserInReferralNetwork(

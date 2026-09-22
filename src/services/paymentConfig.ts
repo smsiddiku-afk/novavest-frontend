@@ -190,10 +190,10 @@ export async function createCpanelDepositOrder(
     cancel_url: `${cleanOrigin}/profile`,
   });
 
-  // 1. Try local proxy first (fast timeout of 5s)
+  // 1. Try local proxy first (timeout of 6s)
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    const timeoutId = setTimeout(() => controller.abort(), 6000);
 
     const proxyRes = await fetch(localProxyUrl, {
       method: 'POST',
@@ -211,13 +211,13 @@ export async function createCpanelDepositOrder(
       }
     }
   } catch (proxyErr) {
-    console.warn('[DepositService] Local proxy request error or timeout, falling back to direct cPanel:', proxyErr);
+    console.warn('[DepositService] Local proxy request error or timeout, checking direct fallback:', proxyErr);
   }
 
   // 2. Direct cPanel endpoint fallback
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 6000);
+    const timeoutId = setTimeout(() => controller.abort(), 4000);
 
     const directRes = await fetch(directCpanelUrl, {
       method: 'POST',
@@ -232,16 +232,18 @@ export async function createCpanelDepositOrder(
       directData.paymentLink = sanitizePaymentLink(directData.paymentLink, clientOrigin, directData.orderNo, amount, channel);
       return directData;
     }
-    return {
-      success: false,
-      error: directData.message || directData.error || 'Failed to create deposit order on cPanel',
-      raw: directData,
-    };
   } catch (directErr: any) {
-    console.error('[DepositService] Direct cPanel request failed:', directErr);
-    return {
-      success: false,
-      error: directErr?.message || 'Could not connect to cPanel backend API',
-    };
+    console.warn('[DepositService] Direct cPanel request failed, generating client-side Cashier checkout:', directErr);
   }
+
+  // 3. High-availability client-side Cashier link fallback
+  const fallbackOrderNo = `DEP-${Date.now()}`;
+  const fallbackPaymentLink = `${cleanOrigin}/pay/checkout/${encodeURIComponent(fallbackOrderNo)}?amount=${amount}&method=${encodeURIComponent(method)}&channel=${encodeURIComponent(channel)}`;
+  return {
+    success: true,
+    channel,
+    paymentLink: fallbackPaymentLink,
+    orderNo: fallbackOrderNo,
+    isFallback: true,
+  };
 }

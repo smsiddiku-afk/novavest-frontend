@@ -22,6 +22,7 @@ export default function AdminPanel() {
   const [activeTab, setActiveTab] = useState("deposits");
 
   const [users, setUsers] = useState([]);
+  const [userSearchQuery, setUserSearchQuery] = useState(""); // ইউজার সার্চ স্টেট
   const [withdrawals, setWithdrawals] = useState([]);
   const [deposits, setDeposits] = useState([]);
   const [packages, setPackages] = useState([]);
@@ -351,7 +352,6 @@ export default function AdminPanel() {
         }, { merge: true });
       }
 
-      // Synchronize with user's transactions and balance in Firestore
       const cleanUId = cleanDocId(userId, '');
       if (cleanUId) {
         await updateFirestoreDepositStatus(
@@ -372,7 +372,6 @@ export default function AdminPanel() {
         }
       }
 
-      // Also notify backend server so any live polling updates instantly
       try {
         if (isApprove) {
           await fetch('/api/payments/gateway-callback', {
@@ -439,6 +438,16 @@ export default function AdminPanel() {
       setStatusMsg("❌ অ্যামাউন্ট আপডেট করা যায়নি।");
     }
   };
+
+  // ইউজার ফিল্টার বা সার্চ করার জন্য লজিক
+  const filteredUsers = users.filter((u) => {
+    const queryStr = userSearchQuery.toLowerCase();
+    const name = (u.name || "").toLowerCase();
+    const phone = (u.phone || "").toLowerCase();
+    const email = (u.email || "").toLowerCase();
+    const id = (u.id || "").toLowerCase();
+    return name.includes(queryStr) || phone.includes(queryStr) || email.includes(queryStr) || id.includes(queryStr);
+  });
 
   if (!isAuthenticated) {
     return (
@@ -1153,7 +1162,7 @@ export default function AdminPanel() {
           </div>
         )}
 
-        {/* ৪. সাপোর্ট লিংক ও Crisp লাইভ চ্যাট ট্যাব */}
+        {/* ৫. সাপোর্ট লিংক ও Crisp লাইভ চ্যাট ট্যাব */}
         {activeTab === "support" && (
           <div style={{ maxWidth: "580px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "15px", borderBottom: "1px solid #2e3856", paddingBottom: "10px" }}>
@@ -1220,24 +1229,54 @@ export default function AdminPanel() {
           </div>
         )}
 
-        {/* ৫. ইউজার ও নেটওয়ার্ক ট্যাব */}
+        {/* ৬. ইউজার ও নেটওয়ার্ক ট্যাব (সার্চ অপশন সহ) */}
         {activeTab === "users" && (
           <div>
-            <h3>👥 User Network & Referrals</h3>
-            {loading ? <p>লোড হচ্ছে...</p> : (
-              <ul style={{ listStyle: "none", padding: 0, margin: "15px 0 0 0", maxHeight: "400px", overflowY: "auto" }}>
-                {users.map((u) => (
-                  <li key={u.id} style={{ padding: "12px", borderBottom: "1px solid #2e3856", fontSize: "14px" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between" }}>
-                      <strong style={{ color: "#00d2ff" }}>{u.name || u.phone || u.email || "User"}</strong>
-                      <span>৳ {u.walletBalance ?? u.balance ?? 0}</span>
-                    </div>
-                    <div style={{ fontSize: "12px", color: "#facc15", marginTop: "4px" }}>
-                      রেফার করেছে / কার নিচে: {u.referredBy || u.upliner || u.sponsor || "কেউ না (Direct)"}
-                    </div>
-                  </li>
-                ))}
-              </ul>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px", marginBottom: "15px" }}>
+              <h3 style={{ margin: 0 }}>👥 User Network & Search</h3>
+              <input
+                type="text"
+                placeholder="🔍 নাম, ফোন বা আইডি দিয়ে সার্চ করুন..."
+                value={userSearchQuery}
+                onChange={(e) => setUserSearchQuery(e.target.value)}
+                style={{ padding: "8px 12px", borderRadius: "6px", border: "1px solid #3b476c", backgroundColor: "#0b0f19", color: "#fff", width: "260px", fontSize: "13px" }}
+              />
+            </div>
+
+            {loading ? <p>লোড হচ্ছে...</p> : filteredUsers.length === 0 ? (
+              <p style={{ color: "#94a3b8", textAlign: "center", padding: "20px" }}>কোনো ইউজার পাওয়া যায়নি।</p>
+            ) : (
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "14px" }}>
+                  <thead>
+                    <tr style={{ borderBottom: "1px solid #2e3856", color: "#94a3b8" }}>
+                      <th style={{ padding: "10px" }}>নাম / ফোন</th>
+                      <th style={{ padding: "10px" }}>ব্যালেন্স</th>
+                      <th style={{ padding: "10px" }}>রেফার / আপলাইনার</th>
+                      <th style={{ padding: "10px" }}>ইউজার আইডি</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredUsers.map((u) => (
+                      <tr key={u.id} style={{ borderBottom: "1px solid #1e293b" }}>
+                        <td style={{ padding: "10px" }}>
+                          <div style={{ fontWeight: "bold", color: "#00d2ff" }}>{u.name || "N/A"}</div>
+                          <div style={{ fontSize: "12px", color: "#94a3b8" }}>{u.phone || u.email || "N/A"}</div>
+                        </td>
+                        <td style={{ padding: "10px", color: "#22c55e", fontWeight: "bold" }}>
+                          ৳ {u.walletBalance ?? u.balance ?? 0}
+                        </td>
+                        <td style={{ padding: "10px", color: "#facc15", fontSize: "13px" }}>
+                          {u.referredBy || u.upliner || u.sponsor || "কেউ না (Direct)"}
+                        </td>
+                        <td style={{ padding: "10px", fontSize: "12px", fontFamily: "monospace", color: "#94a3b8" }}>
+                          {u.id}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
         )}

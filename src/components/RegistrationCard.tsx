@@ -322,7 +322,7 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
             type="button"
             id="tab-sign-in"
             onClick={onSwitchToLogin}
-            className="relative pb-1 text-base sm:text-lg font-medium text-emerald-100/60 hover:text-emerald-200 transition-colors"
+            className="relative pb-1 text-base sm:text-lg font-medium text-emerald-100/60 hover:text-emerald-200 transition-colors cursor-pointer py-1 select-none"
           >
             {t.signIn}
           </button>
@@ -696,6 +696,21 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
               <span>{t.registerBtn}</span>
             )}
           </button>
+        </div>
+
+        {/* Bottom Link: Already have an account? Sign in */}
+        <div className="text-center pt-2">
+          <p className="text-xs sm:text-sm text-emerald-200/70">
+            {lang === 'bn' ? 'ইতিমধ্যে একটি অ্যাকাউন্ট আছে? ' : 'Already have an account? '}
+            <button
+              type="button"
+              id="switch-to-login-btn-bottom"
+              onClick={onSwitchToLogin}
+              className="font-bold text-emerald-400 hover:text-emerald-300 underline underline-offset-4 cursor-pointer transition-colors"
+            >
+              {lang === 'bn' ? 'সাইন ইন করুন' : 'Sign In'}
+            </button>
+          </p>
         </div>
       </form>
     </div>

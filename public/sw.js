@@ -1,4 +1,4 @@
-const CACHE_NAME = 'nvt-energy-v2.4.2';
+const CACHE_NAME = 'nvt-energy-v3.0.0';
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();
@@ -8,11 +8,7 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) => {
       return Promise.all(
-        keys.map((key) => {
-          if (key !== CACHE_NAME) {
-            return caches.delete(key);
-          }
-        })
+        keys.map((key) => caches.delete(key))
       );
     })
   );

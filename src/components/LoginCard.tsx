@@ -404,6 +404,21 @@ export const LoginCard: React.FC<LoginCardProps> = ({
             )}
           </button>
         </div>
+
+        {/* Bottom Link: Don't have an account? Sign Up */}
+        <div className="text-center pt-2">
+          <p className="text-xs sm:text-sm text-emerald-200/70">
+            {lang === 'bn' ? 'অ্যাকাউন্ট নেই? ' : "Don't have an account? "}
+            <button
+              type="button"
+              id="switch-to-register-btn-bottom"
+              onClick={onSwitchToRegister}
+              className="font-bold text-emerald-400 hover:text-emerald-300 underline underline-offset-4 cursor-pointer transition-colors"
+            >
+              {lang === 'bn' ? 'নতুন অ্যাকাউন্ট খুলুন' : 'Sign Up'}
+            </button>
+          </p>
+        </div>
       </form>
 
       {showForgotModal && (

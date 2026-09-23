@@ -49,8 +49,10 @@ export default function App() {
     const isStoredAuth = !!getPersistedAuthUser();
 
     if (!isStoredAuth) {
+      if (initial === '/login') return '/login';
+      if (initial === '/register') return '/register';
       const pendingCode = extractPendingReferralCode();
-      if (initial === '/register' || pendingCode) return '/register';
+      if (pendingCode) return '/register';
       return '/login';
     } else {
       const search = typeof window !== 'undefined' ? window.location.search : '';
@@ -154,13 +156,14 @@ export default function App() {
     if (currentPath === '/admin') return;
 
     if (!authUser) {
-      const pendingRef = extractPendingReferralCode();
-      if (pendingRef && currentPath !== '/register') {
-        navigate('/register', true);
-        return;
-      }
+      // If user is accessing /login or /register, let them stay on their chosen page
       if (currentPath !== '/login' && currentPath !== '/register') {
-        navigate('/login', true);
+        const pendingRef = extractPendingReferralCode();
+        if (pendingRef) {
+          navigate('/register', true);
+        } else {
+          navigate('/login', true);
+        }
       }
     } else {
       const search = typeof window !== 'undefined' ? window.location.search : '';

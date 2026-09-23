@@ -67,10 +67,30 @@ export interface ReferralTreeSummary {
 }
 
 export const TIER_COMMISSION_RATES: Record<1 | 2 | 3, number> = {
-  1: 0.07, // 7% for Tier 1
+  1: 0.06, // 6% for Tier 1
   2: 0.03, // 3% for Tier 2
   3: 0.01, // 1% for Tier 3
 };
+
+export async function loadCommissionRatesFromFirestore(): Promise<void> {
+  try {
+    const { doc, getDoc } = await import('firebase/firestore');
+    const ref = doc(db, 'settings', 'commissionRates');
+    const snap = await getDoc(ref);
+    if (snap.exists()) {
+      const data = snap.data() as { tier1?: number; tier2?: number; tier3?: number };
+      if (typeof data.tier1 === 'number') TIER_COMMISSION_RATES[1] = data.tier1;
+      if (typeof data.tier2 === 'number') TIER_COMMISSION_RATES[2] = data.tier2;
+      if (typeof data.tier3 === 'number') TIER_COMMISSION_RATES[3] = data.tier3;
+    }
+  } catch (err) {
+    console.warn('[ReferralService] loadCommissionRatesFromFirestore error:', err);
+  }
+}
+
+if (typeof window !== 'undefined') {
+  loadCommissionRatesFromFirestore().catch(() => {});
+}
 
 export const STORAGE_KEY_REWARDS = 'referral_cash_rewards';
 export const STORAGE_KEY_ACCOUNTS = 'novavest_registered_accounts';

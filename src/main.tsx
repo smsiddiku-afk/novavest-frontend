@@ -3,12 +3,14 @@ import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
 
-// Register PWA service worker if supported
-if ('serviceWorker' in navigator && process.env.NODE_ENV === 'production') {
+// Ensure stale service workers and old caches are cleaned up immediately
+if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(() => {
-      // ignore
-    });
+    navigator.serviceWorker.getRegistrations().then((registrations) => {
+      for (const reg of registrations) {
+        reg.update().catch(() => {});
+      }
+    }).catch(() => {});
   });
 }
 

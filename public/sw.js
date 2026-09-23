@@ -1,4 +1,4 @@
-const CACHE_NAME = 'nvt-energy-v3.0.0';
+const CACHE_NAME = 'nvt-energy-v3.0.1';
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();
@@ -16,9 +16,7 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  // Let network handle dynamic requests, fallback gracefully
+  // Always fetch fresh content directly from network
   if (event.request.method !== 'GET') return;
-  event.respondWith(
-    fetch(event.request).catch(() => caches.match(event.request))
-  );
+  event.respondWith(fetch(event.request));
 });

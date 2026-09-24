@@ -66,15 +66,15 @@ export const AppDownloadModal: React.FC<AppDownloadModalProps> = ({
           <div>
             <h1 className="text-base sm:text-lg font-bold text-white tracking-wide flex items-center gap-2">
               <Smartphone className="w-5 h-5 text-emerald-400" />
-              <span>{isBn ? 'NVT এনার্জি মোবাইল অ্যাপ ডাউনলোড' : 'NVT Energy Mobile App Download'}</span>
+              <span>App Download</span>
             </h1>
             <p className="text-[11px] text-emerald-300/80">
-              {isBn ? 'অফিসিয়াল অ্যান্ড্রয়েড APK ফাইল সরাসরি ডাউনলোড' : 'Official Android APK Package Direct Download'}
+              {isBn ? 'অফিসিয়াল মোবাইল অ্যাপ সরাসরি ডাউনলোড' : 'Official Mobile App Download'}
             </p>
           </div>
         </div>
         <span className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-bold font-mono">
-          v2.4.2 APK
+          v2.4.2
         </span>
       </header>
 
@@ -128,13 +128,9 @@ export const AppDownloadModal: React.FC<AppDownloadModalProps> = ({
           >
             <Download className="w-5 h-5 text-slate-950 stroke-[2.5]" />
             <span>
-              {isBn
-                ? downloadCount > 1
-                  ? 'পুনরায় APK ডাউনলোড করুন'
-                  : 'ডাউনলোড APK (সরাসরি ডাউনলোড)'
-                : downloadCount > 1
-                ? 'Download APK Again'
-                : 'Download APK Now'}
+              {downloadCount > 1
+                ? (isBn ? 'পুনরায় ডাউনলোড করুন' : 'Download Again')
+                : (isBn ? 'App Download' : 'App Download')}
             </span>
           </button>
 

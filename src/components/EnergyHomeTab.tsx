@@ -67,7 +67,6 @@ import {
 } from '../utils/translations';
 import { HowPowerGridWorksSection } from './HowPowerGridWorksSection';
 import { CompanyProfileModal } from './CompanyProfileModal';
-import { GlobalTvNewsBroadcast } from './GlobalTvNewsBroadcast';
 import { resolveImageSrc, handleImageError } from '../utils/imageUtils';
 import { openCrispChat } from '../utils/crispService';
 import { downloadNvtApk } from '../utils/appDownloader';
@@ -720,10 +719,9 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
       </div>
 
       {/* ───────────────────────────────────────────────────────────
-          2. SLIDING HERO BANNER (Matching Screenshot Exactly)
-          "উপরে ব্যানার গুলা যেরকম দিছি অইরকম ভাবে স্লাইড হবে"
+          2. SLIDING HERO BANNER (Only pure banner images, no text)
       ─────────────────────────────────────────────────────────── */}
-      <div className="relative w-full overflow-hidden rounded-2xl shadow-xl bg-[#001228] min-h-[220px] sm:min-h-[240px] border border-cyan-500/20">
+      <div className="relative w-full overflow-hidden rounded-2xl shadow-xl bg-[#001228] aspect-[21/9] sm:aspect-[16/7] min-h-[160px] sm:min-h-[190px] border border-cyan-500/20">
         {heroSlides.map((slide, idx) => (
           <div
             key={slide.id}
@@ -731,11 +729,11 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
               activeSlide === idx ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'
             }`}
           >
-            {/* Background Image of Green Energy Systems */}
+            {/* Pure Banner Image without text */}
             <img
               src={resolveImageSrc(slide.image, 'offshore')}
-              alt={slide.title1}
-              className="w-full h-full object-cover object-right"
+              alt="NVT Clean Energy Banner"
+              className="w-full h-full object-cover object-center"
               referrerPolicy="no-referrer"
               onError={(e) => {
                 const target = e.currentTarget;
@@ -746,37 +744,11 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
                 }
               }}
             />
-
-            {/* Dark gradient overlay on left half for pristine text contrast */}
-            <div className="absolute inset-0 bg-gradient-to-r from-[#001228] via-[#001228]/85 to-transparent/30 sm:to-transparent" />
-
-            {/* Banner Text Overlaid matching screenshot */}
-            <div className="absolute inset-0 p-4 sm:p-5 flex flex-col justify-between max-w-[85%] sm:max-w-[70%] z-10">
-              <div className="space-y-1 sm:space-y-1.5">
-                <span className="text-[11px] sm:text-xs font-extrabold text-[#00e676] tracking-wide block">
-                  {slide.tag}
-                </span>
-                <h1 className="text-lg sm:text-xl md:text-2xl font-black text-white leading-tight">
-                  {slide.title1} <br />
-                  <span className="text-[#00e676]">{slide.title2}</span>
-                </h1>
-                <p className="text-[11px] sm:text-xs text-slate-200 line-clamp-3 leading-relaxed mt-1">
-                  {slide.desc}
-                </p>
-              </div>
-
-              {/* Bottom pill badge */}
-              <div className="pt-2">
-                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#00e676]/15 border border-[#00e676]/40 text-[#00e676] text-[11px] font-bold shadow-xs">
-                  {slide.badge}
-                </span>
-              </div>
-            </div>
           </div>
         ))}
 
         {/* Carousel Pagination Dots at Bottom Center */}
-        <div className="absolute bottom-2.5 right-4 z-20 flex items-center gap-1.5 pointer-events-auto">
+        <div className="absolute bottom-2.5 inset-x-0 z-20 flex items-center justify-center gap-1.5 pointer-events-auto">
           {heroSlides.map((_, dotIdx) => (
             <button
               key={dotIdx}
@@ -784,8 +756,8 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
               onClick={() => setActiveSlide(dotIdx)}
               className={`h-1.5 transition-all duration-300 cursor-pointer ${
                 activeSlide === dotIdx
-                  ? 'w-6 rounded-full bg-[#00e676] shadow-md'
-                  : 'w-1.5 rounded-full bg-white/40 hover:bg-white/80'
+                  ? 'w-6 rounded-full bg-[#00e676] shadow-md shadow-emerald-500/50'
+                  : 'w-1.5 rounded-full bg-white/50 hover:bg-white/90'
               }`}
               aria-label={`Go to slide ${dotIdx + 1}`}
             />
@@ -1220,11 +1192,6 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
       </div>
 
       {/* ───────────────────────────────────────────────────────────
-          GLOBAL TV SPECIAL NEWS BROADCAST (ভয়েস ও রিয়েল নিউজ উপস্থাপনা)
-      ─────────────────────────────────────────────────────────── */}
-      <GlobalTvNewsBroadcast lang={lang} themeMode={themeMode} />
-
-      {/* ───────────────────────────────────────────────────────────
           6.1 HOW THE POWER GRID WORKS (কিভাবে পাওয়ার গ্রিড কাজ করে)
           (Borderless, matching screenshot's warm palette, filling the page nicely)
       ─────────────────────────────────────────────────────────── */}
@@ -1484,17 +1451,12 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
                   onClick={() => {
                     setIsDrawerOpen(false);
                     downloadNvtApk();
-                    showToast(lang === 'bn' ? 'NVT Energy APK ডাউনলোড শুরু হয়েছে...' : 'Downloading NVT Energy APK...');
+                    showToast(lang === 'bn' ? 'অ্যাপ ডাউনলোড শুরু হয়েছে...' : 'Downloading App...');
                   }}
-                  className="w-full p-2.5 rounded-xl hover:bg-slate-800/80 text-slate-200 hover:text-emerald-300 flex items-center justify-between transition-colors text-left cursor-pointer"
+                  className="w-full p-2.5 rounded-xl hover:bg-slate-800/80 text-slate-200 hover:text-emerald-300 flex items-center gap-3 transition-colors text-left cursor-pointer"
                 >
-                  <div className="flex items-center gap-3">
-                    <Smartphone className="w-4 h-4 text-emerald-400" />
-                    <span>{lang === 'bn' ? 'মোবাইল অ্যাপ ডাউনলোড' : 'Download Mobile App'}</span>
-                  </div>
-                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-mono">
-                    APK
-                  </span>
+                  <Smartphone className="w-4 h-4 text-emerald-400" />
+                  <span>App Download</span>
                 </button>
 
                 <button

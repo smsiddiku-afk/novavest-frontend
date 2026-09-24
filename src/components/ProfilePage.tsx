@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { scrollAppToTop } from '../utils/scrollHelper';
 import {
   ArrowLeft,
@@ -78,10 +78,11 @@ import { UserProfile, Language } from '../types';
 import { ENERGY_PACKAGES_7 } from '../data/energyPackages';
 import { translations } from '../utils/translations';
 import { persistAuthUser, isSameUser } from '../utils/authService';
-import { distributeReferralDepositCommissions } from '../utils/referralService';
+import { distributeReferralDepositCommissions, getReferralTreeForUser } from '../utils/referralService';
 import { createCpanelDepositOrder, sendDepositToCpanel } from '../services/paymentConfig';
 import {
   recordFirestoreDeposit,
+  recordFirestoreWithdrawal,
   updateFirestoreDepositStatus,
   isValidRealTrxId,
   getFirestoreUserTransactions,
@@ -323,6 +324,48 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     initialUser?.transactions?.length,
   ]);
 
+  // ─────────────────────────────────────────────────────────────
+  // REFERRAL 3-LEVEL TREE & VIP 1 PROMOTION CONDITION
+  // Rule: "vip1 তখনি শো হবে যখন প্রমোশন অপশন থেকে ৩ জন লেভেলে একটিভ থাকবে"
+  // ─────────────────────────────────────────────────────────────
+  const [referralRefreshTick, setReferralRefreshTick] = useState(0);
+  const [liveAccounts, setLiveAccounts] = useState<Record<string, any>>(() => {
+    try {
+      const raw = localStorage.getItem('novavest_registered_accounts');
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  useEffect(() => {
+    const handleReferralUpdate = () => {
+      try {
+        const raw = localStorage.getItem('novavest_registered_accounts');
+        if (raw) setLiveAccounts(JSON.parse(raw));
+      } catch {}
+      setReferralRefreshTick((t) => t + 1);
+    };
+
+    window.addEventListener('referral_rewards_updated', handleReferralUpdate);
+    window.addEventListener('storage', handleReferralUpdate);
+
+    return () => {
+      window.removeEventListener('referral_rewards_updated', handleReferralUpdate);
+      window.removeEventListener('storage', handleReferralUpdate);
+    };
+  }, []);
+
+  const referralTree = useMemo(() => {
+    const code = user.referralCode || user.memberId || 'NV8829';
+    return getReferralTreeForUser(code, user.memberId, liveAccounts);
+  }, [user.referralCode, user.memberId, liveAccounts, referralRefreshTick]);
+
+  // VIP1 Condition: "vip1 তখনি শো হবে যখন প্রমোশন অপশন থেকে ৩ জন লেভেলে একটিভ থাকবে"
+  const totalActiveMembersInLevels = referralTree.totalActiveCount || 0;
+  const isVip1Unlocked = totalActiveMembersInLevels >= 3;
+  const computedVipLevel = isVip1Unlocked ? Math.max(user.vipLevel || 1, 1) : 0;
+
   // Auto-check and recover any pending gateway deposit (WatchPay / Nekpay) when returning to the app
   useEffect(() => {
     const checkPendingGatewayDeposit = async () => {
@@ -414,7 +457,6 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     | 'wallet'
     | 'edit'
     | 'authenticator'
-    | 'townHall'
     | 'recharge'
     | 'withdraw'
     | 'companyInfo'
@@ -1461,9 +1503,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     }
   };
 
-  // Daily Town Hall state
-  const [isTownHallReminderSet, setIsTownHallReminderSet] = useState(false);
-  const [isTownHallJoined, setIsTownHallJoined] = useState(false);
+
 
   const handleClaimDailyBonus = () => {
     if (hasClaimedBonus) {
@@ -2039,7 +2079,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
         {currentTab === 'invest' && (
           <InvestTabContent
             userBalance={user.walletBalance}
-            userVipLevel={user.vipLevel || 0}
+            userVipLevel={computedVipLevel}
             userInvestments={user.activeInvestments || []}
             currentLang={currentLang}
             themeMode={themeMode}
@@ -2357,14 +2397,38 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
                 {/* Right: VIP Badge - shows VIP 0 until VIP 1 is reached */}
                 <div className="flex items-center gap-1.5 shrink-0">
-                  <div className={`flex items-center gap-1.5 px-3 py-1 rounded-full border text-xs sm:text-sm font-bold shadow-md backdrop-blur-xs ${
-                    (user.vipLevel ?? 0) >= 1
-                      ? 'bg-black/55 border-amber-400/50 text-white'
-                      : 'bg-black/45 border-emerald-500/30 text-emerald-100'
-                  }`}>
-                    <Crown className={`w-4 h-4 ${(user.vipLevel ?? 0) >= 1 ? 'text-amber-400 fill-amber-400' : 'text-slate-300 fill-slate-300'}`} />
-                    <span>VIP {user.vipLevel ?? 0}</span>
-                  </div>
+                  <button
+                    type="button"
+                    id="profile-vip-status-btn"
+                    onClick={() => {
+                      if (computedVipLevel >= 1) {
+                        showToast(
+                          currentLang === 'bn'
+                            ? 'VIP 1 সক্রিয়! প্রমোশন থেকে ৩ জন সক্রিয় সদস্য যুক্ত রয়েছে।'
+                            : 'VIP 1 Active! 3 active members reached in promotion.'
+                        );
+                      } else {
+                        showToast(
+                          currentLang === 'bn'
+                            ? `VIP 1 সক্রিয় করতে প্রমোশন লেভেলে ৩ জন সক্রিয় সদস্য প্রয়োজন (${totalActiveMembersInLevels}/৩ জন সক্রিয়)`
+                            : `VIP 1 requires 3 active members in promotion levels (${totalActiveMembersInLevels}/3 active)`
+                        );
+                      }
+                    }}
+                    className={`flex items-center gap-1.5 px-3 py-1 rounded-full border text-xs sm:text-sm font-bold shadow-md backdrop-blur-xs cursor-pointer transition-all active:scale-95 ${
+                      computedVipLevel >= 1
+                        ? 'bg-gradient-to-r from-black/80 to-amber-950/60 border-amber-400 text-amber-300 shadow-amber-500/20'
+                        : 'bg-black/45 border-emerald-500/30 text-emerald-100 hover:border-emerald-400/50'
+                    }`}
+                    title={
+                      computedVipLevel >= 1
+                        ? (currentLang === 'bn' ? "VIP 1 আনলক ও সক্রিয়" : "VIP 1 Active")
+                        : (currentLang === 'bn' ? "VIP 1 আনলক করতে প্রমোশন অপশন থেকে ৩ জন লেভেলে সক্রিয় সদস্য প্রয়োজন" : "Requires 3 active members in promotion levels")
+                    }
+                  >
+                    <Crown className={`w-4 h-4 ${computedVipLevel >= 1 ? 'text-amber-400 fill-amber-400 animate-pulse' : 'text-slate-400'}`} />
+                    <span>VIP {computedVipLevel}</span>
+                  </button>
                   <button
                     type="button"
                     onClick={() => setActiveSubModal('edit')}
@@ -2598,37 +2662,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 </div>
               </button>
 
-              {/* 4. Daily Town Hall */}
-              <button
-                id="profile-daily-town-hall-btn"
-                type="button"
-                onClick={() => setActiveSubModal('townHall')}
-                className={`w-full px-4 sm:px-5 py-3.5 flex items-center justify-between transition-colors cursor-pointer text-left group ${
-                  themeMode === 'day' ? 'hover:bg-slate-50' : 'hover:bg-emerald-500/10'
-                }`}
-              >
-                <div className="flex items-center gap-3.5">
-                  <div className="w-9 h-9 rounded-full bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center text-emerald-400 group-hover:scale-105 transition-transform shrink-0">
-                    <Mic className="w-4.5 h-4.5" />
-                  </div>
-                  <span className={`text-[15px] font-semibold tracking-tight transition-colors ${
-                    themeMode === 'day' ? 'text-slate-800 group-hover:text-emerald-600' : 'text-slate-100 group-hover:text-emerald-300'
-                  }`}>
-                    {currentLang === 'bn' ? 'দৈনিক টাউন হল' : 'Daily Town Hall'}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
-                    <Clock className="w-3 h-3 text-emerald-400" />
-                    <span>8:30 PM</span>
-                  </span>
-                  <ChevronRight className={`w-4.5 h-4.5 transition-colors ${
-                    themeMode === 'day' ? 'text-slate-400 group-hover:text-slate-700' : 'text-slate-500 group-hover:text-emerald-300'
-                  }`} />
-                </div>
-              </button>
-
-              {/* 5. Payment Methods (Add Wallet) */}
+              {/* 4. Payment Methods */}
               <button
                 id="profile-payment-methods-btn"
                 type="button"
@@ -2644,7 +2678,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                   <span className={`text-[15px] font-semibold tracking-tight transition-colors ${
                     themeMode === 'day' ? 'text-slate-800 group-hover:text-emerald-600' : 'text-slate-100 group-hover:text-emerald-300'
                   }`}>
-                    {currentLang === 'bn' ? 'পেমেন্ট মেথড (Add Wallet)' : 'Payment Methods (Add Wallet)'}
+                    {currentLang === 'bn' ? 'পেমেন্ট মেথড' : 'Payment Methods'}
                   </span>
                 </div>
                 <ChevronRight className={`w-4.5 h-4.5 transition-colors ${
@@ -2675,7 +2709,48 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 }`} />
               </button>
 
-              {/* 7. Official Mobile App (Direct Install / APK) */}
+              {/* 7. 3-Level Referral Checker */}
+              <button
+                id="profile-referral-tester-menu-btn"
+                type="button"
+                onClick={() => setIsReferralTesterModalOpen(true)}
+                className={`w-full px-4 sm:px-5 py-3.5 flex items-center justify-between transition-colors cursor-pointer text-left group ${
+                  themeMode === 'day' ? 'hover:bg-slate-50' : 'hover:bg-emerald-500/10'
+                }`}
+              >
+                <div className="flex items-center gap-3.5">
+                  <div className="w-9 h-9 rounded-full bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center text-emerald-400 group-hover:scale-105 transition-transform shrink-0">
+                    <Users className="w-4.5 h-4.5" />
+                  </div>
+                  <div>
+                    <span className={`text-[15px] font-semibold tracking-tight transition-colors block ${
+                      themeMode === 'day' ? 'text-slate-800 group-hover:text-emerald-600' : 'text-slate-100 group-hover:text-emerald-300'
+                    }`}>
+                      {currentLang === 'bn' ? '৩ লেভেল রেফার চেকার' : '3-Level Referral Checker'}
+                    </span>
+                    <span className="text-[11px] text-slate-400 block">
+                      {currentLang === 'bn'
+                        ? `সক্রিয় সদস্য: ${totalActiveMembersInLevels}/৩ | VIP 1 ${isVip1Unlocked ? 'সক্রিয়' : 'লক'}`
+                        : `Active: ${totalActiveMembersInLevels}/3 | VIP 1 ${isVip1Unlocked ? 'Active' : 'Locked'}`}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${
+                    isVip1Unlocked
+                      ? 'bg-amber-400/20 text-amber-300 border-amber-400/40 shadow-xs'
+                      : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/35'
+                  }`}>
+                    <Zap className="w-3 h-3" />
+                    <span>{isVip1Unlocked ? 'VIP 1' : `${totalActiveMembersInLevels}/3`}</span>
+                  </span>
+                  <ChevronRight className={`w-4.5 h-4.5 transition-colors ${
+                    themeMode === 'day' ? 'text-slate-400 group-hover:text-slate-700' : 'text-slate-500 group-hover:text-emerald-300'
+                  }`} />
+                </div>
+              </button>
+
+              {/* App Download */}
               <button
                 id="profile-app-download-button"
                 type="button"
@@ -2688,25 +2763,15 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                   <div className="w-9 h-9 rounded-full bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center text-emerald-400 group-hover:scale-105 transition-transform shrink-0">
                     <Smartphone className="w-4.5 h-4.5" />
                   </div>
-                  <div>
-                    <span className={`text-[15px] font-semibold tracking-tight transition-colors block ${
-                      themeMode === 'day' ? 'text-slate-800 group-hover:text-emerald-600' : 'text-slate-100 group-hover:text-emerald-300'
-                    }`}>
-                      {currentLang === 'bn' ? 'অফিসিয়াল মোবাইল অ্যাপ (APK)' : 'Official Mobile App (APK)'}
-                    </span>
-                    <span className="text-[11px] text-emerald-400 font-medium block">
-                      {currentLang === 'bn' ? 'ক্লিক করলেই সরাসরি APK ডাউনলোড' : 'Direct APK File Download'}
-                    </span>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                    APK v2.4.2
+                  <span className={`text-[15px] font-semibold tracking-tight transition-colors ${
+                    themeMode === 'day' ? 'text-slate-800 group-hover:text-emerald-600' : 'text-slate-100 group-hover:text-emerald-300'
+                  }`}>
+                    App Download
                   </span>
-                  <ChevronRight className={`w-4.5 h-4.5 transition-colors ${
-                    themeMode === 'day' ? 'text-slate-400 group-hover:text-slate-700' : 'text-slate-500 group-hover:text-emerald-300'
-                  }`} />
                 </div>
+                <ChevronRight className={`w-4.5 h-4.5 transition-colors ${
+                  themeMode === 'day' ? 'text-slate-400 group-hover:text-slate-700' : 'text-slate-500 group-hover:text-emerald-300'
+                }`} />
               </button>
 
               {/* 8. Company Profile & Architecture */}
@@ -3181,6 +3246,10 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           onClose={() => setActiveSubModal(null)}
           currentBalance={user.walletBalance}
           currentLang={currentLang}
+          isAuthenticatorSet={isAuthenticatorSet}
+          onOpenSecuritySettings={() => {
+            setActiveSubModal('security');
+          }}
           onProceed={async (amt, method, channel, manualDetails) => {
             return await handleInitiateDeposit(amt, method, channel, manualDetails);
           }}
@@ -3198,6 +3267,21 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           userName={user.fullName || user.name}
           onClose={() => setActiveSubModal(null)}
           onWithdrawSuccess={(amt, details) => {
+            const activeUid = auth.currentUser?.uid || user.memberId || 'USER1001';
+            // Sync withdrawal to Firestore database & admin panel
+            recordFirestoreWithdrawal({
+              uid: activeUid,
+              trxId: details.trxId,
+              amount: amt,
+              walletMethod: details.walletMethod,
+              accountNumber: details.accountNumber,
+              accountName: details.accountName,
+              authCode: details.authCode,
+              status: 'Pending',
+              dateStr: details.dateStr,
+              timeStr: details.timeStr,
+            }).catch((err) => console.warn('[Withdrawal Firestore sync notice]', err));
+
             updateUser((prev) => ({
               ...prev,
               walletBalance: Math.max(0, prev.walletBalance - amt),
@@ -3207,8 +3291,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                   type: 'withdrawal',
                   amount: -amt,
                   timestamp: `${details.dateStr} ${details.timeStr}`,
-                  status: 'completed',
-                  description: `Payout to ${details.walletMethod} (${details.accountNumber.slice(-4)})`,
+                  status: 'pending',
+                  description: `Payout to ${details.walletMethod} (${details.accountNumber.slice(-4)}) - অপেক্ষমাণ`,
                   hash: details.trxId,
                 },
                 ...(prev.transactions || []),
@@ -3443,15 +3527,15 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
               <div className="p-4 rounded-3xl bg-[#062c22] border border-emerald-500/30 shadow-lg space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-amber-400">
-                    {currentLang === 'bn' ? 'দৈনিক জনসভা (Town Hall)' : 'Daily Town Hall Meeting'}
+                  <span className="text-xs font-bold text-emerald-400">
+                    {currentLang === 'bn' ? 'দৈনিক প্রফিট অটো-সেটেলমেন্ট' : 'Daily Profit Auto-Settlement'}
                   </span>
-                  <span className="text-[10px] text-slate-400">Daily 08:30 PM</span>
+                  <span className="text-[10px] text-slate-400">Daily 12:00 AM</span>
                 </div>
                 <p className="text-xs text-slate-200">
                   {currentLang === 'bn'
-                    ? 'আজকের সান্ধ্যকালীন লাইভ ব্রিফিংয়ে যোগ দিন এবং নতুন বোনাস অফার জানুন।'
-                    : 'Join today’s evening briefing session with community leadership.'}
+                    ? 'আপনার সক্রিয় বিনিয়োগ প্ল্যান থেকে স্বয়ংক্রিয়ভাবে দৈনিক মুনাফা অ্যাকাউন্টে জমা হবে।'
+                    : 'Daily returns from active investment plans are automatically credited to your balance.'}
                 </p>
               </div>
             </div>
@@ -3807,163 +3891,6 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                   : (currentLang === 'bn' ? 'অথেনটিক সেট করুন ও একটিভ করুন' : 'Set & Activate Authenticator')}
               </span>
             </button>
-          </main>
-        </div>
-      )}
-
-      {/* Daily Town Hall (দৈনিক জনসভা) Page (Full-Page View) */}
-      {activeSubModal === 'townHall' && (
-        <div
-          id="profile-subpage-townhall"
-          className="fixed inset-0 z-50 overflow-y-auto bg-[#06483A] flex flex-col text-slate-100 animate-in fade-in duration-200"
-        >
-          <header className="sticky top-0 z-20 bg-[#062c22]/95 backdrop-blur-md border-b border-emerald-500/30 px-4 py-3.5 sm:px-6 sm:py-4 flex items-center justify-between shrink-0">
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={() => setActiveSubModal(null)}
-                className="w-10 h-10 rounded-full bg-[#042018] hover:bg-[#07362a] text-emerald-300 hover:text-white flex items-center justify-center transition-all cursor-pointer active:scale-95 border border-emerald-500/30 shadow-sm"
-                aria-label="Back to Profile"
-              >
-                <ArrowLeft className="w-5 h-5" />
-              </button>
-              <div>
-                <h1 className="text-base sm:text-lg font-bold text-white tracking-wide flex items-center gap-2">
-                  <Users className="w-5 h-5 text-emerald-400" />
-                  <span>{currentLang === 'bn' ? 'দৈনিক জনসভা' : 'Daily Town Hall'}</span>
-                </h1>
-                <p className="text-[11px] text-slate-300">
-                  {currentLang === 'bn' ? 'কমিউনিটি ব্রিফিং ও সান্ধ্যকালীন আলোচনা' : 'Community Gathering & Briefing'}
-                </p>
-              </div>
-            </div>
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-              <span>08:30 PM BST</span>
-            </span>
-          </header>
-
-          <main className="flex-1 w-full max-w-xl mx-auto px-4 py-6 sm:px-6 sm:py-8 space-y-5">
-            {/* Live Assembly Status Card */}
-            <div className="p-5 rounded-3xl bg-gradient-to-br from-[#07362a] to-[#042018] border border-emerald-500/30 space-y-3 shadow-xl">
-              <div className="flex items-center justify-between">
-                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                  {currentLang === 'bn' ? 'প্রতি সন্ধ্যায় সরাসরি সম্প্রচার' : 'Live Every Evening'}
-                </span>
-                <span className="text-xs font-semibold text-emerald-300">08:30 PM BST</span>
-              </div>
-              <div>
-                <h3 className="text-sm sm:text-base font-bold text-white">
-                  {currentLang === 'bn'
-                    ? 'দৈনিক মেম্বার স্ট্র্যাটেজি ও ইল্ড ডিস্ট্রিবিউশন ব্রিফিং'
-                    : 'Daily Member Strategy & Yield Briefing'}
-                </h3>
-                <p className="text-xs text-slate-300 mt-1">
-                  {currentLang === 'bn'
-                    ? 'প্রধান পোর্টফোলিও বিশ্লেষক এবং শীর্ষ কমিউনিটি লিডারদের সাথে সরাসরি যুক্ত হোন।'
-                    : 'Connect live with senior portfolio analysts and community leaders.'}
-                </p>
-              </div>
-              <div className="flex items-center gap-2 pt-1 text-xs text-emerald-300/90 font-medium">
-                <Users className="w-4 h-4 text-emerald-400" />
-                <span>2,840+ {currentLang === 'bn' ? 'বিনিয়োগকারী সক্রিয়ভাবে যুক্ত' : 'Investors attending today'}</span>
-              </div>
-            </div>
-
-            {/* Today's Agenda */}
-            <div className="p-5 rounded-3xl bg-[#062c22] border border-emerald-500/30 space-y-3 shadow-xl">
-              <div className="text-xs font-bold text-emerald-300 uppercase tracking-wider flex items-center gap-2">
-                <Clock className="w-4 h-4 text-emerald-400" />
-                <span>{currentLang === 'bn' ? 'আজকের জনসভার আলোচ্যসূচি:' : "Today's Meeting Agenda:"}</span>
-              </div>
-              <ul className="space-y-2.5 text-xs text-slate-200">
-                <li className="flex items-start gap-2.5 p-3 rounded-2xl bg-[#042018] border border-emerald-500/20">
-                  <span className="text-emerald-400 font-black text-sm">•</span>
-                  <span>
-                    {currentLang === 'bn'
-                      ? 'দৈনিক পাওয়ার প্লান্ট লাভ ও বোনাস প্রফিট ডিস্ট্রিবিউশনের পুঙ্খানুপুঙ্খ বিবরণ'
-                      : 'Daily portfolio yields & bonus profit distribution breakdown'}
-                  </span>
-                </li>
-                <li className="flex items-start gap-2.5 p-3 rounded-2xl bg-[#042018] border border-emerald-500/20">
-                  <span className="text-emerald-400 font-black text-sm">•</span>
-                  <span>
-                    {currentLang === 'bn'
-                      ? 'ভিআইপি রেফারেল কনটেস্ট লিডারবোর্ড ও তাৎক্ষণিক রিওয়ার্ড ঘোষণা'
-                      : 'VIP referral contest leaderboard & instant reward rollout'}
-                  </span>
-                </li>
-                <li className="flex items-start gap-2.5 p-3 rounded-2xl bg-[#042018] border border-emerald-500/20">
-                  <span className="text-emerald-400 font-black text-sm">•</span>
-                  <span>
-                    {currentLang === 'bn'
-                      ? 'চিফ পোর্টফোলিও ডিরেক্টরের সাথে সরাসরি ওপেন মাইক প্রশ্নোত্তর পর্ব'
-                      : 'Open mic Q&A session with Chief Portfolio Director'}
-                  </span>
-                </li>
-              </ul>
-            </div>
-
-            {/* Interactive Action Buttons */}
-            <div className="space-y-3 pt-1">
-              <button
-                type="button"
-                onClick={() => {
-                  setIsTownHallJoined(true);
-                  showToast(
-                    currentLang === 'bn'
-                      ? 'দৈনিক জনসভার অডিও স্ট্রিমে সফলভাবে সংযুক্ত হয়েছে...'
-                      : 'Connecting to Daily Town Hall live audio stream...'
-                  );
-                }}
-                className={`w-full py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 transition-all cursor-pointer ${
-                  isTownHallJoined
-                    ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/30'
-                    : 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold shadow-lg shadow-emerald-500/20 active:scale-98'
-                }`}
-              >
-                <Radio className="w-4 h-4 animate-pulse" />
-                <span>
-                  {isTownHallJoined
-                    ? currentLang === 'bn'
-                      ? 'লাইভ সেশনে সংযুক্ত রয়েছে'
-                      : 'Connected to Live Session'
-                    : currentLang === 'bn'
-                    ? 'এখনই লাইভ জনসভায় যোগ দিন'
-                    : 'Join Live Assembly Now'}
-                </span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  const nextState = !isTownHallReminderSet;
-                  setIsTownHallReminderSet(nextState);
-                  showToast(
-                    nextState
-                      ? currentLang === 'bn'
-                        ? 'স্মারক সেট করা হয়েছে! রাত ০৮:১৫ টায় অ্যালার্ট পাবেন'
-                        : 'Reminder set! You will be alerted at 08:15 PM'
-                      : currentLang === 'bn'
-                      ? 'মিটিং অ্যালার্ট বন্ধ করা হয়েছে'
-                      : 'Meeting reminder turned off'
-                  );
-                }}
-                className="w-full py-3 rounded-2xl bg-[#042018] hover:bg-[#072c21] text-emerald-200 font-semibold text-xs border border-emerald-500/30 flex items-center justify-center gap-2 transition-colors cursor-pointer"
-              >
-                <Bell className="w-4 h-4 text-emerald-400" />
-                <span>
-                  {isTownHallReminderSet
-                    ? currentLang === 'bn'
-                      ? 'স্মারক সক্রিয় (০৮:১৫ PM)'
-                      : 'Reminder Active (08:15 PM)'
-                    : currentLang === 'bn'
-                    ? 'দৈনিক সেশনের নোটিফিকেশন সেট করুন'
-                    : 'Set Daily Session Reminder'}
-                </span>
-              </button>
-            </div>
           </main>
         </div>
       )}

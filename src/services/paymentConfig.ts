@@ -128,6 +128,7 @@ export async function createCpanelDepositOrder(
   paymentLink?: string;
   orderNo?: string;
   channel?: string;
+  isFallback?: boolean;
   error?: string;
   raw?: any;
 }> {

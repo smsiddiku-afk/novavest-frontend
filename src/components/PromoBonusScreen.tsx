@@ -7,6 +7,9 @@ import {
   Users,
   RotateCw,
   UserCheck,
+  Crown,
+  Sparkles,
+  Zap,
 } from 'lucide-react';
 import { Language } from '../types';
 import { getReferralTreeForUser } from '../utils/referralService';
@@ -22,6 +25,7 @@ import {
   SolarMiniIcon,
   SolarTierIcon,
 } from './PromoBonusSolarIcons';
+import { ReferralTesterModal } from './ReferralTesterModal';
 
 export interface TierLevelItem {
   id: string;
@@ -37,12 +41,12 @@ export interface TierLevelItem {
 const TIER_LEVELS: TierLevelItem[] = [
   {
     id: 'v1',
-    level: 'V1',
+    level: 'VIP 1',
     tierNumber: 1,
     targetCount: 3,
     rewardBdt: 300,
-    taskBn: 'সরাসরি ৩ জন সক্রিয় সদস্য যুক্ত করুন',
-    taskEn: 'Directly promote 3 active members to upgrade',
+    taskBn: 'প্রমোশন লেভেলে ৩ জন সক্রিয় সদস্য যুক্ত করুন (VIP 1 আনলক)',
+    taskEn: 'Directly promote 3 active members in levels to unlock VIP 1',
     type: 'direct',
   },
   {
@@ -158,6 +162,7 @@ export const PromoBonusScreen: React.FC<PromoBonusScreenProps> = ({
     }
   });
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isTesterOpen, setIsTesterOpen] = useState(false);
 
   // Sync referral accounts live from Cloud Firestore and listen for changes
   useEffect(() => {
@@ -428,6 +433,58 @@ export const PromoBonusScreen: React.FC<PromoBonusScreenProps> = ({
             </div>
           </div>
 
+          {/* VIP 1 Status & Referral Checker Banner */}
+          <div className={`p-3 rounded-2xl border mb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 transition-all ${
+            totalActiveCount >= 3
+              ? 'bg-gradient-to-r from-[#063b2c] to-[#0a4e3b] border-amber-400/50 shadow-md'
+              : 'bg-[#021d15] border-emerald-500/30'
+          }`}>
+            <div className="flex items-center gap-2.5">
+              <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                totalActiveCount >= 3
+                  ? 'bg-amber-400/20 text-amber-300 border border-amber-400/40 shadow-sm'
+                  : 'bg-slate-800/80 text-slate-400 border border-slate-700'
+              }`}>
+                <Crown className={`w-5 h-5 ${totalActiveCount >= 3 ? 'text-amber-400 fill-amber-400' : 'text-slate-400'}`} />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-white text-xs sm:text-sm">
+                    {lang === 'en' ? 'VIP 1 Status' : 'ভিআইপি ১ (VIP 1) স্ট্যাটাস'}:
+                  </span>
+                  <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black border uppercase tracking-wider ${
+                    totalActiveCount >= 3
+                      ? 'bg-amber-400/20 text-amber-300 border-amber-400/50 shadow-sm animate-pulse'
+                      : 'bg-rose-500/15 text-rose-300 border-rose-500/30'
+                  }`}>
+                    {totalActiveCount >= 3
+                      ? (lang === 'en' ? 'VIP 1 ACTIVE 🎉' : 'VIP 1 সক্রিয় 🎉')
+                      : (lang === 'en' ? 'VIP 0 (LOCKED)' : 'VIP 0 (লক)')}
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-300 mt-0.5">
+                  {totalActiveCount >= 3
+                    ? (lang === 'en'
+                        ? 'Promotion levels have 3 active members! VIP 1 is now visible across the app.'
+                        : 'প্রমোশন অপশন থেকে ৩ জন লেভেলে সক্রিয় আছে! VIP 1 সফলভাবে দৃশ্যমান হয়েছে।')
+                    : (lang === 'en'
+                        ? `VIP 1 will only show when 3 members are active in levels (${totalActiveCount}/3 active).`
+                        : `প্রমোশন অপশন থেকে ৩ জন লেভেলে একটিভ থাকলে VIP 1 শো হবে (বর্তমান: ${totalActiveCount}/৩ জন)।`)}
+                </p>
+              </div>
+            </div>
+
+            <button
+              id="open-referral-tester-btn"
+              type="button"
+              onClick={() => setIsTesterOpen(true)}
+              className="py-2 px-3.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-black text-xs flex items-center justify-center gap-1.5 shadow-md shadow-emerald-950/40 active:scale-95 cursor-pointer shrink-0 transition-all"
+            >
+              <Zap className="w-3.5 h-3.5 text-slate-950" />
+              <span>{lang === 'en' ? 'Check 3-Level Referrals' : '৩ লেভেল রেফার চেকার'}</span>
+            </button>
+          </div>
+
           {/* 3-Column Level Stats (1st Level, 2nd Level, 3rd Level) */}
           <div className="grid grid-cols-3 gap-2 sm:gap-2.5">
             {/* Level 1 (Direct) */}
@@ -585,6 +642,17 @@ export const PromoBonusScreen: React.FC<PromoBonusScreenProps> = ({
           })}
         </div>
       </div>
+
+      {/* Referral 3-Level Tester & Simulator Modal */}
+      <ReferralTesterModal
+        isOpen={isTesterOpen}
+        onClose={() => setIsTesterOpen(false)}
+        userCode={effectiveUserCode}
+        userMemberId={effectiveMemberId}
+        currentLang={lang}
+        onUpdated={() => setRefreshTick((t) => t + 1)}
+        showToast={showToast}
+      />
     </div>
   );
 };

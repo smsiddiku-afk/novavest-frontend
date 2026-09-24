@@ -22,7 +22,7 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if true;
       allow create, update: if true;
-      allow delete: if false;
+      allow delete: if true;
 
       match /deposits/{depositId} {
         allow read, write: if true;

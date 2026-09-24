@@ -528,13 +528,17 @@ export const signInWithFirebase = async (
         emailCandidates.push(`${digits}@novavest.local`);
         emailCandidates.push(`${last10}@novavest.local`);
         emailCandidates.push(`8800${last10}@novavest.local`);
-      } else if (digits) {
+      } else if (digits && digits.length >= 6) {
         emailCandidates.push(`880${digits}@novavest.local`);
         emailCandidates.push(`0${digits}@novavest.local`);
         emailCandidates.push(`${digits}@novavest.local`);
       }
 
-      emailCandidates.push(`${rawInput.trim()}@novavest.local`);
+      // If rawInput itself is alphanumeric (like a username or memberId), add it
+      const sanitizedUsername = rawInput.trim().replace(/[^a-zA-Z0-9._-]/g, '');
+      if (sanitizedUsername && sanitizedUsername.length >= 3 && !rawInput.includes(' ') && !rawInput.includes('+')) {
+        emailCandidates.push(`${sanitizedUsername.toLowerCase()}@novavest.local`);
+      }
 
       // Firestore lookup with generous 3500ms timeout
       if (!foundEmailFromPhone) {
@@ -554,12 +558,20 @@ export const signInWithFirebase = async (
       }
     }
 
-    // Deduplicate candidate emails while strictly maintaining order
-    const uniqueCandidates = Array.from(new Set(emailCandidates.map((e) => e.trim()))).filter(Boolean);
+    // Helper: validate strictly that the email candidate has a valid format before sending to Firebase
+    const isValidEmail = (em: string): boolean => {
+      if (!em || typeof em !== 'string') return false;
+      const trimmed = em.trim();
+      // Must contain exactly one '@' that is not at the start or end, have a domain with dot, and no whitespace or invalid chars
+      return /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(trimmed);
+    };
+
+    // Deduplicate candidate emails while strictly maintaining order and valid format
+    const uniqueCandidates = Array.from(new Set(emailCandidates.map((e) => e.trim()))).filter(isValidEmail);
 
     let cred: any = null;
     let lastAuthErr: any = null;
-    let successfulEmail = uniqueCandidates[0];
+    let successfulEmail = uniqueCandidates[0] || '';
 
     // Iteratively attempt login across candidates and password variants
     for (const candEmail of uniqueCandidates) {
@@ -581,7 +593,7 @@ export const signInWithFirebase = async (
 
     if (!cred) {
       // If user typed a phone number, check whether the phone actually exists
-      if (phoneLookupDone && lastAuthErr?.code === 'auth/invalid-credential') {
+      if (phoneLookupDone) {
         const phoneCheck = await isPhoneAlreadyRegistered(rawInput);
         if (phoneCheck.registered || foundEmailFromPhone) {
           // Phone exists, password was wrong
@@ -606,12 +618,12 @@ export const signInWithFirebase = async (
       throw lastAuthErr;
     }
 
-    // Fast-resolve profile: give Firestore 1.5s max, otherwise return immediately & sync in background
+    // Robust Firestore profile retrieval: give Firestore up to 6s
     let firestoreUser: UserProfile | null = null;
     try {
       firestoreUser = await Promise.race([
         getFirestoreUserProfile(cred.user.uid),
-        new Promise<null>((res) => setTimeout(() => res(null), 1500)),
+        new Promise<null>((res) => setTimeout(() => res(null), 6000)),
       ]);
     } catch {
       // fallback
@@ -624,27 +636,60 @@ export const signInWithFirebase = async (
         uid: cred.user.uid,
       };
     } else {
+      // Check local accounts table before inventing new codes
+      let recoveredRefCode = '';
+      let recoveredMemberId = '';
+      let recoveredPhone = '';
+      try {
+        if (typeof window !== 'undefined' && window.localStorage) {
+          const rawAccs = localStorage.getItem('novavest_registered_accounts');
+          if (rawAccs) {
+            const accs = JSON.parse(rawAccs);
+            for (const acc of Object.values(accs) as any[]) {
+              if (
+                acc.userId === cred.user.uid ||
+                (acc.email && acc.email.toLowerCase() === successfulEmail.toLowerCase())
+              ) {
+                recoveredRefCode = acc.userCode || acc.referralCode || '';
+                recoveredMemberId = acc.memberId || '';
+                recoveredPhone = acc.phone || '';
+                break;
+              }
+            }
+          }
+        }
+      } catch (_) {}
+
       user = {
         uid: cred.user.uid,
         name: cred.user.displayName || (successfulEmail.includes('@') ? successfulEmail.split('@')[0] : 'NVT Member'),
-        phone: successfulEmail.endsWith('@novavest.local') ? rawInput : '+880 1712-345678',
+        phone: recoveredPhone || (successfulEmail.endsWith('@novavest.local') ? rawInput : '+880 1712-345678'),
         email: cred.user.email || successfulEmail,
-        memberId: `NVT${Math.floor(100000 + Math.random() * 900000)}`,
-        referralCode: Math.random().toString(36).substring(2, 8).toUpperCase(),
+        memberId: recoveredMemberId || `NVT${Math.floor(100000 + Math.random() * 900000)}`,
+        referralCode: recoveredRefCode || Math.random().toString(36).substring(2, 8).toUpperCase(),
         walletBalance: 0.0,
         memberSince: 'May 2024',
         isVerified: true,
         transactions: [],
       };
-      // Background sync without blocking login response
-      createFirestoreUserProfile(cred.user.uid, {
-        name: user.name,
-        phone: user.phone || '+880 1712-345678',
-        email: user.email || successfulEmail,
-        memberId: user.memberId,
-        referralCode: user.referralCode,
-        walletBalance: user.walletBalance,
-      }).catch(() => {});
+      // Try to re-fetch Firestore in background without overriding existing data
+      getFirestoreUserProfile(cred.user.uid)
+        .then((bgUser) => {
+          if (bgUser) {
+            persistAuthUser(bgUser);
+          } else {
+            // Only create if doc truly does not exist
+            createFirestoreUserProfile(cred.user.uid, {
+              name: user.name,
+              phone: user.phone || '+880 1712-345678',
+              email: user.email || successfulEmail,
+              memberId: user.memberId,
+              referralCode: user.referralCode,
+              walletBalance: user.walletBalance,
+            }).catch(() => {});
+          }
+        })
+        .catch(() => {});
     }
 
     // Cache phone to email mapping in localStorage for instant 0ms future lookups

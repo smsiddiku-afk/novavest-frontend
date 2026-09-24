@@ -898,16 +898,16 @@ export const InvestTabContent: React.FC<InvestTabContentProps> = ({
                 <span className="text-amber-400 font-bold">1.</span>
                 <p>
                   {isBn
-                    ? 'প্রথম ২টি প্যাকেজ (Basic Plan অথবা Standard Plan) কিনলে আপনার অ্যাকাউন্ট স্বয়ংক্রিয়ভাবে VIP 1 স্তরে উন্নীত হবে।'
-                    : 'Investing in either Basic Plan or Standard Plan will automatically upgrade your account to VIP 1.'}
+                    ? 'ভিআইপি ১ (VIP 1) তখনি শো ও সক্রিয় হবে যখন প্রমোশন অপশন থেকে ৩ জন সদস্য লেভেলে সক্রিয় (অ্যাক্টিভ) থাকবে।'
+                    : 'VIP 1 will only unlock when at least 3 members are active in the levels from the promotion option.'}
                 </p>
               </div>
               <div className="flex items-start gap-2">
                 <span className="text-amber-400 font-bold">2.</span>
                 <p>
                   {isBn
-                    ? 'অথবা ওয়ালেট রিচার্জ করে আপনার VIP র‍্যাংক বৃদ্ধি করুন।'
-                    : 'Alternatively, recharge your wallet to level up your VIP rank.'}
+                    ? 'আপনার রেফারেল লিংক শেয়ার করে অথবা ৩ লেভেল রেফার চেকার ব্যবহার করে সক্রিয় সদস্য যুক্ত করুন।'
+                    : 'Share your referral code or use the 3-level referral checker simulator to activate members.'}
                 </p>
               </div>
             </div>

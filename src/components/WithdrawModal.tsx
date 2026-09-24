@@ -211,17 +211,24 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
       return;
     }
 
-    // 4. Validate Google Authenticator 2FA code (required if active, optional if not set)
+    // 4. Validate Google Authenticator 2FA code (উইথড্র করার জন্য গুগল অথেন্টিকেটর বাধ্যতামূলক)
     const cleanCode = authCode.trim().replace(/\D/g, '');
-    if (isAuthSet) {
-      if (cleanCode.length !== 6) {
-        setErrorMsg(
-          isBn
-            ? 'অনুগ্রহ করে আপনার ৬ সংখ্যার গুগল অথেন্টিকেটর কোডটি দিন।'
-            : 'Please enter the 6-digit code from your Google Authenticator app.'
-        );
-        return;
-      }
+    if (!isAuthSet) {
+      setErrorMsg(
+        isBn
+          ? 'নিরাপত্তার স্বার্থে গুগল অথেন্টিকেটর (2FA) সেট করা ছাড়া টাকা উত্তোলন করা সম্ভব নয়। অনুগ্রহ করে প্রোফাইল থেকে গুগল অথেন্টিকেটর একটিভ করুন।'
+          : 'For account security, Google Authenticator (2FA) must be set up before making a withdrawal. Please activate Google Authenticator in your Profile.'
+      );
+      return;
+    }
+
+    if (cleanCode.length !== 6) {
+      setErrorMsg(
+        isBn
+          ? 'অনুগ্রহ করে আপনার ৬ সংখ্যার গুগল অথেন্টিকেটর কোডটি দিন।'
+          : 'Please enter the 6-digit code from your Google Authenticator app.'
+      );
+      return;
     }
 
     setIsSubmitting(true);
@@ -771,19 +778,19 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
                 placeholder={
                   isAuthSet
                     ? (isBn ? '৬ ডিজিটের কোড দিন' : 'Enter 6-digit Authenticator code')
-                    : (isBn ? 'not set (ঐচ্ছিক কোড)' : 'not set (optional code)')
+                    : (isBn ? 'প্রোফাইল থেকে অথেন্টিকেটর সেট করুন' : 'Setup Authenticator in Profile first')
                 }
-                required={isAuthSet}
+                required
                 className="w-full bg-[#031812] border border-emerald-500/30 rounded-xl px-4 py-3.5 text-white font-mono text-base tracking-widest focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400 placeholder:tracking-normal placeholder-slate-500 transition-all text-center"
               />
             </div>
             {!isAuthSet && (
-              <p className="text-[11px] text-amber-400/90 flex items-center gap-1">
-                <AlertCircle className="w-3 h-3 text-amber-400 shrink-0" />
+              <p className="text-[11px] text-amber-400/90 flex items-center gap-1 font-semibold">
+                <AlertCircle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
                 <span>
                   {isBn
-                    ? 'গুগল অথেন্টিকেটর এখনও সেট করা হয়নি (not set)। প্রোফাইল থেকে সেট করতে পারেন।'
-                    : 'Google Authenticator is not set. You can activate it in Profile settings.'}
+                    ? 'উইথড্র করার জন্য গুগল অথেন্টিকেটর (2FA) সেট করা আবশ্যক। প্রোফাইল থেকে সেট করুন।'
+                    : 'Google Authenticator (2FA) is required to withdraw. Please activate it in Profile settings.'}
                 </span>
               </p>
             )}

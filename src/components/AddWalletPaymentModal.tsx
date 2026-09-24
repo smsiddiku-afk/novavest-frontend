@@ -223,7 +223,7 @@ export const AddWalletPaymentModal: React.FC<AddWalletPaymentModalProps> = ({
           <div>
             <h1 className="text-base sm:text-lg font-bold text-white tracking-wide flex items-center gap-2">
               <CreditCard className="w-5 h-5 text-emerald-400" />
-              <span>{viewMode === 'card' ? (isBn ? 'সংযুক্ত ওয়ালেট তালিকা' : 'Bound Wallets') : (isBn ? 'পেমেন্ট মেথড (ওয়ালেট যুক্ত)' : 'Add Payment Wallet')}</span>
+              <span>{viewMode === 'card' ? (isBn ? 'সংযুক্ত পেমেন্ট মেথড' : 'Payment Methods') : (isBn ? 'পেমেন্ট মেথড' : 'Payment Methods')}</span>
             </h1>
             <p className="text-[11px] text-slate-300">
               {isBn ? 'বিকাশ, নগদ ও ব্যাংক অ্যাকাউন্ট প্রত্যাহার ব্যবস্থাপনা' : 'bKash, Nagad & Bank withdrawal setup'}
@@ -243,7 +243,7 @@ export const AddWalletPaymentModal: React.FC<AddWalletPaymentModalProps> = ({
             className="px-3 py-1.5 rounded-full bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5" />
-            <span>{isBn ? 'নতুন ওয়ালেট' : 'Add New'}</span>
+            <span>{isBn ? 'নতুন মেথড' : 'Add New'}</span>
           </button>
         ) : wallets.length > 0 ? (
           <button
@@ -273,10 +273,10 @@ export const AddWalletPaymentModal: React.FC<AddWalletPaymentModalProps> = ({
             {/* ========================================================= */}
             {viewMode === 'form' && (
             <form id="add-wallet-form" onSubmit={handleAddWalletSubmit} className="space-y-4">
-              {/* Field 1: Wallet Type */}
+              {/* Field 1: Method Type */}
               <div className="space-y-2">
                 <label className="block text-sm font-medium text-slate-200">
-                  {isBn ? 'ওয়ালেটের ধরন' : 'Wallet Type'}
+                  {isBn ? 'পেমেন্ট মেথডের ধরন' : 'Method Type'}
                 </label>
 
                 <div
@@ -289,16 +289,16 @@ export const AddWalletPaymentModal: React.FC<AddWalletPaymentModalProps> = ({
                     {selectedMethod
                       ? selectedMethod
                       : isBn
-                      ? 'ওয়ালেট (Wallet)'
-                      : 'Wallet'}
+                      ? 'পেমেন্ট মেথড নির্বাচন করুন'
+                      : 'Select Payment Method'}
                   </span>
                 </div>
               </div>
 
-              {/* Field 2: Wallet Name * */}
+              {/* Field 2: Method Name * */}
               <div className="space-y-1.5">
                 <label className="block text-sm font-medium text-slate-200">
-                  {isBn ? 'ওয়ালেটের নাম' : 'Wallet Name'}{' '}
+                  {isBn ? 'পেমেন্ট মেথডের নাম' : 'Method Name'}{' '}
                   <span className="text-rose-500 font-bold">*</span>
                 </label>
 
@@ -351,10 +351,10 @@ export const AddWalletPaymentModal: React.FC<AddWalletPaymentModalProps> = ({
                 />
               </div>
 
-              {/* Field 4: Wallet Number * */}
+              {/* Field 4: Account / Phone Number * */}
               <div className="space-y-1.5">
                 <label className="block text-sm font-medium text-slate-200">
-                  {isBn ? 'ওয়ালেট নম্বর' : 'Wallet Number'}{' '}
+                  {isBn ? 'অ্যাকাউন্ট / ফোন নম্বর' : 'Account / Phone Number'}{' '}
                   <span className="text-rose-500 font-bold">*</span>
                 </label>
                 <input
@@ -362,7 +362,7 @@ export const AddWalletPaymentModal: React.FC<AddWalletPaymentModalProps> = ({
                   type="tel"
                   value={walletNumber}
                   onChange={(e) => setWalletNumber(e.target.value)}
-                  placeholder="Wallet number  (10-11 digits)"
+                  placeholder={isBn ? 'অ্যাকাউন্ট নম্বর (১০-১১ ডিজিট)' : 'Account number (10-11 digits)'}
                   required
                   className="w-full rounded-xl bg-[#042018] border border-emerald-500/30 px-4 py-3.5 text-white placeholder-slate-400 text-sm font-mono tracking-wider focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400 transition-all"
                 />
@@ -373,10 +373,10 @@ export const AddWalletPaymentModal: React.FC<AddWalletPaymentModalProps> = ({
                 </p>
               </div>
 
-              {/* Field 5: Set as Default Wallet */}
+              {/* Field 5: Set as Default Payment Method */}
               <div className="rounded-xl bg-[#042018] border border-emerald-500/30 px-4 py-3.5 flex items-center justify-between">
                 <span className="text-sm font-medium text-white">
-                  {isBn ? 'ডিফল্ট ওয়ালেট হিসেবে নির্ধারণ করুন' : 'Set as Default Wallet'}
+                  {isBn ? 'ডিফল্ট মেথড হিসেবে নির্ধারণ করুন' : 'Set as Default Method'}
                 </span>
                 <button
                   type="button"
@@ -395,7 +395,7 @@ export const AddWalletPaymentModal: React.FC<AddWalletPaymentModalProps> = ({
                 </button>
               </div>
 
-              {/* Field 6: Add Wallet Button */}
+              {/* Field 6: Save Payment Method Button */}
               <button
                 id="add-wallet-submit-btn"
                 type="submit"
@@ -407,7 +407,7 @@ export const AddWalletPaymentModal: React.FC<AddWalletPaymentModalProps> = ({
                 ) : (
                   <>
                     <CreditCard className="w-5 h-5" />
-                    <span>{isBn ? 'ওয়ালেট যুক্ত করুন' : 'Add Wallet'}</span>
+                    <span>{isBn ? 'পেমেন্ট মেথড সংরক্ষণ করুন' : 'Save Payment Method'}</span>
                   </>
                 )}
               </button>

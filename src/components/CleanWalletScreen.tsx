@@ -41,6 +41,8 @@ interface CleanWalletScreenProps {
   ) => void | Promise<any>;
   onConfirmWithdraw?: (amount: number, method: PaymentMethodType, account: string) => void;
   showToast?: (msg: string) => void;
+  isAuthenticatorSet?: boolean;
+  onOpenSecuritySettings?: () => void;
 }
 
 const RECHARGE_PRESETS = [100, 300, 500, 1000, 2000, 5000];
@@ -56,6 +58,8 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
   onConfirmRecharge,
   onConfirmWithdraw,
   showToast,
+  isAuthenticatorSet = false,
+  onOpenSecuritySettings,
 }) => {
   const [activeTab, setActiveTab] = useState<'recharge' | 'withdraw'>(initialTab);
   const [selectedChannel, setSelectedChannel] = useState<PaymentChannelType | null>('channel1');
@@ -130,6 +134,19 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
   };
 
   const handleWithdrawSubmit = () => {
+    // 0. Enforce Authenticator Setup
+    if (!isAuthenticatorSet) {
+      displayToast(
+        currentLang === 'bn'
+          ? 'উইথড্র করার আগে গুগল অথেনটিকেটর সেটআপ করা বাধ্যতামূলক। সিকিউরিটি পেজে যান।'
+          : 'Google Authenticator setup is strictly required before withdrawal. Please configure in Security settings.'
+      );
+      if (onOpenSecuritySettings) {
+        onOpenSecuritySettings();
+      }
+      return;
+    }
+
     const num = Number(amount);
     if (!withdrawAccount.trim()) {
       displayToast(
@@ -661,6 +678,41 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
                   ৳{currentBalance.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                 </span>
               </div>
+
+              {/* 2FA Authenticator Requirement Alert */}
+              {!isAuthenticatorSet ? (
+                <div className="p-3.5 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-start gap-2.5 text-xs text-amber-200">
+                  <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <span className="font-bold block text-amber-300 mb-0.5">
+                      {currentLang === 'bn' ? 'গুগল অথেনটিকেটর সেটআপ বাধ্যতামূলক' : 'Google Authenticator Required'}
+                    </span>
+                    <p className="text-[11px] text-amber-200/90 leading-relaxed">
+                      {currentLang === 'bn'
+                        ? 'আপনার তহবিলের সর্বোচ্চ নিরাপত্তার জন্য অথেনটিকেটর ছাড়া উত্তোলন সম্ভব নয়।'
+                        : 'For your security, withdrawals cannot proceed without Google Authenticator.'}
+                    </p>
+                    {onOpenSecuritySettings && (
+                      <button
+                        type="button"
+                        onClick={onOpenSecuritySettings}
+                        className="mt-2 px-3 py-1 bg-amber-400 text-slate-950 font-bold rounded-lg text-[11px] hover:bg-amber-300 transition-colors cursor-pointer"
+                      >
+                        {currentLang === 'bn' ? 'এখনই সেটআপ করুন →' : 'Setup Authenticator Now →'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/25 flex items-center gap-2 text-xs text-emerald-300">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>
+                    {currentLang === 'bn'
+                      ? '🔒 গুগল অথেনটিকেটর সক্রিয় — নিরাপদ উইথড্র চালু আছে'
+                      : '🔒 Google Authenticator active — Secure withdrawal enabled'}
+                  </span>
+                </div>
+              )}
 
               <div className="space-y-1.5">
                 <span className="text-sm font-bold text-slate-200">

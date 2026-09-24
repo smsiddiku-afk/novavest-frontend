@@ -17,6 +17,8 @@ interface DepositModalProps {
   ) => Promise<any> | void;
   onOpenHistory?: () => void;
   onWithdraw?: (amount: number, method: PaymentMethodType, account: string) => void;
+  isAuthenticatorSet?: boolean;
+  onOpenSecuritySettings?: () => void;
 }
 
 export const DepositModal: React.FC<DepositModalProps> = ({
@@ -27,6 +29,8 @@ export const DepositModal: React.FC<DepositModalProps> = ({
   onProceed,
   onOpenHistory,
   onWithdraw,
+  isAuthenticatorSet = false,
+  onOpenSecuritySettings,
 }) => {
   if (!isOpen) return null;
 
@@ -45,6 +49,8 @@ export const DepositModal: React.FC<DepositModalProps> = ({
           return await onProceed(amt, method, channel, manualDetails);
         }}
         onConfirmWithdraw={onWithdraw}
+        isAuthenticatorSet={isAuthenticatorSet}
+        onOpenSecuritySettings={onOpenSecuritySettings}
       />
     </div>
   );

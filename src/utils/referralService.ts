@@ -72,7 +72,7 @@ export const TIER_COMMISSION_RATES: Record<1 | 2 | 3, number> = {
   3: 0.01, // 1% for Tier 3
 };
 
-export async function loadCommissionRatesFromFirestore(): Promise<void> {
+export async function loadCommissionRatesFromFirestore(): Promise<{ tier1: number; tier2: number; tier3: number }> {
   try {
     const { doc, getDoc } = await import('firebase/firestore');
     const ref = doc(db, 'settings', 'commissionRates');
@@ -85,6 +85,36 @@ export async function loadCommissionRatesFromFirestore(): Promise<void> {
     }
   } catch (err) {
     console.warn('[ReferralService] loadCommissionRatesFromFirestore error:', err);
+  }
+  return {
+    tier1: TIER_COMMISSION_RATES[1],
+    tier2: TIER_COMMISSION_RATES[2],
+    tier3: TIER_COMMISSION_RATES[3],
+  };
+}
+
+export async function saveCommissionRatesToFirestore(tier1Percent: number, tier2Percent: number, tier3Percent: number): Promise<void> {
+  const t1 = Number((tier1Percent / 100).toFixed(4));
+  const t2 = Number((tier2Percent / 100).toFixed(4));
+  const t3 = Number((tier3Percent / 100).toFixed(4));
+  TIER_COMMISSION_RATES[1] = t1;
+  TIER_COMMISSION_RATES[2] = t2;
+  TIER_COMMISSION_RATES[3] = t3;
+  try {
+    const { doc, setDoc } = await import('firebase/firestore');
+    const ref = doc(db, 'settings', 'commissionRates');
+    await setDoc(ref, {
+      tier1: t1,
+      tier2: t2,
+      tier3: t3,
+      tier1Percent,
+      tier2Percent,
+      tier3Percent,
+      updatedAt: new Date().toISOString(),
+    }, { merge: true });
+  } catch (err) {
+    console.error('[ReferralService] saveCommissionRatesToFirestore error:', err);
+    throw err;
   }
 }
 
@@ -1114,8 +1144,237 @@ export function distributeReferralDepositCommissions(
   return result;
 }
 
-// Auto-sync global referral network from Firestore
+/**
+ * ─────────────────────────────────────────────────────────────
+ * PREVIEW REFERRAL TESTER & 3-LEVEL SIMULATOR HELPERS
+ * ─────────────────────────────────────────────────────────────
+ */
+
+export interface AddTestMemberParams {
+  rootCode: string;
+  rootMemberId?: string;
+  level: 1 | 2 | 3;
+  isActive: boolean;
+  phone?: string;
+  username?: string;
+  depositAmount?: number;
+}
+
+export async function addTestReferralMember(params: AddTestMemberParams): Promise<{
+  success: boolean;
+  memberCode: string;
+  level: 1 | 2 | 3;
+  parentCode: string;
+  message: string;
+}> {
+  const { rootCode, rootMemberId, level, isActive, phone, username, depositAmount = 1200 } = params;
+  const cleanRootCode = (rootCode || 'NV8829').trim().toUpperCase();
+
+  const tree = getReferralTreeForUser(cleanRootCode, rootMemberId);
+
+  let parentCode = cleanRootCode;
+  let parentPhone = '';
+
+  if (level === 2) {
+    const l1Members = tree.members.filter((m) => m.level === 1);
+    if (l1Members.length > 0) {
+      parentCode = l1Members[0].referralCode || l1Members[0].id.replace('REF-L1-', '');
+      parentPhone = l1Members[0].phone;
+    } else {
+      // Create a Level 1 parent first so Level 2 has an authentic parent
+      const autoL1Code = `NVL1_${Math.floor(1000 + Math.random() * 9000)}`;
+      const autoL1MemberId = `NVT${Math.floor(100000 + Math.random() * 900000)}`;
+      const autoL1Phone = `017${Math.floor(10000000 + Math.random() * 90000000)}`;
+      await registerUserInReferralNetwork(
+        `TEST_REF_${autoL1Code}`,
+        autoL1Code,
+        cleanRootCode,
+        autoL1Phone,
+        'L1 Test Member',
+        autoL1MemberId
+      );
+      parentCode = autoL1Code;
+    }
+  } else if (level === 3) {
+    const l2Members = tree.members.filter((m) => m.level === 2);
+    if (l2Members.length > 0) {
+      parentCode = l2Members[0].referralCode || l2Members[0].id.replace('REF-L2-', '');
+      parentPhone = l2Members[0].phone;
+    } else {
+      // Ensure L1 exists
+      let l1Code = '';
+      const l1Members = tree.members.filter((m) => m.level === 1);
+      if (l1Members.length > 0) {
+        l1Code = l1Members[0].referralCode || l1Members[0].id.replace('REF-L1-', '');
+      } else {
+        l1Code = `NVL1_${Math.floor(1000 + Math.random() * 9000)}`;
+        await registerUserInReferralNetwork(
+          `TEST_REF_${l1Code}`,
+          l1Code,
+          cleanRootCode,
+          `017${Math.floor(10000000 + Math.random() * 90000000)}`,
+          'L1 Root Link',
+          `NVT${Math.floor(100000 + Math.random() * 900000)}`
+        );
+      }
+      // Create L2 parent
+      const autoL2Code = `NVL2_${Math.floor(1000 + Math.random() * 9000)}`;
+      await registerUserInReferralNetwork(
+        `TEST_REF_${autoL2Code}`,
+        autoL2Code,
+        l1Code,
+        `018${Math.floor(10000000 + Math.random() * 90000000)}`,
+        'L2 Link Member',
+        `NVT${Math.floor(100000 + Math.random() * 900000)}`
+      );
+      parentCode = autoL2Code;
+    }
+  }
+
+  // Generate unique code & phone for new member
+  const newMemberCode = `NV${level}_${Math.floor(1000 + Math.random() * 9000)}`;
+  const newMemberId = `NVT${Math.floor(100000 + Math.random() * 900000)}`;
+  const finalPhone = phone || (
+    level === 1
+      ? `017${Math.floor(10000000 + Math.random() * 90000000)}`
+      : level === 2
+      ? `018${Math.floor(10000000 + Math.random() * 90000000)}`
+      : `019${Math.floor(10000000 + Math.random() * 90000000)}`
+  );
+  const finalName = username || `Level ${level} User (${newMemberCode.slice(-4)})`;
+  const testUserId = `TEST_REF_${newMemberCode}`;
+
+  await registerUserInReferralNetwork(
+    testUserId,
+    newMemberCode,
+    parentCode,
+    finalPhone,
+    finalName,
+    newMemberId
+  );
+
+  // If active, simulate their recharge/investment and distribute multi-tier commissions
+  if (isActive) {
+    const raw = localStorage.getItem(STORAGE_KEY_ACCOUNTS);
+    if (raw) {
+      const accounts = JSON.parse(raw);
+      if (accounts[newMemberCode]) {
+        accounts[newMemberCode].investAmount = depositAmount;
+        accounts[newMemberCode].totalInvested = depositAmount;
+        localStorage.setItem(STORAGE_KEY_ACCOUNTS, JSON.stringify(accounts));
+      }
+    }
+
+    distributeReferralDepositCommissions(
+      newMemberCode,
+      depositAmount,
+      cleanRootCode,
+      `TEST_TXN_${Date.now()}_${newMemberCode}`
+    );
+  }
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event('referral_rewards_updated'));
+    window.dispatchEvent(new Event('storage'));
+  }
+
+  return {
+    success: true,
+    memberCode: newMemberCode,
+    level,
+    parentCode,
+    message: `${level}ম লেভেলে সদস্য (${newMemberCode}) সফলভাবে যুক্ত করা হয়েছে! স্ট্যাটাস: ${isActive ? 'সক্রিয় (৳' + depositAmount + ')' : 'অপেক্ষমাণ'}`,
+  };
+}
+
+/**
+ * 1-Click Fast Setup: Adds 3 active members across 3 levels
+ * to immediately satisfy the "3 active members in levels" VIP 1 condition!
+ */
+export async function addThreeActiveTestMembers(rootCode: string, rootMemberId?: string): Promise<void> {
+  const cleanRoot = (rootCode || 'NV8829').trim().toUpperCase();
+
+  // 1. Add Level 1 Active Member
+  await addTestReferralMember({
+    rootCode: cleanRoot,
+    rootMemberId,
+    level: 1,
+    isActive: true,
+    phone: `01712${Math.floor(100000 + Math.random() * 900000)}`,
+    username: 'L1 Active User',
+    depositAmount: 1200,
+  });
+
+  // 2. Add Level 2 Active Member
+  await addTestReferralMember({
+    rootCode: cleanRoot,
+    rootMemberId,
+    level: 2,
+    isActive: true,
+    phone: `01834${Math.floor(100000 + Math.random() * 900000)}`,
+    username: 'L2 Active User',
+    depositAmount: 1200,
+  });
+
+  // 3. Add Level 3 Active Member
+  await addTestReferralMember({
+    rootCode: cleanRoot,
+    rootMemberId,
+    level: 3,
+    isActive: true,
+    phone: `01956${Math.floor(100000 + Math.random() * 900000)}`,
+    username: 'L3 Active User',
+    depositAmount: 1200,
+  });
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event('referral_rewards_updated'));
+    window.dispatchEvent(new Event('storage'));
+  }
+}
+
+/**
+ * Reset all simulated test referral members
+ */
+export function clearTestReferralMembers(rootCode?: string, rootMemberId?: string): void {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_ACCOUNTS);
+    if (!raw) return;
+    const accounts: Record<string, any> = JSON.parse(raw);
+    const cleanAccounts: Record<string, any> = {};
+
+    Object.entries(accounts).forEach(([k, v]) => {
+      const isTest = (v?.userId && String(v.userId).startsWith('TEST_REF_')) ||
+        (v?.userCode && (String(v.userCode).startsWith('NVL1_') || String(v.userCode).startsWith('NVL2_') || String(v.userCode).startsWith('NV1_') || String(v.userCode).startsWith('NV2_') || String(v.userCode).startsWith('NV3_')));
+      if (!isTest) {
+        cleanAccounts[k] = v;
+      }
+    });
+
+    localStorage.setItem(STORAGE_KEY_ACCOUNTS, JSON.stringify(cleanAccounts));
+
+    // Also remove test commission logs
+    const rawLogs = localStorage.getItem(STORAGE_KEY_COMMISSION_LOGS);
+    if (rawLogs) {
+      const logs = JSON.parse(rawLogs);
+      const cleanLogs = logs.filter((l: any) => !String(l?.id || '').includes('TEST'));
+      localStorage.setItem(STORAGE_KEY_COMMISSION_LOGS, JSON.stringify(cleanLogs));
+    }
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('referral_rewards_updated'));
+      window.dispatchEvent(new Event('storage'));
+    }
+  } catch (err) {
+    console.warn('[ReferralService] clearTestReferralMembers error:', err);
+  }
+}
+
+// Auto-sync global referral network from Firestore & clean any old test simulations
 if (typeof window !== 'undefined') {
+  try {
+    clearTestReferralMembers();
+  } catch (_) {}
   setTimeout(() => {
     syncReferralAccountsFromFirestore().catch(() => {});
   }, 1000);

@@ -1,6 +1,8 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import {
   getAuth,
+  setPersistence,
+  browserLocalPersistence,
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   sendPasswordResetEmail,
@@ -15,6 +17,7 @@ import {
   getDoc,
   setDoc,
   updateDoc,
+  deleteDoc,
   onSnapshot,
   getDocFromServer,
   serverTimestamp,
@@ -43,6 +46,9 @@ export const firebaseConfig = {
 // Initialize Firebase app singleton
 export const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 export const auth = getAuth(app);
+if (typeof window !== 'undefined') {
+  setPersistence(auth, browserLocalPersistence).catch(() => {});
+}
 export const db = getFirestore(app);
 
 // Error logging conforming to skill guidelines
@@ -336,6 +342,57 @@ export const safeUpdateDoc = async (
 };
 
 /**
+ * Safe deleteDoc wrapper that catches and logs any exceptions
+ */
+export const safeDeleteDoc = async (docRef: any): Promise<boolean> => {
+  if (!docRef) return false;
+  try {
+    await deleteDoc(docRef);
+    return true;
+  } catch (err: any) {
+    console.warn('[Firebase] safeDeleteDoc notice:', err?.message || err);
+    return false;
+  }
+};
+
+/**
+ * Delete a user profile and associated referral node records from Firestore
+ */
+export const deleteFirestoreUserProfile = async (uid: string): Promise<boolean> => {
+  const cleanUid = cleanDocId(uid, '');
+  if (!cleanUid) return false;
+  try {
+    const userDocRef = safeDoc('users', cleanUid);
+    if (userDocRef) {
+      // First fetch data to find referral codes or memberId
+      try {
+        const snap = await getDoc(userDocRef);
+        if (snap.exists()) {
+          const uData = snap.data();
+          if (uData.referralCode) {
+            const ref1 = safeDoc('referral_nodes', uData.referralCode);
+            if (ref1) await safeDeleteDoc(ref1);
+          }
+          if (uData.memberId && uData.memberId !== uData.referralCode) {
+            const ref2 = safeDoc('referral_nodes', uData.memberId);
+            if (ref2) await safeDeleteDoc(ref2);
+          }
+        }
+      } catch (checkErr) {
+        console.warn('[Firebase] Error checking referral records for deletion:', checkErr);
+      }
+
+      await deleteDoc(userDocRef);
+      return true;
+    }
+    return false;
+  } catch (err: any) {
+    console.error('[Firebase] deleteFirestoreUserProfile error:', err);
+    throw err;
+  }
+};
+
+/**
  * Create a new user profile in Firestore
  */
 export const createFirestoreUserProfile = async (
@@ -429,6 +486,47 @@ export const createFirestoreUserProfile = async (
       await safeSetDoc(userDocRef, cleanPayload, { merge: true });
     }
 
+    // Persist phone indexing for instantaneous cross-browser lookup
+    if (last10) {
+      const phoneIndexPayload = {
+        last10,
+        phoneNormalized: normalized,
+        phone: profile.phone,
+        email: profile.email,
+        uid: cleanUid,
+        memberId: cleanMemberId,
+        referralCode,
+        username: profile.name,
+        updatedAt: serverTimestamp(),
+      };
+
+      const refRegisteredPhone = safeDoc('registered_phones', last10);
+      if (refRegisteredPhone) {
+        safeSetDoc(refRegisteredPhone, phoneIndexPayload, { merge: true }).catch(() => {});
+      }
+
+      const refPhoneIndex = safeDoc('phone_index', last10);
+      if (refPhoneIndex) {
+        safeSetDoc(refPhoneIndex, phoneIndexPayload, { merge: true }).catch(() => {});
+      }
+
+      // Also notify server-side phone registry for cross-browser persistence
+      try {
+        fetch('/api/auth/register-phone', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            phone: profile.phone,
+            email: profile.email,
+            uid: cleanUid,
+            memberId: cleanMemberId,
+            referralCode,
+            username: profile.name,
+          }),
+        }).catch(() => {});
+      } catch (_) {}
+    }
+
     // Immediately create referral node record and dispatch real-time event
     const nodePayload = {
       userId: cleanUid,
@@ -507,11 +605,16 @@ export const getFirestoreUserProfile = async (uid: string): Promise<UserProfile 
         typeof data.walletBalance === 'number' && !Number.isNaN(data.walletBalance) && data.walletBalance !== 12450.0
           ? data.walletBalance
           : 0.0,
+      totalEarnings: typeof data.totalEarnings === 'number' ? data.totalEarnings : 0.0,
+      activeUnits: typeof data.activeUnits === 'number' ? data.activeUnits : (Array.isArray(data.activeInvestments) ? data.activeInvestments.length : 0),
+      dailyRewards: typeof data.dailyRewards === 'number' ? data.dailyRewards : 0.0,
+      vipLevel: typeof data.vipLevel === 'number' ? data.vipLevel : 0,
+      activeInvestments: Array.isArray(data.activeInvestments) ? data.activeInvestments : [],
       memberSince: data.memberSince || 'May 2024',
       isVerified: data.isVerified ?? true,
       avatarUrl: data.avatarUrl,
       fullName: data.fullName,
-      transactions: data.transactions || [],
+      transactions: Array.isArray(data.transactions) ? data.transactions : [],
     };
   } catch (error) {
     console.warn('[Firebase] Warning fetching user profile:', error);
@@ -559,6 +662,50 @@ export const findEmailByPhone = async (rawPhone: string): Promise<string | null>
     }
   } catch {
     // ignore
+  }
+
+  // 1.5 Fast Direct Document Check in registered_phones and phone_index (O(1) direct lookup)
+  if (last10) {
+    try {
+      const pDoc = safeDoc('registered_phones', last10);
+      if (pDoc) {
+        const snap = await Promise.race([
+          getDoc(pDoc),
+          new Promise<null>((res) => setTimeout(() => res(null), 1500)),
+        ]);
+        if (snap && snap.exists && snap.exists()) {
+          const d = snap.data();
+          if (d?.email) return d.email;
+        }
+      }
+    } catch (_) {}
+
+    try {
+      const idxDoc = safeDoc('phone_index', last10);
+      if (idxDoc) {
+        const snap = await Promise.race([
+          getDoc(idxDoc),
+          new Promise<null>((res) => setTimeout(() => res(null), 1500)),
+        ]);
+        if (snap && snap.exists && snap.exists()) {
+          const d = snap.data();
+          if (d?.email) return d.email;
+        }
+      }
+    } catch (_) {}
+
+    // Check server registry endpoint
+    try {
+      const srvRes = await fetch(`/api/auth/phone-to-email?phone=${encodeURIComponent(last10)}`, {
+        signal: AbortSignal.timeout(1500),
+      });
+      if (srvRes.ok) {
+        const srvData = await srvRes.json();
+        if (srvData && srvData.found && srvData.email) {
+          return srvData.email;
+        }
+      }
+    } catch (_) {}
   }
 
   // 2. Comprehensive multi-tier Firestore lookup
@@ -1326,6 +1473,11 @@ export const recordInvestmentInFirestore = async (
     if (tInvRef) await safeSetDoc(tInvRef, invPayload, { merge: true });
 
     // 3. Atomically update user document profile & balance
+    const totalInvestedSum = (allInvestments || []).reduce(
+      (sum, inv) => sum + (Number(inv.amount || (inv as any).investAmount) || 0),
+      0
+    );
+
     if (userDocRef) {
       await safeSetDoc(
         userDocRef,
@@ -1335,10 +1487,36 @@ export const recordInvestmentInFirestore = async (
           dailyRewards: Number(totalDaily) || 0,
           activeUnits: allInvestments?.length || 0,
           activeInvestments: allInvestments || [],
+          totalInvested: totalInvestedSum,
           updatedAt: serverTimestamp(),
         },
         { merge: true }
       );
+
+      // Also update referral node so upline 3-level tree immediately reflects active status
+      try {
+        const uSnap = await getDoc(userDocRef);
+        if (uSnap.exists()) {
+          const uData = uSnap.data();
+          const refCode = (uData.referralCode || '').toString().trim().toUpperCase();
+          const memberId = (uData.memberId || '').toString().trim().toUpperCase();
+          const nodePayload = {
+            investAmount: totalInvestedSum,
+            status: totalInvestedSum > 0 ? 'active' : 'pending',
+            updatedAt: serverTimestamp(),
+          };
+          if (refCode) {
+            const rRef = safeDoc('referral_nodes', refCode);
+            if (rRef) safeSetDoc(rRef, nodePayload, { merge: true }).catch(() => {});
+          }
+          if (memberId && memberId !== refCode) {
+            const mRef = safeDoc('referral_nodes', memberId);
+            if (mRef) safeSetDoc(mRef, nodePayload, { merge: true }).catch(() => {});
+          }
+          const uRef = safeDoc('referral_nodes', cleanUid);
+          if (uRef) safeSetDoc(uRef, nodePayload, { merge: true }).catch(() => {});
+        }
+      } catch (_) {}
     }
 
     console.log('[Firebase] Investment persisted to Firestore successfully:', invId);
@@ -1962,6 +2140,80 @@ export const recordCommissionInFirestore = async (comm: {
     await safeSetDoc(docRef, payload, { merge: true });
   } catch (err) {
     console.warn('[Firebase] Notice recording commission in Firestore:', err);
+  }
+};
+
+/**
+ * -------------------------------------------------------------
+ * 5. CLOUD WITHDRAWAL RECORD & ADMIN SYNC
+ * -------------------------------------------------------------
+ */
+export interface WithdrawalRecordParams {
+  uid: string;
+  trxId: string;
+  amount: number;
+  walletMethod: string;
+  accountNumber: string;
+  accountName?: string;
+  authCode?: string;
+  status?: string;
+  dateStr?: string;
+  timeStr?: string;
+}
+
+export const recordFirestoreWithdrawal = async (params: WithdrawalRecordParams): Promise<boolean> => {
+  try {
+    const cleanUid = cleanDocId(params.uid, '');
+    const cleanWId = cleanDocId(params.trxId, `WD-${Date.now()}`);
+    if (!cleanUid || !cleanWId) return false;
+
+    const now = new Date();
+    const payload = {
+      id: cleanWId,
+      userId: cleanUid,
+      amount: Number(params.amount) || 0,
+      method: params.walletMethod || 'bKash',
+      accountNumber: params.accountNumber || '',
+      accountName: params.accountName || '',
+      authCode: params.authCode || '2FA_VERIFIED',
+      status: params.status || 'Pending',
+      createdAt: now.toISOString(),
+      dateStr: params.dateStr || now.toLocaleDateString(),
+      timeStr: params.timeStr || now.toLocaleTimeString(),
+      serverCreatedAt: serverTimestamp(),
+    };
+
+    // Save in global withdrawals collection for Admin Panel
+    const wDocRef = safeDoc('withdrawals', cleanWId);
+    if (wDocRef) {
+      await safeSetDoc(wDocRef, payload, { merge: true });
+    }
+
+    // Save in user subcollection
+    const userWRef = safeDoc('users', cleanUid, 'withdrawals', cleanWId);
+    if (userWRef) {
+      await safeSetDoc(userWRef, payload, { merge: true });
+    }
+
+    // Atomically deduct wallet balance from user profile document in Firestore
+    const userDocRef = safeDoc('users', cleanUid);
+    if (userDocRef) {
+      const deduction = -Math.abs(Number(params.amount) || 0);
+      await safeSetDoc(
+        userDocRef,
+        {
+          walletBalance: increment(deduction),
+          balance: increment(deduction),
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+    }
+
+    return true;
+  } catch (err) {
+    console.warn('[Firebase] Error recording withdrawal in Firestore:', err);
+    return false;
   }
 };
 

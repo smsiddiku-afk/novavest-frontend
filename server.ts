@@ -100,6 +100,176 @@ async function startServer() {
     }
   };
 
+  // ───────────────────────────────────────────────────────────
+  // PERSISTENT AUTH & PHONE REGISTRY FOR CROSS-BROWSER LOGIN
+  // Ensures any user can log in with their phone from any browser
+  // ───────────────────────────────────────────────────────────
+  const REGISTRY_DIR = path.join(process.cwd(), 'data');
+  const REGISTRY_FILE = path.join(REGISTRY_DIR, 'phone_registry.json');
+  const phoneRegistry = new Map<string, {
+    phone: string;
+    last10: string;
+    email: string;
+    uid?: string;
+    memberId?: string;
+    referralCode?: string;
+    username?: string;
+    updatedAt: string;
+  }>();
+
+  // Load persisted phone registry from disk
+  const loadPhoneRegistryFromDisk = () => {
+    try {
+      if (!fs.existsSync(REGISTRY_DIR)) {
+        fs.mkdirSync(REGISTRY_DIR, { recursive: true });
+      }
+      if (fs.existsSync(REGISTRY_FILE)) {
+        const raw = fs.readFileSync(REGISTRY_FILE, 'utf-8');
+        const data = JSON.parse(raw);
+        if (typeof data === 'object' && data !== null) {
+          Object.entries(data).forEach(([key, val]: [string, any]) => {
+            if (val && typeof val === 'object') {
+              phoneRegistry.set(key, val);
+            }
+          });
+          console.log(`[PhoneRegistry] Loaded ${phoneRegistry.size} registered accounts from disk`);
+        }
+      }
+    } catch (err) {
+      console.warn('[PhoneRegistry] Notice loading phone registry from disk:', err);
+    }
+  };
+
+  const savePhoneRegistryToDisk = () => {
+    try {
+      if (!fs.existsSync(REGISTRY_DIR)) {
+        fs.mkdirSync(REGISTRY_DIR, { recursive: true });
+      }
+      const obj: Record<string, any> = {};
+      phoneRegistry.forEach((v, k) => {
+        obj[k] = v;
+      });
+      fs.writeFileSync(REGISTRY_FILE, JSON.stringify(obj, null, 2), 'utf-8');
+    } catch (err) {
+      console.warn('[PhoneRegistry] Notice saving phone registry to disk:', err);
+    }
+  };
+
+  loadPhoneRegistryFromDisk();
+
+  const normalizePhoneQuery = (raw: string): string => {
+    return String(raw || '').replace(/\D/g, '');
+  };
+
+  // 1. GET /api/auth/check-phone
+  app.get('/api/auth/check-phone', (req, res) => {
+    const raw = String(req.query.phone || '').trim();
+    const digits = normalizePhoneQuery(raw);
+    const last10 = digits.slice(-10);
+
+    if (!last10) {
+      return res.json({ registered: false });
+    }
+
+    const record =
+      phoneRegistry.get(last10) ||
+      phoneRegistry.get(`0${last10}`) ||
+      phoneRegistry.get(`880${last10}`) ||
+      phoneRegistry.get(digits);
+
+    if (record) {
+      return res.json({
+        registered: true,
+        email: record.email,
+        memberId: record.memberId,
+        referralCode: record.referralCode,
+        username: record.username,
+      });
+    }
+
+    return res.json({ registered: false });
+  });
+
+  // 2. GET /api/auth/phone-to-email
+  app.get('/api/auth/phone-to-email', (req, res) => {
+    const raw = String(req.query.phone || '').trim();
+    const digits = normalizePhoneQuery(raw);
+    const last10 = digits.slice(-10);
+
+    if (!last10) {
+      return res.json({ found: false });
+    }
+
+    const record =
+      phoneRegistry.get(last10) ||
+      phoneRegistry.get(`0${last10}`) ||
+      phoneRegistry.get(`880${last10}`) ||
+      phoneRegistry.get(digits);
+
+    if (record && record.email) {
+      return res.json({
+        found: true,
+        email: record.email,
+        memberId: record.memberId,
+        referralCode: record.referralCode,
+      });
+    }
+
+    // Default canonical email for fallback
+    return res.json({
+      found: false,
+      suggestedEmail: `880${last10}@novavest.local`,
+    });
+  });
+
+  // 3. POST /api/auth/register-phone
+  app.post('/api/auth/register-phone', (req, res) => {
+    const { phone, email, uid, memberId, referralCode, username } = req.body;
+    const digits = normalizePhoneQuery(phone);
+    const last10 = digits.slice(-10);
+
+    if (!last10 || !email) {
+      return res.status(400).json({ success: false, error: 'Phone and email are required' });
+    }
+
+    const record = {
+      phone: String(phone || '').trim(),
+      last10,
+      email: String(email || '').trim().toLowerCase(),
+      uid: uid ? String(uid).trim() : undefined,
+      memberId: memberId ? String(memberId).trim().toUpperCase() : undefined,
+      referralCode: referralCode ? String(referralCode).trim().toUpperCase() : undefined,
+      username: username ? String(username).trim() : undefined,
+      updatedAt: new Date().toISOString(),
+    };
+
+    phoneRegistry.set(last10, record);
+    phoneRegistry.set(`0${last10}`, record);
+    phoneRegistry.set(`880${last10}`, record);
+    if (digits && digits !== last10) {
+      phoneRegistry.set(digits, record);
+    }
+
+    savePhoneRegistryToDisk();
+
+    return res.json({
+      success: true,
+      message: 'Phone registered successfully in server registry',
+      record,
+    });
+  });
+
+  // 4. GET /api/auth/all-accounts
+  app.get('/api/auth/all-accounts', (_req, res) => {
+    const uniqueRecords: Record<string, any> = {};
+    phoneRegistry.forEach((v) => {
+      if (v.last10) {
+        uniqueRecords[v.last10] = v;
+      }
+    });
+    return res.json({ success: true, count: Object.keys(uniqueRecords).length, accounts: uniqueRecords });
+  });
+
   // Extract client domain origin so returnUrl points back to user's real website domain
   const getClientOrigin = (req: express.Request): string => {
     if (req.body && req.body.clientOrigin) {

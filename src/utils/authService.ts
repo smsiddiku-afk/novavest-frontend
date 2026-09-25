@@ -87,7 +87,18 @@ const normalizeUser = (data: any): UserProfile | null => {
       : 0.0;
   const memberSince = data.memberSince || 'May 2024';
   const isVerified = data.isVerified ?? true;
-  const transactions = data.transactions || [];
+  const transactions = Array.isArray(data.transactions) ? data.transactions : [];
+  const vipLevel = typeof data.vipLevel === 'number' ? data.vipLevel : 0;
+  const totalEarnings = typeof data.totalEarnings === 'number' ? data.totalEarnings : 0.0;
+  const activeUnits = typeof data.activeUnits === 'number' ? data.activeUnits : (Array.isArray(data.activeInvestments) ? data.activeInvestments.length : 0);
+  const dailyRewards = typeof data.dailyRewards === 'number' ? data.dailyRewards : 0.0;
+  const activeInvestments = Array.isArray(data.activeInvestments) ? data.activeInvestments : [];
+  const totalInvested = typeof data.totalInvested === 'number' ? data.totalInvested : 0.0;
+  const totalReferralEarnings = typeof data.totalReferralEarnings === 'number' ? data.totalReferralEarnings : 0.0;
+  const isAuthenticatorSet = Boolean(data.isAuthenticatorSet);
+  const authenticatorSecret = data.authenticatorSecret || undefined;
+  const avatarUrl = data.avatarUrl || undefined;
+  const fullName = data.fullName || undefined;
 
   return {
     uid,
@@ -101,6 +112,17 @@ const normalizeUser = (data: any): UserProfile | null => {
     memberSince,
     isVerified,
     transactions,
+    vipLevel,
+    totalEarnings,
+    activeUnits,
+    dailyRewards,
+    activeInvestments,
+    totalInvested,
+    totalReferralEarnings,
+    isAuthenticatorSet,
+    authenticatorSecret,
+    avatarUrl,
+    fullName,
   };
 };
 
@@ -116,9 +138,17 @@ export const isSameUser = (
     a.phone === b.phone &&
     a.email === b.email &&
     a.memberId === b.memberId &&
+    a.referralCode === b.referralCode &&
+    a.referredBy === b.referredBy &&
     a.walletBalance === b.walletBalance &&
     a.memberSince === b.memberSince &&
-    a.isVerified === b.isVerified
+    a.isVerified === b.isVerified &&
+    a.vipLevel === b.vipLevel &&
+    a.totalEarnings === b.totalEarnings &&
+    a.activeUnits === b.activeUnits &&
+    a.dailyRewards === b.dailyRewards &&
+    (a.activeInvestments?.length || 0) === (b.activeInvestments?.length || 0) &&
+    (a.transactions?.length || 0) === (b.transactions?.length || 0)
   );
 };
 
@@ -336,18 +366,13 @@ if (typeof window !== 'undefined') {
           }
           attachFirestoreListener(firebaseUser.uid);
         } else {
-          // Document not in Firestore yet, create default
-          const initialUser = await createFirestoreUserProfile(firebaseUser.uid, {
-            name: firebaseUser.displayName || 'NVT Member',
-            phone: firebaseUser.phoneNumber || inMemoryAuthUser?.phone || '+880 1712-345678',
-            email: firebaseUser.email || 'user@novaterraenergy.io',
-            walletBalance:
-              inMemoryAuthUser?.walletBalance && inMemoryAuthUser.walletBalance !== 12450.0
-                ? inMemoryAuthUser.walletBalance
-                : 0.0,
-          });
-          persistAuthUser(initialUser);
-          attachFirestoreListener(firebaseUser.uid);
+          // If firestoreProfile is null, the user account has been deleted by an administrator or does not exist.
+          // NEVER resurrect or re-create user here. Immediately sign out and clear session!
+          console.warn('[AuthService] User profile not found in Firestore. Account may have been removed. Signing out.');
+          try {
+            await signOut(auth);
+          } catch (_) {}
+          clearPersistedAuthUser();
         }
       } catch (err) {
         console.warn('[AuthService] Error restoring user from Firestore:', err);
@@ -506,14 +531,12 @@ export const signInWithFirebase = async (
       if (!foundEmailFromPhone && last10) {
         try {
           const srvRes = await fetch(`/api/auth/phone-to-email?phone=${encodeURIComponent(last10)}`, {
-            signal: AbortSignal.timeout(2000),
+            signal: AbortSignal.timeout(800),
           });
           if (srvRes.ok) {
             const srvData = await srvRes.json();
             if (srvData && srvData.found && srvData.email) {
               foundEmailFromPhone = srvData.email;
-              emailCandidates.unshift(srvData.email.toLowerCase());
-              emailCandidates.unshift(srvData.email);
             }
           }
         } catch {
@@ -521,39 +544,37 @@ export const signInWithFirebase = async (
         }
       }
 
-      // Add canonical phone-to-email patterns immediately in priority order
-      if (last10 && last10.length === 10) {
-        emailCandidates.push(`880${last10}@novavest.local`);
-        emailCandidates.push(`0${last10}@novavest.local`);
-        emailCandidates.push(`${digits}@novavest.local`);
-        emailCandidates.push(`${last10}@novavest.local`);
-        emailCandidates.push(`8800${last10}@novavest.local`);
-      } else if (digits && digits.length >= 6) {
-        emailCandidates.push(`880${digits}@novavest.local`);
-        emailCandidates.push(`0${digits}@novavest.local`);
-        emailCandidates.push(`${digits}@novavest.local`);
-      }
-
-      // If rawInput itself is alphanumeric (like a username or memberId), add it
-      const sanitizedUsername = rawInput.trim().replace(/[^a-zA-Z0-9._-]/g, '');
-      if (sanitizedUsername && sanitizedUsername.length >= 3 && !rawInput.includes(' ') && !rawInput.includes('+')) {
-        emailCandidates.push(`${sanitizedUsername.toLowerCase()}@novavest.local`);
-      }
-
-      // Firestore lookup with generous 3500ms timeout
+      // Fast Firestore check if server didn't have it
       if (!foundEmailFromPhone) {
         try {
           const remoteFound = await Promise.race([
             findEmailByPhone(rawInput),
-            new Promise<null>((res) => setTimeout(() => res(null), 3500)),
+            new Promise<null>((res) => setTimeout(() => res(null), 1200)),
           ]);
           if (remoteFound) {
             foundEmailFromPhone = remoteFound;
-            emailCandidates.unshift(remoteFound.toLowerCase());
-            emailCandidates.unshift(remoteFound);
           }
         } catch {
           // continue with deterministic candidates
+        }
+      }
+
+      // Build target email list: if real email was found, ONLY use that email!
+      if (foundEmailFromPhone) {
+        emailCandidates.push(foundEmailFromPhone.trim());
+      } else {
+        // Fall back to canonical deterministic patterns
+        if (last10 && last10.length === 10) {
+          emailCandidates.push(`880${last10}@novavest.local`);
+          emailCandidates.push(`${last10}@novavest.local`);
+          emailCandidates.push(`0${last10}@novavest.local`);
+        } else if (digits && digits.length >= 6) {
+          emailCandidates.push(`880${digits}@novavest.local`);
+          emailCandidates.push(`${digits}@novavest.local`);
+        }
+        const sanitizedUsername = rawInput.trim().replace(/[^a-zA-Z0-9._-]/g, '');
+        if (sanitizedUsername && sanitizedUsername.length >= 3 && !rawInput.includes(' ') && !rawInput.includes('+')) {
+          emailCandidates.push(`${sanitizedUsername.toLowerCase()}@novavest.local`);
         }
       }
     }
@@ -562,7 +583,6 @@ export const signInWithFirebase = async (
     const isValidEmail = (em: string): boolean => {
       if (!em || typeof em !== 'string') return false;
       const trimmed = em.trim();
-      // Must contain exactly one '@' that is not at the start or end, have a domain with dot, and no whitespace or invalid chars
       return /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(trimmed);
     };
 
@@ -573,30 +593,37 @@ export const signInWithFirebase = async (
     let lastAuthErr: any = null;
     let successfulEmail = uniqueCandidates[0] || '';
 
-    // Iteratively attempt login across candidates and password variants
+    // Iteratively attempt login across candidates
     for (const candEmail of uniqueCandidates) {
-      for (const p of passwordsToTry) {
-        try {
-          cred = await signInWithEmailAndPassword(auth, candEmail, p);
-          successfulEmail = candEmail;
-          break;
-        } catch (err: any) {
-          lastAuthErr = err;
-          // If network is offline, fail fast
-          if (err?.code === 'auth/network-request-failed') {
-            throw err;
-          }
+      try {
+        cred = await signInWithEmailAndPassword(auth, candEmail, pass);
+        successfulEmail = candEmail;
+        break;
+      } catch (err: any) {
+        lastAuthErr = err;
+        if (err?.code === 'auth/network-request-failed') {
+          throw err;
         }
       }
-      if (cred) break;
     }
 
     if (!cred) {
-      // If user typed a phone number, check whether the phone actually exists
+      // If user typed a phone number, give immediate precise feedback
       if (phoneLookupDone) {
+        if (foundEmailFromPhone) {
+          // Phone exists in registry, password was definitely wrong
+          return {
+            success: false,
+            error:
+              lang === 'bn'
+                ? 'পাসওয়ার্ডটি সঠিক নয়। অনুগ্রহ করে সঠিক পাসওয়ার্ড দিন অথবা "পাসওয়ার্ড ভুলে গেছেন" ব্যবহার করুন।'
+                : 'Incorrect password. Please enter the correct password or reset your password.',
+          };
+        }
+
+        // Fast phone check
         const phoneCheck = await isPhoneAlreadyRegistered(rawInput);
-        if (phoneCheck.registered || foundEmailFromPhone) {
-          // Phone exists, password was wrong
+        if (phoneCheck.registered) {
           return {
             success: false,
             error:
@@ -605,7 +632,6 @@ export const signInWithFirebase = async (
                 : 'Incorrect password. Please enter the correct password or reset your password.',
           };
         } else {
-          // Phone really doesn't exist
           return {
             success: false,
             error:
@@ -618,79 +644,37 @@ export const signInWithFirebase = async (
       throw lastAuthErr;
     }
 
-    // Robust Firestore profile retrieval: give Firestore up to 6s
+    // Fast Firestore profile retrieval (max 1.5s)
     let firestoreUser: UserProfile | null = null;
     try {
       firestoreUser = await Promise.race([
         getFirestoreUserProfile(cred.user.uid),
-        new Promise<null>((res) => setTimeout(() => res(null), 6000)),
+        new Promise<null>((res) => setTimeout(() => res(null), 1500)),
       ]);
     } catch {
       // fallback
     }
 
-    let user: UserProfile;
-    if (firestoreUser) {
-      user = {
-        ...firestoreUser,
-        uid: cred.user.uid,
-      };
-    } else {
-      // Check local accounts table before inventing new codes
-      let recoveredRefCode = '';
-      let recoveredMemberId = '';
-      let recoveredPhone = '';
+    if (!firestoreUser) {
+      // Check if user was permanently deleted by admin
+      console.warn('[AuthService] Attempted login to non-existent or deleted account:', cred.user.uid);
       try {
-        if (typeof window !== 'undefined' && window.localStorage) {
-          const rawAccs = localStorage.getItem('novavest_registered_accounts');
-          if (rawAccs) {
-            const accs = JSON.parse(rawAccs);
-            for (const acc of Object.values(accs) as any[]) {
-              if (
-                acc.userId === cred.user.uid ||
-                (acc.email && acc.email.toLowerCase() === successfulEmail.toLowerCase())
-              ) {
-                recoveredRefCode = acc.userCode || acc.referralCode || '';
-                recoveredMemberId = acc.memberId || '';
-                recoveredPhone = acc.phone || '';
-                break;
-              }
-            }
-          }
-        }
+        await signOut(auth);
       } catch (_) {}
-
-      user = {
-        uid: cred.user.uid,
-        name: cred.user.displayName || (successfulEmail.includes('@') ? successfulEmail.split('@')[0] : 'NVT Member'),
-        phone: recoveredPhone || (successfulEmail.endsWith('@novavest.local') ? rawInput : '+880 1712-345678'),
-        email: cred.user.email || successfulEmail,
-        memberId: recoveredMemberId || `NVT${Math.floor(100000 + Math.random() * 900000)}`,
-        referralCode: recoveredRefCode || Math.random().toString(36).substring(2, 8).toUpperCase(),
-        walletBalance: 0.0,
-        memberSince: 'May 2024',
-        isVerified: true,
-        transactions: [],
+      clearPersistedAuthUser();
+      return {
+        success: false,
+        error:
+          lang === 'bn'
+            ? 'এই অ্যাকাউন্টটি ডাটাবেজে পাওয়া যায়নি বা অ্যাডমিন কর্তৃক মুছে ফেলা হয়েছে।'
+            : 'This account was not found or has been removed by the administrator.',
       };
-      // Try to re-fetch Firestore in background without overriding existing data
-      getFirestoreUserProfile(cred.user.uid)
-        .then((bgUser) => {
-          if (bgUser) {
-            persistAuthUser(bgUser);
-          } else {
-            // Only create if doc truly does not exist
-            createFirestoreUserProfile(cred.user.uid, {
-              name: user.name,
-              phone: user.phone || '+880 1712-345678',
-              email: user.email || successfulEmail,
-              memberId: user.memberId,
-              referralCode: user.referralCode,
-              walletBalance: user.walletBalance,
-            }).catch(() => {});
-          }
-        })
-        .catch(() => {});
     }
+
+    const user: UserProfile = {
+      ...firestoreUser,
+      uid: cred.user.uid,
+    };
 
     // Cache phone to email mapping in localStorage for instant 0ms future lookups
     if (user.phone && user.email && typeof window !== 'undefined' && window.localStorage) {

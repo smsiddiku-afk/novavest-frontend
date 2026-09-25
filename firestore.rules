@@ -84,5 +84,9 @@ service cloud.firestore {
     match /registered_phones/{phoneKey} {
       allow read, write: if true;
     }
+
+    match /deleted_accounts/{accountId} {
+      allow read, write: if true;
+    }
   }
 }

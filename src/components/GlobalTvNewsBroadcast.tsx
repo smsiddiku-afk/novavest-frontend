@@ -293,6 +293,8 @@ export const GlobalTvNewsBroadcast: React.FC<GlobalTvNewsBroadcastProps> = ({
               src="/news-broadcast/anchor_closeup_16x9.jpg"
               alt="Mohona Sarkar Speaking"
               referrerPolicy="no-referrer"
+              loading="lazy"
+              decoding="async"
               className="w-full h-full object-cover object-top"
             />
             <div className="absolute bottom-0 inset-x-0 bg-black/85 px-1.5 py-0.5 flex items-center justify-between text-[9px] text-white font-bold">

@@ -486,6 +486,8 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
                     <img
                       src="https://images.unsplash.com/photo-1509391365360-2e959784a276?auto=format&fit=crop&w=600&q=80"
                       alt="Apex Solar Park"
+                      loading="lazy"
+                      decoding="async"
                       className="w-full h-32 object-cover"
                       referrerPolicy="no-referrer"
                     />
@@ -503,6 +505,8 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
                     <img
                       src="https://images.unsplash.com/photo-1473341304170-971dccb5ac1e?auto=format&fit=crop&w=600&q=80"
                       alt="132kV Substation"
+                      loading="lazy"
+                      decoding="async"
                       className="w-full h-32 object-cover"
                       referrerPolicy="no-referrer"
                     />

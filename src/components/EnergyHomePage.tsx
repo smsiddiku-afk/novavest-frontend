@@ -296,6 +296,9 @@ export function EnergyHomePage({
                 src={resolveImageSrc('/images/energy_hero_facility_1788465969350.jpg', 'default')}
                 alt="AI-powered electricity generation facility and smart power grid"
                 referrerPolicy="no-referrer"
+                loading="eager"
+                decoding="async"
+                fetchPriority="high"
                 className="w-full h-full object-cover object-center brightness-[0.78] contrast-[1.08]"
                 onError={(e) => handleImageError(e, 'default')}
               />
@@ -746,6 +749,8 @@ export function EnergyHomePage({
                 src={resolveImageSrc('/images/smart_turbine_plant_1788466039952.jpg', 'turbine')}
                 alt="Inside modern smart power facility and turbine systems"
                 referrerPolicy="no-referrer"
+                loading="lazy"
+                decoding="async"
                 className="w-full h-full object-cover brightness-75 group-hover:scale-105 transition-transform duration-700"
                 onError={(e) => handleImageError(e, 'turbine')}
               />
@@ -849,6 +854,8 @@ export function EnergyHomePage({
                     src={resolveImageSrc(system.image, 'solar')}
                     alt={system.name}
                     referrerPolicy="no-referrer"
+                    loading="lazy"
+                    decoding="async"
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                     onError={(e) => handleImageError(e, 'solar')}
                   />
@@ -1676,6 +1683,8 @@ export function EnergyHomePage({
                 src={resolveImageSrc(selectedSystem.image, 'solar')}
                 alt={selectedSystem.name}
                 referrerPolicy="no-referrer"
+                loading="lazy"
+                decoding="async"
                 className="w-full h-full object-cover"
                 onError={(e) => handleImageError(e, 'solar')}
               />

@@ -1,4 +1,5 @@
 import express from 'express';
+import rateLimit from 'express-rate-limit';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
@@ -58,10 +59,42 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  // Middleware
-  app.set('trust proxy', true);
+  // Middleware - trust first proxy (Cloud Run / GCP load balancer)
+  app.set('trust proxy', 1);
   app.use(express.json({ limit: '50mb' }));
   app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
+  // High-Performance Rate Limiters for DDOS, Brute Force & Spam Protection
+  const apiLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 200,
+    standardHeaders: true,
+    legacyHeaders: false,
+    validate: { trustProxy: false },
+    message: { success: false, error: 'Too many requests, please try again in a minute.' },
+  });
+
+  const authLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 30,
+    standardHeaders: true,
+    legacyHeaders: false,
+    validate: { trustProxy: false },
+    message: { success: false, error: 'Too many authentication attempts. Please try again after 1 minute.' },
+  });
+
+  const payoutLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+    validate: { trustProxy: false },
+    message: { success: false, error: 'Too many payout requests. Please wait a minute.' },
+  });
+
+  app.use('/api/', apiLimiter);
+  app.use('/api/auth/', authLimiter);
+  app.use('/api/v1/payout', payoutLimiter);
 
   // In-memory stores
   const ordersDatabase = new Map<string, any>();
@@ -192,41 +225,44 @@ async function startServer() {
 
   // 2. GET /api/auth/phone-to-email
   app.get('/api/auth/phone-to-email', (req, res) => {
-    const raw = String(req.query.phone || '').trim();
+    const raw = String(req.query.phone || req.query.identifier || '').trim();
     const digits = normalizePhoneQuery(raw);
     const last10 = digits.slice(-10);
 
-    if (!last10) {
+    if (!last10 && !raw) {
       return res.json({ found: false });
     }
 
     const record =
-      phoneRegistry.get(last10) ||
-      phoneRegistry.get(`0${last10}`) ||
-      phoneRegistry.get(`880${last10}`) ||
-      phoneRegistry.get(digits);
+      (last10 && phoneRegistry.get(last10)) ||
+      (last10 && phoneRegistry.get(`0${last10}`)) ||
+      (last10 && phoneRegistry.get(`880${last10}`)) ||
+      (digits && phoneRegistry.get(digits)) ||
+      phoneRegistry.get(raw.toUpperCase());
 
     if (record && record.email) {
       return res.json({
         found: true,
         email: record.email,
+        phone: record.phone,
         memberId: record.memberId,
         referralCode: record.referralCode,
+        uid: record.uid,
       });
     }
 
     // Default canonical email for fallback
     return res.json({
       found: false,
-      suggestedEmail: `880${last10}@novavest.local`,
+      suggestedEmail: last10 ? `880${last10}@novavest.local` : undefined,
     });
   });
 
   // 3. POST /api/auth/register-phone
   app.post('/api/auth/register-phone', (req, res) => {
-    const { phone, email, uid, memberId, referralCode, username } = req.body;
+    const { phone, email, uid, memberId, referralCode, username, last10: bodyLast10 } = req.body || {};
     const digits = normalizePhoneQuery(phone);
-    const last10 = digits.slice(-10);
+    const last10 = String(bodyLast10 || (digits ? digits.slice(-10) : '')).trim();
 
     if (!last10 || !email) {
       return res.status(400).json({ success: false, error: 'Phone and email are required' });
@@ -249,6 +285,12 @@ async function startServer() {
     if (digits && digits !== last10) {
       phoneRegistry.set(digits, record);
     }
+    if (record.memberId) {
+      phoneRegistry.set(record.memberId, record);
+    }
+    if (record.referralCode) {
+      phoneRegistry.set(record.referralCode, record);
+    }
 
     savePhoneRegistryToDisk();
 
@@ -268,6 +310,68 @@ async function startServer() {
       }
     });
     return res.json({ success: true, count: Object.keys(uniqueRecords).length, accounts: uniqueRecords });
+  });
+
+  // 5. POST /api/admin/delete-user - Purges user from persistent server phone registry
+  app.post('/api/admin/delete-user', (req, res) => {
+    const { uid, phone, email, memberId, last10: reqLast10 } = req.body || {};
+    const digits = normalizePhoneQuery(phone);
+    const last10 = String(reqLast10 || (digits ? digits.slice(-10) : '')).trim();
+
+    let deletedCount = 0;
+    const keysToDelete: string[] = [];
+
+    phoneRegistry.forEach((val, key) => {
+      const matchUid = Boolean(uid && val.uid === uid);
+      const matchEmail = Boolean(email && val.email && val.email.toLowerCase() === String(email).toLowerCase());
+      const matchLast10 = Boolean(last10 && val.last10 === last10);
+      const matchMemberId = Boolean(memberId && val.memberId && val.memberId.toUpperCase() === String(memberId).toUpperCase());
+      const matchKey = Boolean(
+        (last10 && (key === last10 || key === `0${last10}` || key === `880${last10}`)) ||
+        (uid && key === uid) ||
+        (memberId && key === String(memberId).toUpperCase())
+      );
+
+      if (matchUid || matchEmail || matchLast10 || matchMemberId || matchKey) {
+        keysToDelete.push(key);
+      }
+    });
+
+    keysToDelete.forEach((k) => {
+      if (phoneRegistry.has(k)) {
+        phoneRegistry.delete(k);
+        deletedCount++;
+      }
+    });
+
+    savePhoneRegistryToDisk();
+
+    // Also clean registered_phones.json on disk if present
+    try {
+      const regPhonesFile = path.join(REGISTRY_DIR, 'registered_phones.json');
+      if (fs.existsSync(regPhonesFile)) {
+        const raw = fs.readFileSync(regPhonesFile, 'utf-8');
+        const data = JSON.parse(raw);
+        if (typeof data === 'object' && data !== null) {
+          let modified = false;
+          Object.keys(data).forEach((k) => {
+            if (keysToDelete.includes(k) || (last10 && k.includes(last10))) {
+              delete data[k];
+              modified = true;
+            }
+          });
+          if (modified) {
+            fs.writeFileSync(regPhonesFile, JSON.stringify(data, null, 2), 'utf-8');
+          }
+        }
+      }
+    } catch (_) {}
+
+    return res.json({
+      success: true,
+      message: `User permanently purged from server phone registry (${deletedCount} keys removed)`,
+      deletedCount,
+    });
   });
 
   // Extract client domain origin so returnUrl points back to user's real website domain
@@ -376,120 +480,6 @@ async function startServer() {
     res.setHeader('Content-Type', 'application/vnd.android.package-archive');
     res.setHeader('Content-Disposition', 'attachment; filename="NVT_Energy_v2.4.2.apk"');
     res.sendFile(filePath);
-  });
-
-  // ───────────────────────────────────────────────────────────
-  // PHONE REGISTRATION & SINGLE-ACCOUNT VERIFICATION
-  // ───────────────────────────────────────────────────────────
-  const registeredPhones = new Map<string, { phone: string; uid?: string; email?: string; memberId?: string; timestamp: number }>();
-
-  // Ensure persistent phone directory exists and hydrate
-  const PHONES_FILE_PATH = path.join(process.cwd(), 'data', 'registered_phones.json');
-  try {
-    if (!fs.existsSync(path.join(process.cwd(), 'data'))) {
-      fs.mkdirSync(path.join(process.cwd(), 'data'), { recursive: true });
-    }
-    if (fs.existsSync(PHONES_FILE_PATH)) {
-      const data = JSON.parse(fs.readFileSync(PHONES_FILE_PATH, 'utf-8'));
-      if (Array.isArray(data)) {
-        for (const item of data) {
-          if (item.last10) registeredPhones.set(item.last10, item);
-          if (item.digits) registeredPhones.set(item.digits, item);
-          if (item.phone) registeredPhones.set(item.phone, item);
-        }
-      }
-    }
-  } catch (err) {
-    console.warn('[Server] Error loading phone registry:', err);
-  }
-
-  const persistPhones = () => {
-    try {
-      const allItems: any[] = [];
-      const seen = new Set<string>();
-      for (const [key, val] of registeredPhones.entries()) {
-        const id = val.phone || key;
-        if (!seen.has(id)) {
-          seen.add(id);
-          allItems.push({ ...val, key });
-        }
-      }
-      fs.writeFileSync(PHONES_FILE_PATH, JSON.stringify(allItems, null, 2), 'utf-8');
-    } catch (err) {
-      console.warn('[Server] Error persisting phone registry:', err);
-    }
-  };
-
-  app.get('/api/auth/check-phone', (req, res) => {
-    const rawPhone = String(req.query.phone || '').trim();
-    const cleanDigits = rawPhone.replace(/\D/g, '');
-    const last10 = cleanDigits.slice(-10);
-
-    if (!last10 || last10.length < 8) {
-      return res.json({ registered: false });
-    }
-
-    const entry = registeredPhones.get(last10) || registeredPhones.get(cleanDigits) || registeredPhones.get(rawPhone);
-    const isRegistered = Boolean(entry);
-    return res.json({
-      registered: isRegistered,
-      phone: last10,
-      email: entry?.email,
-      memberId: entry?.memberId,
-    });
-  });
-
-  app.get('/api/auth/phone-to-email', (req, res) => {
-    const rawPhone = String(req.query.phone || '').trim();
-    const cleanDigits = rawPhone.replace(/\D/g, '');
-    const last10 = cleanDigits.slice(-10);
-
-    const entry =
-      (last10 && registeredPhones.get(last10)) ||
-      (cleanDigits && registeredPhones.get(cleanDigits)) ||
-      registeredPhones.get(rawPhone);
-
-    if (entry && entry.email) {
-      return res.json({
-        found: true,
-        email: entry.email,
-        phone: entry.phone,
-        memberId: entry.memberId,
-        uid: entry.uid,
-      });
-    }
-
-    return res.json({ found: false });
-  });
-
-  app.post('/api/auth/register-phone', (req, res) => {
-    const { phone, last10, uid, email, memberId } = req.body || {};
-    const cleanPhone = String(phone || '').trim();
-    const cleanDigits = cleanPhone.replace(/\D/g, '');
-    const cleanLast10 = String(last10 || cleanDigits.slice(-10)).trim();
-    const cleanEmail = String(email || '').trim();
-    const cleanMemberId = String(memberId || '').trim();
-
-    const record = {
-      phone: cleanPhone,
-      uid: String(uid || ''),
-      email: cleanEmail,
-      memberId: cleanMemberId,
-      timestamp: Date.now(),
-    };
-
-    if (cleanLast10 && cleanLast10.length >= 8) {
-      registeredPhones.set(cleanLast10, record);
-    }
-    if (cleanDigits) {
-      registeredPhones.set(cleanDigits, record);
-    }
-    if (cleanPhone) {
-      registeredPhones.set(cleanPhone, record);
-    }
-
-    persistPhones();
-    return res.json({ success: true, registered: true });
   });
 
   // ───────────────────────────────────────────────────────────
@@ -1651,6 +1641,23 @@ async function startServer() {
   // GLOBAL TV NEWS AUDIO UPLOAD & REGENERATION ENDPOINT
   // ───────────────────────────────────────────────────────────
   // ───────────────────────────────────────────────────────────
+  // HIGH-PERFORMANCE STATIC IMAGE CACHE MIDDLEWARE
+  // ───────────────────────────────────────────────────────────
+  const publicDir = path.join(process.cwd(), 'public');
+  app.use('/images', express.static(path.join(publicDir, 'images'), {
+    maxAge: '7d',
+    setHeaders: (res) => {
+      res.setHeader('Cache-Control', 'public, max-age=604800, stale-while-revalidate=86400');
+    },
+  }));
+  app.use('/news-broadcast', express.static(path.join(publicDir, 'news-broadcast'), {
+    maxAge: '7d',
+    setHeaders: (res) => {
+      res.setHeader('Cache-Control', 'public, max-age=604800, stale-while-revalidate=86400');
+    },
+  }));
+
+  // ───────────────────────────────────────────────────────────
   // VITE OR STATIC ASSETS MIDDLEWARE
   // ───────────────────────────────────────────────────────────
   if (process.env.NODE_ENV !== 'production') {
@@ -1661,7 +1668,14 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
+    app.use(express.static(distPath, {
+      maxAge: '1d',
+      setHeaders: (res, filePath) => {
+        if (filePath.match(/\.(jpg|jpeg|png|webp|svg|gif|woff2?|css|js)$/i)) {
+          res.setHeader('Cache-Control', 'public, max-age=604800, stale-while-revalidate=86400');
+        }
+      },
+    }));
     app.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });

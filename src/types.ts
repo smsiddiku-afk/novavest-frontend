@@ -63,6 +63,8 @@ export interface UserProfile {
   fullName?: string;
   vipLevel?: number;
   totalEarnings?: number;
+  totalInvested?: number;
+  totalReferralEarnings?: number;
   activeUnits?: number;
   dailyRewards?: number;
   activeInvestments?: Array<{

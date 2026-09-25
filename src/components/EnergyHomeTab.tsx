@@ -735,6 +735,9 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
               alt="NVT Clean Energy Banner"
               className="w-full h-full object-cover object-center"
               referrerPolicy="no-referrer"
+              loading={idx === 0 ? 'eager' : 'lazy'}
+              decoding="async"
+              fetchPriority={idx === 0 ? 'high' : 'auto'}
               onError={(e) => {
                 const target = e.currentTarget;
                 if (slide.fallback && target.src !== slide.fallback) {
@@ -1599,6 +1602,9 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
                 alt={selectedSystem.name}
                 className="w-full h-full object-cover object-center"
                 referrerPolicy="no-referrer"
+                loading="lazy"
+                decoding="async"
+                onError={(e) => handleImageError(e, 'default')}
               />
               <div className="absolute top-2 left-2">
                 <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold border ${selectedSystem.statusColor}`}>

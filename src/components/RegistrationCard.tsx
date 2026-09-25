@@ -172,6 +172,9 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
     } else if (password !== confirmPassword) {
       newErrors.confirmPassword =
         lang === 'bn' ? 'দুটি পাসওয়ার্ড মেলেনি' : 'Passwords do not match';
+    }
+
+    if (!email.trim()) {
       newErrors.email = lang === 'bn' ? 'আপনার ইমেল ঠিকানা লিখুন' : 'Please enter your email';
     } else {
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -211,13 +214,10 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
         ? `+880 ${last10}`
         : `${countryCode} ${rawDigits.replace(/^0+/, '')}`;
 
-      // Enforce strict one-account-per-phone rule before attempting registration
-      const [check1, check2] = await Promise.all([
-        isPhoneAlreadyRegistered(standardPhone),
-        isPhoneAlreadyRegistered(last10),
-      ]);
+      // Enforce strict one-account-per-phone rule before attempting registration (fast check)
+      const phoneCheck = await isPhoneAlreadyRegistered(standardPhone);
 
-      if (check1.registered || check2.registered) {
+      if (phoneCheck.registered) {
         setIsSubmitting(false);
         setErrors((prev) => ({
           ...prev,
@@ -249,23 +249,6 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
 
       setIsSubmitting(false);
       if (result.success && result.user) {
-        // নতুন ইউজারের নির্দিষ্ট রেফারেল কোড ও মেম্বার আইডি দিয়ে রেফারেল নেটওয়ার্কে যুক্ত করা
-        const userRefCode = result.user.referralCode || result.user.memberId || generateUniqueReferralCode(username.trim());
-        const finalUplineCode = inviterCode || result.user.referredBy || '';
-
-        try {
-          await registerUserInReferralNetwork(
-            result.user.uid || 'user_' + Date.now(),
-            userRefCode,
-            finalUplineCode,
-            standardPhone,
-            username.trim(),
-            result.user.memberId
-          );
-        } catch (regErr) {
-          console.warn('[RegistrationCard] registerUserInReferralNetwork notice:', regErr);
-        }
-
         clearPendingReferralCode();
 
         onRegistrationSuccess({
@@ -273,7 +256,7 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
           username: username.trim(),
           password,
           confirmPassword,
-          referralCode: finalUplineCode,
+          referralCode: inviterCode || result.user.referredBy || '',
           email: email.trim(),
         });
       } else {

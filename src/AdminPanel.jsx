@@ -15,7 +15,7 @@ import {
 } from "./utils/packageService";
 import { resolveImageSrc } from "./utils/imageUtils";
 
-const ADMIN_SECRET_KEY = "123456"; 
+const ADMIN_SECRET_KEY = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_ADMIN_SECRET_KEY) || "123456"; 
 
 export default function AdminPanel() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -505,7 +505,7 @@ export default function AdminPanel() {
   };
 
   // ইউজার আইডি ও ডাটাবেজ থেকে অ্যাকাউন্ট রিমুভ করার হ্যান্ডলার
-  const handleDeleteUser = async (targetUserId, targetUserName = "") => {
+  const handleDeleteUser = async (targetUserId, targetUserName = "", extraUserObj = null) => {
     const cleanId = cleanDocId(targetUserId, "");
     if (!cleanId) {
       alert("দয়া করে সঠিক ইউজার আইডি দিন!");
@@ -514,7 +514,7 @@ export default function AdminPanel() {
 
     const displayName = targetUserName ? `"${targetUserName}" (ID: ${cleanId})` : `ID: "${cleanId}"`;
     const confirmed = window.confirm(
-      `⚠️ সতর্কতা!\n\nআপনি কি নিশ্চিতভাবে ইউজার ${displayName}-কে সিস্টেম থেকে রিমুভ (মুছে ফেলতে) চান?\n\nইউজারের একাউন্ট ও ডেটা সম্পূর্ণভাবে ডাটাবেজ থেকে স্থায়ীভাবে মুছে যাবে। এই কাজটি আর পূর্বাবস্থায় ফিরিয়ে আনা সম্ভব নয়!`
+      `⚠️ সতর্কতা!\n\nআপনি কি নিশ্চিতভাবে ইউজার ${displayName}-কে সিস্টেম থেকে রিমুভ (মুছে ফেলতে) চান?\n\nইউজারের একাউন্ট, সাব-কালেকশন, ফোন রেজিস্ট্রি ও রেফারেল ডেটা সম্পূর্ণভাবে ফায়ারবেস থেকে স্থায়ীভাবে মুছে যাবে। এই কাজটি আর পূর্বাবস্থায় ফিরিয়ে আনা সম্ভব নয়!`
     );
 
     if (!confirmed) return;
@@ -523,8 +523,15 @@ export default function AdminPanel() {
     setStatusMsg("");
 
     try {
-      // ১. Firestore থেকে ইউজার প্রোফাইল ও সংশ্লিষ্ট রেফারেল নোড ডিলিট
-      await deleteFirestoreUserProfile(cleanId);
+      const extraDetails = {
+        phone: extraUserObj?.phone,
+        email: extraUserObj?.email,
+        memberId: extraUserObj?.memberId,
+        referralCode: extraUserObj?.referralCode,
+      };
+
+      // ১. Firestore থেকে ইউজার প্রোফাইল, সমস্ত সাব-কালেকশন, ফোন ইনডেক্স ও সংশ্লিষ্ট রেফারেল নোড ডিলিট
+      await deleteFirestoreUserProfile(cleanId, extraDetails);
 
       // ২. সরাসরি fallback হিসেবে users doc ডিলিট কল
       const userRef = safeDoc("users", cleanId);
@@ -533,7 +540,7 @@ export default function AdminPanel() {
       }
 
       // ৩. স্টেট থেকে ইউজারটি অবিলম্বে রিমুভ
-      setUsers((prev) => prev.filter((u) => u.id !== cleanId && u.uid !== cleanId));
+      setUsers((prev) => prev.filter((u) => u.id !== cleanId && u.uid !== cleanId && u.memberId !== cleanId));
 
       // ৪. লোকাল স্টোরেজ ক্যাশ থেকে মুছে ফেলা (যদি থাকে)
       if (typeof window !== "undefined" && window.localStorage) {
@@ -543,7 +550,12 @@ export default function AdminPanel() {
             const accs = JSON.parse(raw);
             let updated = false;
             for (const key of Object.keys(accs)) {
-              if (accs[key]?.userId === cleanId || accs[key]?.id === cleanId) {
+              if (
+                accs[key]?.userId === cleanId ||
+                accs[key]?.id === cleanId ||
+                (extraUserObj?.memberId && accs[key]?.memberId === extraUserObj.memberId) ||
+                (extraUserObj?.phone && accs[key]?.phone === extraUserObj.phone)
+              ) {
                 delete accs[key];
                 updated = true;
               }
@@ -557,11 +569,11 @@ export default function AdminPanel() {
         }
       }
 
-      setStatusMsg(`✅ ইউজার ID (${cleanId}) সফলভাবে ডাটাবেজ থেকে রিমুভ (মুছে ফেলা) হয়েছে!`);
+      setStatusMsg(`✅ ইউজার ${displayName} সফলভাবে ফায়ারবেস ও ডাটাবেজ থেকে স্থায়ীভাবে রিমুভ (মুছে ফেলা) হয়েছে!`);
       setManualUserIdToDelete("");
     } catch (err) {
       console.error("ইউজার রিমুভ এরর:", err);
-      setStatusMsg(`❌ ইউজার মুছে ফেলতে সমস্যা হয়েছে: ${err?.message || "ত্রুটি"}`);
+      setStatusMsg(`❌ ইউজার মুছে ফেলতে সমস্যা হয়েছে: ${err?.message || "ত্রুটি"}`);
     } finally {
       setDeletingUserId(null);
     }
@@ -1490,10 +1502,17 @@ export default function AdminPanel() {
                     alert("দয়া করে একটি ইউজার আইডি লিখুন বা পেস্ট করুন!");
                     return;
                   }
+                  const inputVal = manualUserIdToDelete.trim();
                   const targetUser = users.find(
-                    (u) => u.id === manualUserIdToDelete.trim() || u.uid === manualUserIdToDelete.trim() || u.memberId === manualUserIdToDelete.trim()
+                    (u) =>
+                      u.id === inputVal ||
+                      u.uid === inputVal ||
+                      (u.memberId && u.memberId.toUpperCase() === inputVal.toUpperCase()) ||
+                      (u.phone && (u.phone === inputVal || u.phone.includes(inputVal) || u.phone.replace(/\D/g, '').endsWith(inputVal.replace(/\D/g, '')))) ||
+                      (u.email && u.email.toLowerCase() === inputVal.toLowerCase())
                   );
-                  handleDeleteUser(manualUserIdToDelete.trim(), targetUser?.name || "");
+                  const actualId = targetUser ? (targetUser.id || targetUser.uid) : inputVal;
+                  handleDeleteUser(actualId, targetUser?.name || targetUser?.phone || inputVal, targetUser);
                 }}
                 style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}
               >
@@ -1633,7 +1652,7 @@ export default function AdminPanel() {
                             <div style={{ display: "flex", gap: "6px", justifyContent: "center" }}>
                               <button
                                 type="button"
-                                onClick={() => handleDeleteUser(u.id, u.name || u.phone || "")}
+                                onClick={() => handleDeleteUser(u.id, u.name || u.phone || "", u)}
                                 disabled={isBeingDeleted || deletingUserId !== null}
                                 style={{
                                   backgroundColor: isBeingDeleted ? "#475569" : "#dc2626",

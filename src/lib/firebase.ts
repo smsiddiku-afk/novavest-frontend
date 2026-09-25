@@ -358,34 +358,145 @@ export const safeDeleteDoc = async (docRef: any): Promise<boolean> => {
 /**
  * Delete a user profile and associated referral node records from Firestore
  */
-export const deleteFirestoreUserProfile = async (uid: string): Promise<boolean> => {
+/**
+ * Permanently purge a user profile, all subcollections, phone records, and referral nodes from Firestore.
+ */
+export const deleteFirestoreUserProfile = async (
+  uid: string,
+  extraDetails?: { phone?: string; email?: string; memberId?: string; referralCode?: string }
+): Promise<boolean> => {
   const cleanUid = cleanDocId(uid, '');
   if (!cleanUid) return false;
+
   try {
     const userDocRef = safeDoc('users', cleanUid);
+    let uData: any = {};
+
     if (userDocRef) {
-      // First fetch data to find referral codes or memberId
       try {
         const snap = await getDoc(userDocRef);
         if (snap.exists()) {
-          const uData = snap.data();
-          if (uData.referralCode) {
-            const ref1 = safeDoc('referral_nodes', uData.referralCode);
-            if (ref1) await safeDeleteDoc(ref1);
-          }
-          if (uData.memberId && uData.memberId !== uData.referralCode) {
-            const ref2 = safeDoc('referral_nodes', uData.memberId);
-            if (ref2) await safeDeleteDoc(ref2);
-          }
+          uData = snap.data() || {};
         }
-      } catch (checkErr) {
-        console.warn('[Firebase] Error checking referral records for deletion:', checkErr);
+      } catch (err) {
+        console.warn('[Firebase] Error fetching user before deletion:', err);
       }
-
-      await deleteDoc(userDocRef);
-      return true;
     }
-    return false;
+
+    const phone = extraDetails?.phone || uData.phone || uData.phoneNormalized || '';
+    const email = extraDetails?.email || uData.email || '';
+    const memberId = extraDetails?.memberId || uData.memberId || '';
+    const referralCode = extraDetails?.referralCode || uData.referralCode || '';
+    const rawDigits = phone.replace(/\D/g, '');
+    const last10 = uData.phoneLast10 || (rawDigits.length >= 10 ? rawDigits.slice(-10) : rawDigits);
+
+    // 1. Delete all subcollections under /users/{cleanUid} (deposits, investments, transactions, promo_claims)
+    const subcollections = ['deposits', 'investments', 'transactions', 'promo_claims'];
+    for (const sub of subcollections) {
+      try {
+        const subSnap = await getDocs(collection(db, 'users', cleanUid, sub));
+        const delOps = subSnap.docs.map((d) => deleteDoc(d.ref).catch(() => {}));
+        await Promise.all(delOps);
+      } catch (subErr) {
+        console.warn(`[Firebase] Notice cleaning subcollection ${sub}:`, subErr);
+      }
+    }
+
+    // 2. Delete phone indices in registered_phones and phone_index
+    const phoneKeysToDelete = new Set<string>();
+    if (last10) {
+      phoneKeysToDelete.add(last10);
+      phoneKeysToDelete.add(`0${last10}`);
+      phoneKeysToDelete.add(`880${last10}`);
+    }
+    if (phone) phoneKeysToDelete.add(phone.trim());
+    if (uData.phoneNormalized) phoneKeysToDelete.add(uData.phoneNormalized);
+
+    for (const pKey of phoneKeysToDelete) {
+      try {
+        const rp = safeDoc('registered_phones', pKey);
+        if (rp) await safeDeleteDoc(rp);
+      } catch (_) {}
+      try {
+        const pi = safeDoc('phone_index', pKey);
+        if (pi) await safeDeleteDoc(pi);
+      } catch (_) {}
+    }
+
+    // Query registered_phones and phone_index by uid
+    try {
+      const qRP = query(collection(db, 'registered_phones'), where('uid', '==', cleanUid));
+      const rpSnap = await getDocs(qRP);
+      await Promise.all(rpSnap.docs.map((d) => deleteDoc(d.ref).catch(() => {})));
+    } catch (_) {}
+    try {
+      const qPI = query(collection(db, 'phone_index'), where('uid', '==', cleanUid));
+      const piSnap = await getDocs(qPI);
+      await Promise.all(piSnap.docs.map((d) => deleteDoc(d.ref).catch(() => {})));
+    } catch (_) {}
+
+    // 3. Delete referral node documents
+    if (referralCode) {
+      const ref1 = safeDoc('referral_nodes', referralCode);
+      if (ref1) await safeDeleteDoc(ref1);
+    }
+    if (memberId && memberId !== referralCode) {
+      const ref2 = safeDoc('referral_nodes', memberId);
+      if (ref2) await safeDeleteDoc(ref2);
+    }
+    const ref3 = safeDoc('referral_nodes', cleanUid);
+    if (ref3) await safeDeleteDoc(ref3);
+
+    try {
+      const qRN = query(collection(db, 'referral_nodes'), where('userId', '==', cleanUid));
+      const rnSnap = await getDocs(qRN);
+      await Promise.all(rnSnap.docs.map((d) => deleteDoc(d.ref).catch(() => {})));
+    } catch (_) {}
+
+    // 4. Delete root collection records associated with user
+    const rootCols = ['deposits', 'withdrawals', 'investments', 'transactions', 'promo_claims'];
+    for (const col of rootCols) {
+      try {
+        const q = query(collection(db, col), where('userId', '==', cleanUid));
+        const snap = await getDocs(q);
+        await Promise.all(snap.docs.map((d) => deleteDoc(d.ref).catch(() => {})));
+      } catch (_) {}
+    }
+
+    // 5. Add tombstone in deleted_accounts so any cached token is immediately rejected
+    try {
+      const tombRef = safeDoc('deleted_accounts', cleanUid);
+      if (tombRef) {
+        await safeSetDoc(
+          tombRef,
+          {
+            uid: cleanUid,
+            phone: phone || '',
+            last10: last10 || '',
+            email: email || '',
+            memberId: memberId || '',
+            deletedAt: serverTimestamp(),
+          },
+          { merge: true }
+        );
+      }
+    } catch (_) {}
+
+    // 6. Delete the main user profile document itself
+    if (userDocRef) {
+      await deleteDoc(userDocRef);
+    }
+
+    // 7. Purge from server-side registry (/api/admin/delete-user)
+    try {
+      await fetch('/api/admin/delete-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uid: cleanUid, phone, email, memberId, last10 }),
+      });
+    } catch (_) {}
+
+    return true;
   } catch (err: any) {
     console.error('[Firebase] deleteFirestoreUserProfile error:', err);
     throw err;
@@ -500,15 +611,13 @@ export const createFirestoreUserProfile = async (
         updatedAt: serverTimestamp(),
       };
 
-      const refRegisteredPhone = safeDoc('registered_phones', last10);
-      if (refRegisteredPhone) {
-        safeSetDoc(refRegisteredPhone, phoneIndexPayload, { merge: true }).catch(() => {});
-      }
-
-      const refPhoneIndex = safeDoc('phone_index', last10);
-      if (refPhoneIndex) {
-        safeSetDoc(refPhoneIndex, phoneIndexPayload, { merge: true }).catch(() => {});
-      }
+      const keysToIndex = [last10, `0${last10}`, `880${last10}`];
+      keysToIndex.forEach((k) => {
+        const refP = safeDoc('registered_phones', k);
+        if (refP) safeSetDoc(refP, phoneIndexPayload, { merge: true }).catch(() => {});
+        const refIdx = safeDoc('phone_index', k);
+        if (refIdx) safeSetDoc(refIdx, phoneIndexPayload, { merge: true }).catch(() => {});
+      });
 
       // Also notify server-side phone registry for cross-browser persistence
       try {
@@ -517,6 +626,7 @@ export const createFirestoreUserProfile = async (
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             phone: profile.phone,
+            last10,
             email: profile.email,
             uid: cleanUid,
             memberId: cleanMemberId,
@@ -610,11 +720,15 @@ export const getFirestoreUserProfile = async (uid: string): Promise<UserProfile 
       dailyRewards: typeof data.dailyRewards === 'number' ? data.dailyRewards : 0.0,
       vipLevel: typeof data.vipLevel === 'number' ? data.vipLevel : 0,
       activeInvestments: Array.isArray(data.activeInvestments) ? data.activeInvestments : [],
+      totalInvested: typeof data.totalInvested === 'number' ? data.totalInvested : 0.0,
+      totalReferralEarnings: typeof data.totalReferralEarnings === 'number' ? data.totalReferralEarnings : 0.0,
       memberSince: data.memberSince || 'May 2024',
       isVerified: data.isVerified ?? true,
       avatarUrl: data.avatarUrl,
       fullName: data.fullName,
       transactions: Array.isArray(data.transactions) ? data.transactions : [],
+      isAuthenticatorSet: Boolean(data.isAuthenticatorSet),
+      authenticatorSecret: data.authenticatorSecret || '',
     };
   } catch (error) {
     console.warn('[Firebase] Warning fetching user profile:', error);
@@ -664,201 +778,104 @@ export const findEmailByPhone = async (rawPhone: string): Promise<string | null>
     // ignore
   }
 
-  // 1.5 Fast Direct Document Check in registered_phones and phone_index (O(1) direct lookup)
+  // 1.5 High-Speed Parallel Lookup: races server endpoint, registered_phones, phone_index, and indexed users query
   if (last10) {
     try {
-      const pDoc = safeDoc('registered_phones', last10);
-      if (pDoc) {
-        const snap = await Promise.race([
-          getDoc(pDoc),
-          new Promise<null>((res) => setTimeout(() => res(null), 1500)),
-        ]);
-        if (snap && snap.exists && snap.exists()) {
-          const d = snap.data();
-          if (d?.email) return d.email;
-        }
-      }
-    } catch (_) {}
+      const candidates: Promise<string | null>[] = [];
 
-    try {
-      const idxDoc = safeDoc('phone_index', last10);
-      if (idxDoc) {
-        const snap = await Promise.race([
-          getDoc(idxDoc),
-          new Promise<null>((res) => setTimeout(() => res(null), 1500)),
-        ]);
-        if (snap && snap.exists && snap.exists()) {
-          const d = snap.data();
-          if (d?.email) return d.email;
-        }
-      }
-    } catch (_) {}
+      // A. Fast server endpoint (5-20ms)
+      candidates.push(
+        fetch(`/api/auth/phone-to-email?phone=${encodeURIComponent(last10)}`, {
+          signal: AbortSignal.timeout(800),
+        })
+          .then((r) => (r.ok ? r.json() : null))
+          .then((d) => (d && d.found && d.email ? d.email : null))
+          .catch(() => null)
+      );
 
-    // Check server registry endpoint
-    try {
-      const srvRes = await fetch(`/api/auth/phone-to-email?phone=${encodeURIComponent(last10)}`, {
-        signal: AbortSignal.timeout(1500),
+      // B. Direct Firestore document checks (O(1))
+      const keysToLookup = [last10, `0${last10}`, `880${last10}`];
+      keysToLookup.forEach((k) => {
+        const pDoc = safeDoc('registered_phones', k);
+        if (pDoc) {
+          candidates.push(
+            getDoc(pDoc)
+              .then((snap) => (snap && snap.exists() && snap.data()?.email ? snap.data().email : null))
+              .catch(() => null)
+          );
+        }
+        const idxDoc = safeDoc('phone_index', k);
+        if (idxDoc) {
+          candidates.push(
+            getDoc(idxDoc)
+              .then((snap) => (snap && snap.exists() && snap.data()?.email ? snap.data().email : null))
+              .catch(() => null)
+          );
+        }
       });
-      if (srvRes.ok) {
-        const srvData = await srvRes.json();
-        if (srvData && srvData.found && srvData.email) {
-          return srvData.email;
-        }
-      }
-    } catch (_) {}
-  }
 
-  // 2. Comprehensive multi-tier Firestore lookup
-  try {
-    const usersRef = collection(db, 'users');
-    let foundEmail: string | null = null;
-    let matchedDocId: string | null = null;
+      // C. Fast indexed query on users collection (limit 1)
+      const usersRef = collection(db, 'users');
+      candidates.push(
+        getDocs(query(usersRef, where('phoneLast10', '==', last10), limit(1)))
+          .then((snap) => (!snap.empty && snap.docs[0].data()?.email ? snap.docs[0].data().email : null))
+          .catch(() => null)
+      );
 
-    // A. Single-value indexed queries (fastest and resilient)
-    if (last10) {
-      try {
-        const qLast10 = query(usersRef, where('phoneLast10', '==', last10));
-        const res: any = await Promise.race([
-          getDocs(qLast10),
-          new Promise<null>((res) => setTimeout(() => res(null), 2500)),
-        ]);
-        if (res && !res.empty) {
-          foundEmail = res.docs[0].data().email || null;
-          matchedDocId = res.docs[0].id;
-        }
-      } catch (err) {
-        // continue
-      }
-    }
+      // Race to the fastest resolved email
+      const fastEmail = await new Promise<string | null>((resolve) => {
+        let pending = candidates.length;
+        if (pending === 0) return resolve(null);
+        let resolved = false;
 
-    if (!foundEmail && normalized) {
-      try {
-        const qNorm = query(usersRef, where('phoneNormalized', '==', normalized));
-        const res: any = await Promise.race([
-          getDocs(qNorm),
-          new Promise<null>((res) => setTimeout(() => res(null), 2500)),
-        ]);
-        if (res && !res.empty) {
-          foundEmail = res.docs[0].data().email || null;
-          matchedDocId = res.docs[0].id;
-        }
-      } catch (err) {
-        // continue
-      }
-    }
-
-    // B. Direct raw phone string queries
-    if (!foundEmail && last10) {
-      const candidates = [
-        `+880 ${last10}`,
-        `+880 0${last10}`,
-        `+880${last10}`,
-        `0${last10}`,
-        last10,
-        rawPhone.trim(),
-      ];
-      for (const phoneStr of candidates) {
-        try {
-          const qPhone = query(usersRef, where('phone', '==', phoneStr));
-          const res: any = await Promise.race([
-            getDocs(qPhone),
-            new Promise<null>((res) => setTimeout(() => res(null), 1500)),
-          ]);
-          if (res && !res.empty) {
-            foundEmail = res.docs[0].data().email || null;
-            matchedDocId = res.docs[0].id;
-            break;
+        const timer = setTimeout(() => {
+          if (!resolved) {
+            resolved = true;
+            resolve(null);
           }
-        } catch {
-          // continue
-        }
-      }
-    }
+        }, 1200);
 
-    // C. Identifier query by memberId or name
-    if (!foundEmail && rawPhone.trim()) {
-      try {
-        const cleanIdent = rawPhone.trim();
-        const qMember = query(usersRef, where('memberId', '==', cleanIdent.toUpperCase()));
-        const res: any = await Promise.race([
-          getDocs(qMember),
-          new Promise<null>((res) => setTimeout(() => res(null), 1500)),
-        ]);
-        if (res && !res.empty) {
-          foundEmail = res.docs[0].data().email || null;
-          matchedDocId = res.docs[0].id;
-        }
-      } catch {
-        // continue
-      }
-    }
-
-    // D. Comprehensive Firestore collection scan fallback (guarantees finding ANY legacy format)
-    if (!foundEmail) {
-      try {
-        const scanSnap: any = await Promise.race([
-          getDocs(usersRef),
-          new Promise<null>((res) => setTimeout(() => res(null), 3000)),
-        ]);
-        if (scanSnap && scanSnap.docs) {
-          for (const docSnap of scanSnap.docs) {
-            const data = docSnap.data();
-            const docPhone = data.phone || data.phoneNormalized || '';
-            const docNorm = normalizePhone(docPhone);
-            const docLast10 = docNorm.length >= 10 ? docNorm.slice(-10) : docNorm;
-
-            if (
-              (last10 && docLast10 && docLast10 === last10) ||
-              (normalized && docNorm && docNorm === normalized) ||
-              (data.memberId && data.memberId.toUpperCase() === rawPhone.trim().toUpperCase())
-            ) {
-              if (data.email) {
-                foundEmail = data.email;
-                matchedDocId = docSnap.id;
-                break;
+        candidates.forEach((p) => {
+          p.then((em) => {
+            if (!resolved && em && typeof em === 'string' && em.includes('@')) {
+              resolved = true;
+              clearTimeout(timer);
+              resolve(em.trim());
+            } else {
+              pending--;
+              if (pending === 0 && !resolved) {
+                resolved = true;
+                clearTimeout(timer);
+                resolve(null);
               }
             }
-          }
+          }).catch(() => {
+            pending--;
+            if (pending === 0 && !resolved) {
+              resolved = true;
+              clearTimeout(timer);
+              resolve(null);
+            }
+          });
+        });
+      });
+
+      if (fastEmail) {
+        // Cache locally for instantaneous subsequent logins
+        if (typeof window !== 'undefined' && window.localStorage) {
+          try {
+            if (normalized) localStorage.setItem(`nvt_phone_email_${normalized}`, fastEmail);
+            localStorage.setItem(`nvt_phone_email_${last10}`, fastEmail);
+            localStorage.setItem(`nvt_phone_email_0${last10}`, fastEmail);
+            localStorage.setItem(`nvt_phone_email_880${last10}`, fastEmail);
+          } catch {}
         }
-      } catch (scanErr) {
-        console.warn('[Firebase] Scan fallback notice:', scanErr);
+        return fastEmail;
       }
-    }
-
-    if (foundEmail) {
-      // Cache locally for instantaneous subsequent logins
-      if (typeof window !== 'undefined' && window.localStorage) {
-        try {
-          if (normalized) localStorage.setItem(`nvt_phone_email_${normalized}`, foundEmail);
-          if (last10) {
-            localStorage.setItem(`nvt_phone_email_${last10}`, foundEmail);
-            localStorage.setItem(`nvt_phone_email_0${last10}`, foundEmail);
-            localStorage.setItem(`nvt_phone_email_880${last10}`, foundEmail);
-            localStorage.setItem(`nvt_phone_email_8800${last10}`, foundEmail);
-          }
-        } catch {}
-      }
-
-      // Self-heal Firestore doc with phoneNormalized & phoneLast10 asynchronously
-      if (matchedDocId && (normalized || last10)) {
-        const patch: Record<string, any> = {};
-        if (normalized) patch.phoneNormalized = normalized;
-        if (last10) patch.phoneLast10 = last10;
-        if (Object.keys(patch).length > 0) {
-          const safeMatchedId = cleanDocId(matchedDocId);
-          const uRef = safeDoc('users', safeMatchedId);
-          if (uRef) safeSetDoc(uRef, patch, { merge: true }).catch(() => {});
-        }
-      }
-
-      return foundEmail;
-    }
-
-    return null;
-  } catch (err) {
-    console.warn('[Firebase] Query phone notice:', err);
-    return null;
+    } catch (_) {}
   }
+
+  return null;
 };
 
 /**
@@ -874,48 +891,60 @@ export const isPhoneAlreadyRegistered = async (
 
   const normalized = normalizePhone(rawPhone);
   const last10 = normalized.length >= 10 ? normalized.slice(-10) : normalized;
-
-  // 1. Instant check against server-side phone registry
-  if (last10 && last10.length >= 8) {
-    try {
-      const srvRes = await fetch(`/api/auth/check-phone?phone=${encodeURIComponent(last10)}`, {
-        signal: AbortSignal.timeout(2000),
-      });
-      if (srvRes.ok) {
-        const srvData = await srvRes.json();
-        if (srvData && srvData.registered) {
-          return {
-            registered: true,
-            email: srvData.email,
-            existingEmail: srvData.email,
-            existingMemberId: srvData.memberId,
-          };
-        }
-      }
-    } catch (_) {}
+  if (!last10 || last10.length < 6) {
+    return { registered: false };
   }
 
-  // 2. Direct check in registered_phones collection
-  if (last10) {
-    try {
-      const pDoc = safeDoc('registered_phones', last10);
-      if (pDoc) {
-        const snap = await Promise.race([
-          getDoc(pDoc),
-          new Promise<null>((r) => setTimeout(() => r(null), 2000)),
-        ]);
-        if (snap && snap.exists && snap.exists()) {
-          const d = snap.data();
-          return { registered: true, email: d?.email, existingEmail: d?.email, existingMemberId: d?.memberId };
-        }
-      }
-    } catch (_) {}
-  }
+  try {
+    const checks: Promise<{ registered: boolean; email?: string; memberId?: string } | null>[] = [];
 
-  // 3. Fallback to comprehensive findEmailByPhone check
-  const email = await findEmailByPhone(rawPhone);
-  if (email) {
-    return { registered: true, email, existingEmail: email };
+    // 1. Instant check against server-side phone registry (sub-20ms)
+    checks.push(
+      fetch(`/api/auth/check-phone?phone=${encodeURIComponent(last10)}`, {
+        signal: AbortSignal.timeout(800),
+      })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => (data && data.registered ? { registered: true, email: data.email, memberId: data.memberId } : null))
+        .catch(() => null)
+    );
+
+    // 2. Direct O(1) check in registered_phones collection in Firestore
+    const pDoc = safeDoc('registered_phones', last10);
+    if (pDoc) {
+      checks.push(
+        getDoc(pDoc)
+          .then((snap) => (snap && snap.exists() ? { registered: true, email: snap.data()?.email, memberId: snap.data()?.memberId } : null))
+          .catch(() => null)
+      );
+    }
+
+    // 3. Fast indexed query on users collection (limit 1)
+    const usersRef = collection(db, 'users');
+    const qLast10 = query(usersRef, where('phoneLast10', '==', last10), limit(1));
+    checks.push(
+      getDocs(qLast10)
+        .then((snap) => (!snap.empty ? { registered: true, email: snap.docs[0].data()?.email, memberId: snap.docs[0].data()?.memberId } : null))
+        .catch(() => null)
+    );
+
+    // Wait for the checks with a tight 1200ms cap
+    const results = await Promise.race([
+      Promise.allSettled(checks),
+      new Promise<any[]>((res) => setTimeout(() => res([]), 1200)),
+    ]);
+
+    for (const r of results) {
+      if (r && r.status === 'fulfilled' && r.value && r.value.registered) {
+        return {
+          registered: true,
+          email: r.value.email,
+          existingEmail: r.value.email,
+          existingMemberId: r.value.memberId,
+        };
+      }
+    }
+  } catch (err) {
+    console.warn('[Firebase] isPhoneAlreadyRegistered notice:', err);
   }
 
   return { registered: false };
@@ -1049,11 +1078,20 @@ export const subscribeToFirestoreUserProfile = (
             typeof data.walletBalance === 'number' && !Number.isNaN(data.walletBalance) && data.walletBalance !== 12450.0
               ? data.walletBalance
               : 0.0,
+          totalEarnings: typeof data.totalEarnings === 'number' ? data.totalEarnings : 0.0,
+          activeUnits: typeof data.activeUnits === 'number' ? data.activeUnits : (Array.isArray(data.activeInvestments) ? data.activeInvestments.length : 0),
+          dailyRewards: typeof data.dailyRewards === 'number' ? data.dailyRewards : 0.0,
+          vipLevel: typeof data.vipLevel === 'number' ? data.vipLevel : 0,
+          activeInvestments: Array.isArray(data.activeInvestments) ? data.activeInvestments : [],
+          totalInvested: typeof data.totalInvested === 'number' ? data.totalInvested : 0.0,
+          totalReferralEarnings: typeof data.totalReferralEarnings === 'number' ? data.totalReferralEarnings : 0.0,
           memberSince: data.memberSince || 'May 2024',
           isVerified: data.isVerified ?? true,
           avatarUrl: data.avatarUrl,
           fullName: data.fullName,
           transactions: data.transactions || [],
+          isAuthenticatorSet: Boolean(data.isAuthenticatorSet),
+          authenticatorSecret: data.authenticatorSecret || '',
         };
         onUpdate(profile);
       }

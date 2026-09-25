@@ -6,6 +6,7 @@ import {
   Check,
   Users,
   RotateCw,
+  RefreshCw,
   UserCheck,
   Crown,
   Sparkles,
@@ -25,7 +26,6 @@ import {
   SolarMiniIcon,
   SolarTierIcon,
 } from './PromoBonusSolarIcons';
-import { ReferralTesterModal } from './ReferralTesterModal';
 
 export interface TierLevelItem {
   id: string;
@@ -162,7 +162,6 @@ export const PromoBonusScreen: React.FC<PromoBonusScreenProps> = ({
     }
   });
   const [isSyncing, setIsSyncing] = useState(false);
-  const [isTesterOpen, setIsTesterOpen] = useState(false);
 
   // Sync referral accounts live from Cloud Firestore and listen for changes
   useEffect(() => {
@@ -475,13 +474,14 @@ export const PromoBonusScreen: React.FC<PromoBonusScreenProps> = ({
             </div>
 
             <button
-              id="open-referral-tester-btn"
+              id="refresh-promo-sync-btn"
               type="button"
-              onClick={() => setIsTesterOpen(true)}
-              className="py-2 px-3.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-black text-xs flex items-center justify-center gap-1.5 shadow-md shadow-emerald-950/40 active:scale-95 cursor-pointer shrink-0 transition-all"
+              onClick={handleManualSync}
+              disabled={isSyncing}
+              className="py-2 px-3.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-bold text-xs flex items-center justify-center gap-1.5 shadow-md shadow-emerald-950/40 active:scale-95 cursor-pointer shrink-0 transition-all"
             >
-              <Zap className="w-3.5 h-3.5 text-slate-950" />
-              <span>{lang === 'en' ? 'Check 3-Level Referrals' : '৩ লেভেল রেফার চেকার'}</span>
+              <RefreshCw className={`w-3.5 h-3.5 text-slate-950 ${isSyncing ? 'animate-spin' : ''}`} />
+              <span>{isSyncing ? (lang === 'en' ? 'Updating...' : 'আপডেট হচ্ছে...') : (lang === 'en' ? 'Live Refresh' : 'লাইভ আপডেট')}</span>
             </button>
           </div>
 
@@ -642,17 +642,6 @@ export const PromoBonusScreen: React.FC<PromoBonusScreenProps> = ({
           })}
         </div>
       </div>
-
-      {/* Referral 3-Level Tester & Simulator Modal */}
-      <ReferralTesterModal
-        isOpen={isTesterOpen}
-        onClose={() => setIsTesterOpen(false)}
-        userCode={effectiveUserCode}
-        userMemberId={effectiveMemberId}
-        currentLang={lang}
-        onUpdated={() => setRefreshTick((t) => t + 1)}
-        showToast={showToast}
-      />
     </div>
   );
 };

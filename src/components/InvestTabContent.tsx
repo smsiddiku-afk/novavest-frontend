@@ -443,6 +443,8 @@ export const InvestTabContent: React.FC<InvestTabContentProps> = ({
             alt="Clean Energy Landscape"
             className="w-full h-full object-cover object-center mix-blend-luminosity"
             referrerPolicy="no-referrer"
+            loading="eager"
+            decoding="async"
             onError={(e) => handleImageError(e, 'solar')}
           />
           <div className="absolute inset-0 bg-gradient-to-r from-[#072c23] via-transparent to-transparent" />
@@ -614,6 +616,7 @@ export const InvestTabContent: React.FC<InvestTabContentProps> = ({
                     className="relative z-[1] w-full h-full object-cover object-center"
                     referrerPolicy="no-referrer"
                     loading="lazy"
+                    decoding="async"
                     onError={(e) => handleImageError(e, (plan.category as any) || 'solar')}
                   />
                   <div className="absolute inset-0 z-[2] bg-gradient-to-t from-black/60 via-transparent to-transparent pointer-events-none" />

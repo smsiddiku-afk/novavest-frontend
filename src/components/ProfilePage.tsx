@@ -2245,6 +2245,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                   alt="Clean Energy Farm"
                   className="w-full h-full object-cover object-right opacity-30 mix-blend-screen"
                   referrerPolicy="no-referrer"
+                  loading="eager"
+                  decoding="async"
                 />
 
                 {/* SVG Landscape Vector Art with Bright Rising Sun, Rolling Hills, Wind Turbines & Solar Panels */}
@@ -2709,11 +2711,11 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 }`} />
               </button>
 
-              {/* 7. 3-Level Referral Checker */}
+              {/* 7. Real 3-Level Referral Team & Commission */}
               <button
-                id="profile-referral-tester-menu-btn"
+                id="profile-referral-team-menu-btn"
                 type="button"
-                onClick={() => setIsReferralTesterModalOpen(true)}
+                onClick={() => switchTab('referral')}
                 className={`w-full px-4 sm:px-5 py-3.5 flex items-center justify-between transition-colors cursor-pointer text-left group ${
                   themeMode === 'day' ? 'hover:bg-slate-50' : 'hover:bg-emerald-500/10'
                 }`}
@@ -2726,12 +2728,12 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                     <span className={`text-[15px] font-semibold tracking-tight transition-colors block ${
                       themeMode === 'day' ? 'text-slate-800 group-hover:text-emerald-600' : 'text-slate-100 group-hover:text-emerald-300'
                     }`}>
-                      {currentLang === 'bn' ? '৩ লেভেল রেফার চেকার' : '3-Level Referral Checker'}
+                      {currentLang === 'bn' ? 'রেফারেল টিম ও কমিশন' : 'Referral Team & Commission'}
                     </span>
                     <span className="text-[11px] text-slate-400 block">
                       {currentLang === 'bn'
-                        ? `সক্রিয় সদস্য: ${totalActiveMembersInLevels}/৩ | VIP 1 ${isVip1Unlocked ? 'সক্রিয়' : 'লক'}`
-                        : `Active: ${totalActiveMembersInLevels}/3 | VIP 1 ${isVip1Unlocked ? 'Active' : 'Locked'}`}
+                        ? `৩-লেভেল নেটওয়ার্ক | সক্রিয় সদস্য: ${totalActiveMembersInLevels}`
+                        : `3-Level Network | Active: ${totalActiveMembersInLevels}`}
                     </span>
                   </div>
                 </div>

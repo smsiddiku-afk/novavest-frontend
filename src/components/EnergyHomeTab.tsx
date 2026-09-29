@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
   Zap,
   ShieldCheck,
@@ -28,6 +28,7 @@ import {
   Flame,
   Menu,
   X,
+  ChevronLeft,
   ChevronRight,
   ChevronDown,
   Copy,
@@ -55,6 +56,9 @@ import {
   MessageSquare,
   MessageCircle,
   Smartphone,
+  Heart,
+  MapPin,
+  Users,
 } from 'lucide-react';
 import { HOURLY_GENERATION_DATA } from '../data/energyData';
 import { EnergySystem, Language } from '../types';
@@ -70,6 +74,15 @@ import { CompanyProfileModal } from './CompanyProfileModal';
 import { resolveImageSrc, handleImageError } from '../utils/imageUtils';
 import { openCrispChat } from '../utils/crispService';
 import { downloadNvtApk } from '../utils/appDownloader';
+
+export interface CharityBannerItem {
+  id: string;
+  image: string;
+  title?: string;
+  fallback?: string;
+  createdAt?: string;
+  isActive?: boolean;
+}
 
 interface EnergyHomeTabProps {
   currentLang?: Language;
@@ -124,6 +137,7 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
     'company' | 'employee' | 'video' | 'system-details' | 'new-projects' | 'supply' | null
   >(null);
   const [selectedSystem, setSelectedSystem] = useState<EnergySystem | null>(null);
+  const [selectedCharityImage, setSelectedCharityImage] = useState<string | null>(null);
 
   // Video player & Voice Narration State
   const [selectedVideoIndex, setSelectedVideoIndex] = useState(0);
@@ -633,6 +647,92 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
     return () => clearInterval(payoutTimer);
   }, [livePayouts.length]);
 
+  // Charity Foundation Dynamic Banner Slider State (দাতব্য প্রতিষ্ঠান ব্যানার স্লাইডার)
+  const [charityBanners, setCharityBanners] = useState<CharityBannerItem[]>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = localStorage.getItem('nvt_charity_banners');
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed)) return parsed.filter((b: any) => b.isActive !== false);
+        }
+      } catch (_) {}
+    }
+    return [];
+  });
+  const [activeCharitySlide, setActiveCharitySlide] = useState(0);
+  const [isCharityHovered, setIsCharityHovered] = useState(false);
+  const charityTouchStartXRef = useRef<number | null>(null);
+
+  // Fetch charity banners from backend and synchronize
+  const loadCharityBanners = useCallback(async () => {
+    try {
+      const res = await fetch('/api/admin/charity-banners');
+      if (res.ok) {
+        const data = await res.json();
+        if (data && Array.isArray(data.banners)) {
+          const activeOnly = data.banners.filter((b: any) => b.isActive !== false);
+          setCharityBanners(activeOnly);
+          try {
+            localStorage.setItem('nvt_charity_banners', JSON.stringify(activeOnly));
+          } catch (_) {}
+        }
+      }
+    } catch (_) {}
+  }, []);
+
+  useEffect(() => {
+    loadCharityBanners();
+    const handleUpdate = () => loadCharityBanners();
+    window.addEventListener('charity_banners_updated', handleUpdate);
+    return () => window.removeEventListener('charity_banners_updated', handleUpdate);
+  }, [loadCharityBanners]);
+
+  // Keep activeCharitySlide within valid range
+  useEffect(() => {
+    if (charityBanners.length === 0) {
+      setActiveCharitySlide(0);
+    } else if (activeCharitySlide >= charityBanners.length) {
+      setActiveCharitySlide(0);
+    }
+  }, [charityBanners.length, activeCharitySlide]);
+
+  // Auto-advance charity banner slides every 3.5 seconds (unless hovered/focused)
+  useEffect(() => {
+    if (isCharityHovered || charityBanners.length <= 1) return;
+    const timer = setInterval(() => {
+      setActiveCharitySlide((prev) => (prev + 1) % charityBanners.length);
+    }, 3500);
+    return () => clearInterval(timer);
+  }, [isCharityHovered, charityBanners.length]);
+
+  const handlePrevCharitySlide = (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    if (charityBanners.length <= 1) return;
+    setActiveCharitySlide((prev) => (prev - 1 + charityBanners.length) % charityBanners.length);
+  };
+
+  const handleNextCharitySlide = (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    if (charityBanners.length <= 1) return;
+    setActiveCharitySlide((prev) => (prev + 1) % charityBanners.length);
+  };
+
+  const handleCharityTouchStart = (e: React.TouchEvent) => {
+    charityTouchStartXRef.current = e.touches[0].clientX;
+  };
+
+  const handleCharityTouchEnd = (e: React.TouchEvent) => {
+    if (charityTouchStartXRef.current === null) return;
+    const diff = charityTouchStartXRef.current - e.changedTouches[0].clientX;
+    if (diff > 40) {
+      handleNextCharitySlide();
+    } else if (diff < -40) {
+      handlePrevCharitySlide();
+    }
+    charityTouchStartXRef.current = null;
+  };
+
   const handleCopyReferral = () => {
     navigator.clipboard.writeText('https://nvt-energy.io/portal/ref?code=NVT123456');
     showToast(t.toastCopied);
@@ -811,6 +911,48 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
             {liveFrequency} Hz
           </span>
         </div>
+      </div>
+
+      {/* ───────────────────────────────────────────────────────────
+          NVT ENERGY OFFICIAL PROMOTIONAL & NOTICE BAR
+      ─────────────────────────────────────────────────────────── */}
+      <div
+        id="nvt-promo-banner-trigger-bar"
+        onClick={() => {
+          window.dispatchEvent(new CustomEvent('open_nvt_promo_banner'));
+        }}
+        className="w-full p-2.5 sm:p-3 rounded-2xl bg-gradient-to-r from-[#042c20] via-[#053829] to-[#042c20] border border-emerald-500/35 hover:border-emerald-400/60 transition-all flex items-center justify-between gap-2.5 cursor-pointer shadow-md group"
+      >
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-emerald-500/20 border border-emerald-400/40 flex items-center justify-center shrink-0 text-emerald-400 group-hover:scale-105 transition-transform">
+            <Sparkles className="w-4 h-4 text-amber-400 animate-pulse" />
+          </div>
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5">
+              <span className="px-1.5 py-0.2 rounded bg-emerald-500/25 text-[10px] font-black text-emerald-300 uppercase tracking-wider">
+                PROMO
+              </span>
+              <p className="text-xs sm:text-[13px] font-bold text-white truncate">
+                {lang === 'bn'
+                  ? 'NVT এনার্জি গ্রিন গ্রিড কার্যক্রম ও অফিশিয়াল প্রমোশন'
+                  : 'NVT Energy Green Grid Operations & Official Promotion'}
+              </p>
+            </div>
+            <p className="text-[11px] text-emerald-200/85 font-medium truncate mt-0.5">
+              {lang === 'bn'
+                ? 'সৌর বিদ্যুৎ উৎপাদন প্রকল্প ও অফিশিয়াল টেলিগ্রাম চ্যানেল দেখুন'
+                : 'View solar energy projects & join official Telegram'}
+            </p>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          className="shrink-0 px-2.5 py-1 rounded-xl bg-emerald-500/20 group-hover:bg-emerald-500/30 text-emerald-300 text-xs font-bold flex items-center gap-1 border border-emerald-500/30 transition-colors"
+        >
+          <span>{lang === 'bn' ? 'দেখুন' : 'View'}</span>
+          <ChevronRight className="w-3.5 h-3.5 text-emerald-300 group-hover:translate-x-0.5 transition-transform" />
+        </button>
       </div>
 
       {/* ───────────────────────────────────────────────────────────
@@ -1036,278 +1178,197 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
       </div>
 
       {/* ───────────────────────────────────────────────────────────
-          6. 🎬 VIDEO PLAYER (ভিডিও নিচে নাম্বে আরো পেজে যেনো সুন্দর লাগে)
+          6. 🎬 PURE VIDEO PLAYER (স্ক্রিনে শুধু ভিডিও, আশেপাশে কোনো লেখা ছাড়া)
       ─────────────────────────────────────────────────────────── */}
-      <div id="ai-energy-video" className="rounded-3xl bg-black overflow-hidden shadow-2xl space-y-0 border-0 border-none">
-        {/* Video Canvas View (NO BORDER) */}
-        <div className="relative h-56 sm:h-64 rounded-3xl overflow-hidden bg-black group border-0 border-none">
+      <div id="ai-energy-video" className="rounded-3xl bg-black overflow-hidden shadow-2xl border-0 border-none">
+        {/* Video Canvas View (NO BORDER, ZERO TEXT) */}
+        <div className="relative w-full aspect-video sm:h-72 rounded-3xl overflow-hidden bg-black group border-0 border-none">
           {/* Native Clean Video Element */}
           <video
             ref={videoElementRef}
             key={videoEpisodes[selectedVideoIndex].videoSrc}
             src={videoEpisodes[selectedVideoIndex].videoSrc}
             poster={resolveImageSrc(videoEpisodes[selectedVideoIndex].image, 'solar')}
-            className="w-full h-full object-cover"
+            className="w-full h-full object-cover cursor-pointer"
             playsInline
             preload="auto"
             loop
+            controls
             onPlay={() => setIsVideoPlaying(true)}
             onPause={() => setIsVideoPlaying(false)}
             onEnded={() => {
               setIsVideoPlaying(false);
               setVideoSeconds(0);
             }}
-            onTimeUpdate={(e) => setVideoSeconds(Math.floor(e.currentTarget.currentTime))}
             onClick={handleToggleVideoPlay}
           />
 
-          {/* Vignette ONLY when paused/stopped - NEVER covers playing video */}
+          {/* Clean Center Play button overlay ONLY when video is paused */}
           {!isVideoPlaying && (
-            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-black/40 pointer-events-none transition-opacity duration-300" />
-          )}
-
-          {/* Center Interactive Play Prompt when stopped */}
-          {!isVideoPlaying ? (
             <div
               onClick={handleToggleVideoPlay}
-              className="absolute inset-0 flex flex-col items-center justify-center bg-black/30 backdrop-blur-[1px] cursor-pointer transition-all hover:bg-black/20 z-10"
+              className="absolute inset-0 flex items-center justify-center bg-black/30 backdrop-blur-[1px] cursor-pointer transition-all hover:bg-black/20 z-10"
             >
               <div className="w-16 h-16 rounded-full bg-gradient-to-tr from-emerald-400 to-cyan-400 text-slate-950 flex items-center justify-center shadow-2xl shadow-emerald-500/50 transform hover:scale-110 active:scale-95 transition-all">
                 <Play className="w-8 h-8 fill-current ml-1" />
               </div>
-              <div className="mt-3 px-3.5 py-1.5 rounded-full bg-black/80 text-xs font-bold text-emerald-300 shadow-md border border-emerald-500/25 backdrop-blur-md">
-                {lang === 'bn' ? 'ভিডিও দেখতে এখানে ক্লিক করুন' : 'Click to Watch Facility Video'}
-              </div>
-            </div>
-          ) : (
-            <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
-              <button
-                type="button"
-                onClick={handleToggleVideoPlay}
-                className="w-14 h-14 rounded-full bg-black/70 hover:bg-black/90 flex items-center justify-center text-white shadow-2xl transition-all hover:scale-110 cursor-pointer pointer-events-auto"
-                title="Pause"
-              >
-                <Pause className="w-6 h-6 fill-current" />
-              </button>
             </div>
           )}
-
-          {/* Captions / Subtitles */}
-          {isVideoPlaying && (
-            <div className="absolute bottom-12 inset-x-3 text-center pointer-events-none z-10">
-              <div className="inline-block max-w-[92%] px-3.5 py-1.5 rounded-xl bg-black/85 text-xs sm:text-sm text-cyan-200 font-medium shadow-xl animate-in fade-in duration-300 border border-white/10 backdrop-blur-md">
-                {videoEpisodes[selectedVideoIndex].captions.find(
-                  (c) => (videoSeconds % (videoEpisodes[selectedVideoIndex].totalSec || 25)) >= c.start && (videoSeconds % (videoEpisodes[selectedVideoIndex].totalSec || 25)) < c.end
-                )?.text || videoEpisodes[selectedVideoIndex].captions[0]?.text}
-              </div>
-            </div>
-          )}
-
-          {/* Bottom Control Bar */}
-          <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/95 via-black/80 to-transparent p-3 pt-4 space-y-2 z-10">
-            {/* Scrubber Progress Bar */}
-            <div
-              onClick={() => {
-                if (videoElementRef.current) {
-                  const currentTotal = videoEpisodes[selectedVideoIndex]?.totalSec || 30;
-                  const nextTime = (videoElementRef.current.currentTime + 5) % currentTotal;
-                  videoElementRef.current.currentTime = nextTime;
-                  setVideoSeconds(Math.floor(nextTime));
-                } else {
-                  setVideoSeconds((prev) => prev + 5);
-                }
-              }}
-              className="w-full bg-slate-800/90 rounded-full h-1.5 overflow-hidden cursor-pointer group/bar relative"
-            >
-              <div
-                className="bg-gradient-to-r from-emerald-400 via-cyan-400 to-blue-500 h-full rounded-full transition-all duration-300 relative"
-                style={{
-                  width: `${Math.min(
-                    100,
-                    Math.round(
-                      ((videoSeconds % videoEpisodes[selectedVideoIndex].totalSec) /
-                        videoEpisodes[selectedVideoIndex].totalSec) *
-                        100
-                    )
-                  )}%`,
-                }}
-              />
-            </div>
-
-            <div className="flex items-center justify-between text-white text-xs">
-              <div className="flex items-center gap-2.5">
-                <button
-                  type="button"
-                  onClick={handleToggleVideoPlay}
-                  className="p-1 text-cyan-300 hover:text-white cursor-pointer"
-                >
-                  {isVideoPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 fill-current" />}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleToggleVoiceNarration}
-                  className={`p-1 cursor-pointer transition-colors ${
-                    isVoiceActive ? 'text-emerald-400 hover:text-emerald-300' : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                  title={isVoiceActive ? 'Mute Voice' : 'Unmute Voice'}
-                >
-                  {isVoiceActive ? <Volume2 className="w-4 h-4 animate-pulse" /> : <VolumeX className="w-4 h-4" />}
-                </button>
-
-                <span className="text-[10px] font-mono text-slate-300">
-                  {Math.floor((videoSeconds % videoEpisodes[selectedVideoIndex].totalSec) / 60)
-                    .toString()
-                    .padStart(2, '0')}
-                  :
-                  {Math.floor((videoSeconds % videoEpisodes[selectedVideoIndex].totalSec) % 60)
-                    .toString()
-                    .padStart(2, '0')}{' '}
-                  / {videoEpisodes[selectedVideoIndex].duration}
-                </span>
-              </div>
-
-              <span className="text-[11px] font-semibold text-white truncate max-w-[170px] sm:max-w-[240px]">
-                {videoEpisodes[selectedVideoIndex].title}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* Video Clips Carousel/Tabs */}
-        <div className="bg-[#031d16] p-2 sm:p-2.5 border-t border-emerald-500/20 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
-          {videoEpisodes.map((ep, idx) => (
-            <button
-              key={ep.id}
-              type="button"
-              onClick={() => handleSelectVideoEpisode(idx)}
-              className={`px-3 py-1.5 rounded-xl text-[11px] sm:text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
-                selectedVideoIndex === idx
-                  ? 'bg-emerald-500 text-slate-950 font-bold shadow-md shadow-emerald-500/30 scale-[1.02]'
-                  : 'bg-[#062a1f] hover:bg-[#093a2b] text-slate-300 border border-emerald-500/20'
-              }`}
-            >
-              <span>{ep.id === 'ep-1' ? '☀️' : ep.id === 'ep-2' ? '🔋' : ep.id === 'ep-3' ? '💰' : '🌐'}</span>
-              <span>{ep.title}</span>
-            </button>
-          ))}
         </div>
       </div>
 
       {/* ───────────────────────────────────────────────────────────
-          6.1 HOW THE POWER GRID WORKS (কিভাবে পাওয়ার গ্রিড কাজ করে)
-          (Borderless, matching screenshot's warm palette, filling the page nicely)
+          CHARITY FOUNDATION BANNER SLIDER (দাতব্য প্রতিষ্ঠান)
+          (Dynamic carousel of images uploaded from Admin Panel, zero text clutter)
       ─────────────────────────────────────────────────────────── */}
-      <div className="w-full space-y-3 pt-2">
-        {/* Section Header */}
-        <div className="flex items-center justify-between px-1">
+      <div className="w-full pt-2 pb-3">
+        {/* Headline: দাতব্য প্রতিষ্ঠান */}
+        <div className="flex items-center justify-between pb-2.5 px-0.5">
           <div className="flex items-center gap-2">
-            <div className="flex items-center gap-1">
-              <span className="w-1.5 h-4 rounded-full bg-[#f97316]" />
-              <span className="w-1.5 h-5 rounded-full bg-[#10b981]" />
-              <span className="w-1.5 h-3.5 rounded-full bg-[#06b6d4]" />
+            <div className="w-7 h-7 rounded-lg bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shadow-xs">
+              <Heart className="w-4 h-4 fill-emerald-400/25" />
             </div>
-            <span className={`text-sm sm:text-base font-extrabold tracking-wide ${
-              themeMode === 'day' ? 'text-slate-900' : 'text-white'
-            }`}>
-              {lang === 'bn' ? 'কিভাবে এআই পাওয়ার গ্রিড কাজ করে' : 'How the AI Power Grid Works'}
-            </span>
+            <h2 className="text-base sm:text-lg font-bold text-white tracking-tight flex items-center gap-2">
+              <span>{lang === 'bn' ? 'দাতব্য প্রতিষ্ঠান' : 'Charitable Foundation'}</span>
+            </h2>
           </div>
-          <span className="text-[11px] font-bold text-amber-500 dark:text-amber-400">
-            {lang === 'bn' ? 'স্মার্ট অটোমেশন' : 'Smart Automation'}
-          </span>
+          {charityBanners.length > 0 && (
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] font-mono text-emerald-400 bg-emerald-950/70 border border-emerald-500/30 px-2.5 py-0.5 rounded-full font-semibold">
+                {activeCharitySlide + 1} / {charityBanners.length}
+              </span>
+            </div>
+          )}
         </div>
 
-        {/* 4 Process Cards - matching the screenshot's warm peach/cream tint, borderless */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-          {/* Card 1: Clean Power Generation */}
-          <div className="p-3.5 rounded-2xl bg-[#fff8f0] dark:bg-[#131c2d] border-0 border-none shadow-xs space-y-1.5 transition-all">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="w-6 h-6 rounded-lg bg-[#f97316]/15 text-[#ea580c] dark:text-[#fb923c] flex items-center justify-center text-xs font-black">
-                  ১
-                </span>
-                <span className="text-xs sm:text-[13px] font-bold text-slate-900 dark:text-white">
-                  {lang === 'bn' ? 'ক্লিন বিদ্যুৎ উৎপাদন' : 'Clean Power Generation'}
-                </span>
-              </div>
-              <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
-                100% Zero-Carbon
-              </span>
+        {charityBanners.length === 0 ? (
+          /* Empty state when no charity banners are uploaded yet */
+          <div className="w-full rounded-2xl border border-dashed border-emerald-500/30 bg-[#021d16]/70 p-6 text-center space-y-2">
+            <div className="w-10 h-10 mx-auto rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+              <Heart className="w-5 h-5" />
             </div>
-            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+            <h4 className="text-sm font-bold text-white">
+              {lang === 'bn' ? 'কোনো দাতব্য কার্যক্রমের ছবি আপলোড করা হয়নি' : 'No Charity Banner Photos Uploaded Yet'}
+            </h4>
+            <p className="text-xs text-slate-400 max-w-sm mx-auto">
               {lang === 'bn'
-                ? 'সুবিশাল সৌর পার্ক ও অফশোর উইন্ড টারবাইনের মাধ্যমে প্রাকৃতিক শক্তি থেকে নিরবচ্ছিন্ন ক্লিন বিদ্যুৎ উৎপাদন করা হয়।'
-                : 'Zero-emission clean electricity is generated continuously from massive solar parks and offshore wind turbines.'}
+                ? 'এডমিন প্যানেল (/admin) থেকে নতুন ছবি আপলোড করলে এখানে আকর্ষণীয় ব্যানার স্লাইড আকারে প্রদর্শিত হবে।'
+                : 'Upload photos from Admin Panel (/admin) to display them in this sliding banner.'}
             </p>
           </div>
+        ) : (
+          <>
+            {/* Sliding Banner Frame */}
+            <div
+              className="relative w-full overflow-hidden rounded-2xl shadow-xl bg-[#001228] aspect-[16/9] sm:aspect-[21/9] border border-emerald-500/25 group cursor-pointer"
+              onMouseEnter={() => setIsCharityHovered(true)}
+              onMouseLeave={() => setIsCharityHovered(false)}
+              onTouchStart={handleCharityTouchStart}
+              onTouchEnd={handleCharityTouchEnd}
+              onClick={() => setSelectedCharityImage(charityBanners[activeCharitySlide]?.image)}
+            >
+              {charityBanners.map((banner, idx) => (
+                <div
+                  key={banner.id}
+                  className={`absolute inset-0 transition-opacity duration-700 ease-in-out ${
+                    activeCharitySlide === idx ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'
+                  }`}
+                >
+                  {/* Pure Photo of real people doing charity - zero extra text clutter */}
+                  <img
+                    src={banner.image}
+                    alt={banner.title || "NVT Energy Charity"}
+                    className="w-full h-full object-cover object-center group-hover:scale-[1.02] transition-transform duration-500"
+                    loading={idx === 0 ? 'eager' : 'lazy'}
+                    onError={(e) => {
+                      const target = e.currentTarget;
+                      if (banner.fallback && target.src !== banner.fallback) {
+                        target.src = banner.fallback;
+                      }
+                    }}
+                  />
+                </div>
+              ))}
 
-          {/* Card 2: AI Grid Synchronization */}
-          <div className="p-3.5 rounded-2xl bg-[#fff8f0] dark:bg-[#131c2d] border-0 border-none shadow-xs space-y-1.5 transition-all">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="w-6 h-6 rounded-lg bg-[#10b981]/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center text-xs font-black">
-                  ২
-                </span>
-                <span className="text-xs sm:text-[13px] font-bold text-slate-900 dark:text-white">
-                  {lang === 'bn' ? 'এআই গ্রিড ডেসপ্যাচ' : 'AI Smart Grid Dispatch'}
-                </span>
-              </div>
-              <span className="text-[10px] font-semibold text-cyan-600 dark:text-cyan-400">
-                50 Hz Sync
-              </span>
-            </div>
-            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-              {lang === 'bn'
-                ? 'স্বয়ংক্রিয় এআই কন্ট্রোলারের মাধ্যমে ভোল্টেজ ও ৫০ হার্জ ফ্রিকোয়েন্সি নিয়ন্ত্রণ করে সরাসরি জাতীয় পাওয়ার গ্রিডে বিদ্যুৎ সরবরাহ হয়।'
-                : 'Automated AI dispatchers stabilize voltage and grid frequency at 50 Hz, supplying reliable power directly to national grids.'}
-            </p>
-          </div>
+              {/* Previous Slide Button */}
+              {charityBanners.length > 1 && (
+                <button
+                  type="button"
+                  onClick={handlePrevCharitySlide}
+                  className="absolute left-2.5 top-1/2 -translate-y-1/2 z-20 w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-black/50 hover:bg-black/80 backdrop-blur-xs text-white border border-white/15 flex items-center justify-center transition-all opacity-80 hover:opacity-100 active:scale-95 cursor-pointer shadow-md"
+                  aria-label="Previous slide"
+                >
+                  <ChevronLeft className="w-4 h-4 sm:w-5 sm:h-5" />
+                </button>
+              )}
 
-          {/* Card 3: BESS Battery Reserve */}
-          <div className="p-3.5 rounded-2xl bg-[#fff8f0] dark:bg-[#131c2d] border-0 border-none shadow-xs space-y-1.5 transition-all">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="w-6 h-6 rounded-lg bg-[#06b6d4]/15 text-cyan-600 dark:text-cyan-400 flex items-center justify-center text-xs font-black">
-                  ৩
-                </span>
-                <span className="text-xs sm:text-[13px] font-bold text-slate-900 dark:text-white">
-                  {lang === 'bn' ? 'ব্যাটারি স্টোরেজ (BESS)' : 'BESS Energy Storage'}
-                </span>
-              </div>
-              <span className="text-[10px] font-semibold text-amber-600 dark:text-amber-400">
-                24/7 Backup
-              </span>
-            </div>
-            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-              {lang === 'bn'
-                ? 'উদ্বৃত্ত শক্তি উন্নত লিথিয়াম আয়রন ফসফেট ব্যাটারিতে সঞ্চয় করে রাতে ও পিক আওয়ারের বিদ্যুৎ চাহিদা পূরণ করা হয়।'
-                : 'Surplus power is stored in high-capacity LFP energy storage systems to guarantee uninterrupted power during peak hours.'}
-            </p>
-          </div>
+              {/* Next Slide Button */}
+              {charityBanners.length > 1 && (
+                <button
+                  type="button"
+                  onClick={handleNextCharitySlide}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 z-20 w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-black/50 hover:bg-black/80 backdrop-blur-xs text-white border border-white/15 flex items-center justify-center transition-all opacity-80 hover:opacity-100 active:scale-95 cursor-pointer shadow-md"
+                  aria-label="Next slide"
+                >
+                  <ChevronRight className="w-4 h-4 sm:w-5 sm:h-5" />
+                </button>
+              )}
 
-          {/* Card 4: Daily Revenue & Payout */}
-          <div className="p-3.5 rounded-2xl bg-[#fff8f0] dark:bg-[#131c2d] border-0 border-none shadow-xs space-y-1.5 transition-all">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="w-6 h-6 rounded-lg bg-[#e11d48]/15 text-rose-600 dark:text-rose-400 flex items-center justify-center text-xs font-black">
-                  ৪
-                </span>
-                <span className="text-xs sm:text-[13px] font-bold text-slate-900 dark:text-white">
-                  {lang === 'bn' ? 'দৈনিক বিদ্যুৎ মুনাফা' : 'Daily Revenue Dividends'}
-                </span>
-              </div>
-              <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
-                Auto-Credit
-              </span>
+              {/* Carousel Pagination Dots */}
+              {charityBanners.length > 1 && (
+                <div className="absolute bottom-2.5 inset-x-0 z-20 flex items-center justify-center gap-1.5 pointer-events-auto">
+                  {charityBanners.map((_, dotIdx) => (
+                    <button
+                      key={dotIdx}
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setActiveCharitySlide(dotIdx);
+                      }}
+                      className={`h-1.5 transition-all duration-300 cursor-pointer ${
+                        activeCharitySlide === dotIdx
+                          ? 'w-6 rounded-full bg-emerald-400 shadow-md shadow-emerald-500/50'
+                          : 'w-1.5 rounded-full bg-white/45 hover:bg-white/80'
+                      }`}
+                      aria-label={`Go to charity slide ${dotIdx + 1}`}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
-            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-              {lang === 'bn'
-                ? 'গ্রিডে বিদ্যুৎ বিক্রির অর্জিত রাজস্ব স্বয়ংক্রিয়ভাবে হিসাব হয়ে প্রতিদিন বিনিয়োগকারীদের ওয়ালেটে লভ্যাংশ হিসেবে জমা হয়।'
-                : 'Commercial electricity revenues are automatically calculated and distributed daily straight to members wallets.'}
-            </p>
-          </div>
-        </div>
+
+            {/* Thumbnail Navigation Strip */}
+            {charityBanners.length > 1 && (
+              <div className="mt-2.5 flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
+                {charityBanners.map((banner, thumbIdx) => (
+                  <button
+                    key={`thumb-${banner.id}`}
+                    type="button"
+                    onClick={() => setActiveCharitySlide(thumbIdx)}
+                    className={`relative shrink-0 w-14 h-10 sm:w-16 sm:h-11 rounded-lg overflow-hidden border-2 transition-all cursor-pointer ${
+                      activeCharitySlide === thumbIdx
+                        ? 'border-emerald-400 ring-2 ring-emerald-500/30 scale-105 shadow-md'
+                        : 'border-transparent opacity-60 hover:opacity-90'
+                    }`}
+                  >
+                    <img
+                      src={banner.image}
+                      alt="Thumbnail"
+                      className="w-full h-full object-cover"
+                      loading="lazy"
+                      onError={(e) => {
+                        const target = e.currentTarget;
+                        if (banner.fallback && target.src !== banner.fallback) {
+                          target.src = banner.fallback;
+                        }
+                      }}
+                    />
+                  </button>
+                ))}
+              </div>
+            )}
+          </>
+        )}
       </div>
 
 
@@ -1782,6 +1843,32 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
             >
               {t.closeBtn}
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* ───────────────────────────────────────────────────────────
+          CHARITY PHOTO LIGHTBOX PREVIEW MODAL (Pure Photo Viewer, No Extra Text)
+      ─────────────────────────────────────────────────────────── */}
+      {selectedCharityImage && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 animate-in fade-in duration-200">
+          <div
+            className="fixed inset-0 bg-black/90 backdrop-blur-sm"
+            onClick={() => setSelectedCharityImage(null)}
+          />
+          <div className="relative max-w-2xl max-h-[90vh] bg-black rounded-3xl overflow-hidden shadow-2xl z-10 animate-in zoom-in-95 duration-200 flex items-center justify-center">
+            <button
+              type="button"
+              onClick={() => setSelectedCharityImage(null)}
+              className="absolute top-3 right-3 w-9 h-9 rounded-full bg-black/70 hover:bg-black text-white flex items-center justify-center transition-colors cursor-pointer z-20"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <img
+              src={selectedCharityImage}
+              alt="NVT Energy Charity"
+              className="max-h-[85vh] w-auto max-w-full object-contain rounded-2xl"
+            />
           </div>
         </div>
       )}

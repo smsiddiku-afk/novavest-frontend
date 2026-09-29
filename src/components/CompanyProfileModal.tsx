@@ -484,12 +484,11 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="rounded-2xl bg-[#042018] border border-emerald-500/25 overflow-hidden">
                     <img
-                      src="https://images.unsplash.com/photo-1509391365360-2e959784a276?auto=format&fit=crop&w=600&q=80"
+                      src="/images/apex-helios-solar.jpg"
                       alt="Apex Solar Park"
                       loading="lazy"
                       decoding="async"
                       className="w-full h-32 object-cover"
-                      referrerPolicy="no-referrer"
                     />
                     <div className="p-3 space-y-1">
                       <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider block">
@@ -503,12 +502,11 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
 
                   <div className="rounded-2xl bg-[#042018] border border-emerald-500/25 overflow-hidden">
                     <img
-                      src="https://images.unsplash.com/photo-1473341304170-971dccb5ac1e?auto=format&fit=crop&w=600&q=80"
+                      src="/images/solar_ai_substation_1788465992131.jpg"
                       alt="132kV Substation"
                       loading="lazy"
                       decoding="async"
                       className="w-full h-32 object-cover"
-                      referrerPolicy="no-referrer"
                     />
                     <div className="p-3 space-y-1">
                       <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider block">

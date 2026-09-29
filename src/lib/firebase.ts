@@ -562,6 +562,11 @@ export const createFirestoreUserProfile = async (
     walletBalance: safeBalance,
     memberSince,
     isVerified: true,
+    vipLevel: 0,
+    canRefer: false,
+    referralLimit: 0,
+    activeInvestments: [],
+    totalInvested: 0,
   };
 
   const normalized = normalizePhone(profile.phone);
@@ -577,6 +582,11 @@ export const createFirestoreUserProfile = async (
     walletBalance: profile.walletBalance,
     memberSince,
     isVerified: true,
+    vipLevel: 0,
+    canRefer: false,
+    referralLimit: 0,
+    activeInvestments: [],
+    totalInvested: 0,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   };
@@ -729,6 +739,8 @@ export const getFirestoreUserProfile = async (uid: string): Promise<UserProfile 
       transactions: Array.isArray(data.transactions) ? data.transactions : [],
       isAuthenticatorSet: Boolean(data.isAuthenticatorSet),
       authenticatorSecret: data.authenticatorSecret || '',
+      canRefer: Boolean(data.canRefer),
+      referralLimit: typeof data.referralLimit === 'number' ? data.referralLimit : 0,
     };
   } catch (error) {
     console.warn('[Firebase] Warning fetching user profile:', error);
@@ -1092,6 +1104,8 @@ export const subscribeToFirestoreUserProfile = (
           transactions: data.transactions || [],
           isAuthenticatorSet: Boolean(data.isAuthenticatorSet),
           authenticatorSecret: data.authenticatorSecret || '',
+          canRefer: Boolean(data.canRefer),
+          referralLimit: typeof data.referralLimit === 'number' ? data.referralLimit : 0,
         };
         onUpdate(profile);
       }
@@ -1106,13 +1120,15 @@ export const subscribeToFirestoreUserProfile = (
 export interface DepositRecord {
   id: string;
   userId: string;
+  userName?: string;
   amount: number;
   method: string;
   channel: string;
   trxId: string;
   senderPhone?: string;
+  senderNumber?: string;
   orderNo?: string;
-  status: 'completed' | 'pending' | 'failed';
+  status: 'completed' | 'pending' | 'failed' | 'Approved' | 'Rejected' | 'Pending';
   createdAt?: any;
   dateFormatted?: string;
 }
@@ -1160,21 +1176,23 @@ export const recordFirestoreDeposit = async (
   const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
   const dateStr = now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 
-  const isPending = data.status === 'pending';
+  const isCompleted = data.status === 'completed';
   const isFailed = data.status === 'failed' || data.status === 'cancelled';
-  const finalStatus: 'completed' | 'pending' | 'failed' = isPending ? 'pending' : isFailed ? 'failed' : 'completed';
-  const banglaStatus = isPending ? 'অপেক্ষমাণ' : isFailed ? 'বাতিল' : 'সফল';
+  const finalStatus: 'completed' | 'pending' | 'failed' = isCompleted ? 'completed' : isFailed ? 'failed' : 'pending';
+  const banglaStatus = isCompleted ? 'সফল' : isFailed ? 'বাতিল' : 'অপেক্ষমাণ';
 
   const depositItem: DepositRecord = {
     id: depositId,
     userId: uid,
+    userName: (data as any).userName || (data as any).payerName || '',
     amount: data.amount,
     method: data.method || 'bKash',
     channel: data.channel || 'Instant Auto',
     trxId: trxId,
     senderPhone: data.senderPhone || '',
+    senderNumber: data.senderPhone || '',
     orderNo: data.orderNo || depositId,
-    status: finalStatus,
+    status: isCompleted ? 'Approved' : isFailed ? 'Rejected' : 'Pending',
     createdAt: now.toISOString(),
     dateFormatted: `${dateStr} ${timeStr}`,
   };
@@ -1184,7 +1202,7 @@ export const recordFirestoreDeposit = async (
     userId: uid,
     type: 'recharge',
     title: `ওয়ালেট রিচার্জ (${data.method || 'bKash'})`,
-    desc: isPending
+    desc: !isCompleted && !isFailed
       ? `ডিপোজিট TrxID: ${trxId} (অপেক্ষমাণ)`
       : isFailed
       ? `ডিপোজিট TrxID: ${trxId} (বাতিল)`
@@ -1195,7 +1213,7 @@ export const recordFirestoreDeposit = async (
     date: dateStr,
     status: banglaStatus,
     channel: `${data.method || 'bKash'} (${data.channel || 'Merchant Gateway'})`,
-    isCredit: !isFailed && !isPending,
+    isCredit: isCompleted,
     hash: trxId,
     createdAt: now.toISOString(),
   };
@@ -1272,12 +1290,14 @@ export const updateFirestoreDepositStatus = async (
   uid: string,
   trxIdOrOrderNo: string,
   newStatus: 'completed' | 'cancelled' | 'failed',
-  amount?: number
+  amount?: number,
+  depositDocId?: string
 ): Promise<boolean> => {
   try {
     const cleanUid = cleanDocId(uid, '');
     const cleanId = cleanDocId(trxIdOrOrderNo, '');
-    if (!cleanUid || !cleanId) return false;
+    const cleanDepId = depositDocId ? cleanDocId(depositDocId, '') : '';
+    if (!cleanUid || (!cleanId && !cleanDepId)) return false;
 
     const isCompleted = newStatus === 'completed';
     const statusBangla = isCompleted ? 'সফল' : 'বাতিল';
@@ -1293,15 +1313,18 @@ export const updateFirestoreDepositStatus = async (
       let foundAmount = amount || 0;
 
       const updatedTxns = txns.map((t: any) => {
-        if (t.id === cleanId || t.hash === cleanId || t.orderNo === cleanId) {
+        const matchesId =
+          (cleanId && (t.id === cleanId || t.hash === cleanId || t.orderNo === cleanId)) ||
+          (cleanDepId && (t.id === cleanDepId || t.orderNo === cleanDepId || t.hash === cleanDepId));
+        if (matchesId) {
           if (!foundAmount && t.rawAmount) foundAmount = Number(t.rawAmount);
           return {
             ...t,
             status: statusBangla,
             isCredit: isCompleted,
             desc: isCompleted
-              ? `ডিপোজিট TrxID: ${cleanId} (সফল)`
-              : `ডিপোজিট TrxID: ${cleanId} (বাতিল)`,
+              ? `ডিপোজিট TrxID: ${cleanId || cleanDepId} (সফল)`
+              : `ডিপোজিট TrxID: ${cleanId || cleanDepId} (বাতিল)`,
           };
         }
         return t;
@@ -1314,6 +1337,8 @@ export const updateFirestoreDepositStatus = async (
           ? {
               walletBalance: increment(foundAmount),
               balance: increment(foundAmount),
+              hasDeposited: true,
+              totalDeposited: increment(foundAmount),
             }
           : {}),
       };
@@ -1322,62 +1347,67 @@ export const updateFirestoreDepositStatus = async (
     }
 
     // Update in deposits collections
-    try {
-      const uDep = safeDoc('users', cleanUid, 'deposits', cleanId);
-      if (uDep) {
-        await safeSetDoc(
-          uDep,
-          {
-            status: depositStatus,
-            updatedAt: serverTimestamp(),
-          },
-          { merge: true }
-        );
-      }
-    } catch (_) {}
-    try {
-      const tDep = safeDoc('deposits', cleanId);
-      if (tDep) {
-        await safeSetDoc(
-          tDep,
-          {
-            status: isCompleted ? 'Approved' : 'Rejected',
-            updatedAt: serverTimestamp(),
-          },
-          { merge: true }
-        );
-      }
-    } catch (_) {}
+    const idsToUpdateDep = [cleanId, cleanDepId].filter(Boolean);
+    for (const depKey of idsToUpdateDep) {
+      try {
+        const uDep = safeDoc('users', cleanUid, 'deposits', depKey);
+        if (uDep) {
+          await safeSetDoc(
+            uDep,
+            {
+              status: depositStatus,
+              updatedAt: serverTimestamp(),
+            },
+            { merge: true }
+          );
+        }
+      } catch (_) {}
+      try {
+        const tDep = safeDoc('deposits', depKey);
+        if (tDep) {
+          await safeSetDoc(
+            tDep,
+            {
+              status: isCompleted ? 'Approved' : 'Rejected',
+              updatedAt: serverTimestamp(),
+            },
+            { merge: true }
+          );
+        }
+      } catch (_) {}
+    }
 
     // Update in transactions collections
-    try {
-      const uTrx = safeDoc('users', cleanUid, 'transactions', cleanId);
-      if (uTrx) {
-        await safeSetDoc(
-          uTrx,
-          {
-            status: statusBangla,
-            isCredit: isCompleted,
-            updatedAt: serverTimestamp(),
-          },
-          { merge: true }
-        );
-      }
-    } catch (_) {}
-    try {
-      const tTrx = safeDoc('transactions', cleanId);
-      if (tTrx) {
-        await safeSetDoc(
-          tTrx,
-          {
-            status: statusBangla,
-            isCredit: isCompleted,
-            updatedAt: serverTimestamp(),
-          },
-          { merge: true }
-        );
-      }
-    } catch (_) {}
+    for (const trxKey of idsToUpdateDep) {
+      try {
+        const uTrx = safeDoc('users', cleanUid, 'transactions', trxKey);
+        if (uTrx) {
+          await safeSetDoc(
+            uTrx,
+            {
+              status: statusBangla,
+              isCredit: isCompleted,
+              updatedAt: serverTimestamp(),
+            },
+            { merge: true }
+          );
+        }
+      } catch (_) {}
+      try {
+        const tTrx = safeDoc('transactions', trxKey);
+        if (tTrx) {
+          await safeSetDoc(
+            tTrx,
+            {
+              status: statusBangla,
+              isCredit: isCompleted,
+              updatedAt: serverTimestamp(),
+            },
+            { merge: true }
+          );
+        }
+      } catch (_) {}
+    }
 
     console.log(`[Firebase] Successfully updated deposit status [${cleanId} -> ${newStatus}]`);
     return true;

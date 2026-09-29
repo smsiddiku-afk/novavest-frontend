@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Phone,
   User,
   Lock,
   Eye,
@@ -10,7 +9,6 @@ import {
   Mail,
   Send,
   KeyRound,
-  ChevronDown,
   Globe,
   AlertCircle,
   CheckCircle2,
@@ -19,7 +17,8 @@ import {
 } from 'lucide-react';
 import { LegalDocType, RegisterFormData, Language } from '../types';
 import { registerWithFirebase } from '../utils/authService';
-import { isPhoneAlreadyRegistered } from '../lib/firebase';
+import { db } from '../lib/firebase';
+import { collection, query, where, getDocs } from 'firebase/firestore';
 import {
   registerUserInReferralNetwork,
   generateUniqueReferralCode,
@@ -42,6 +41,7 @@ interface FormErrors {
   confirmPassword?: string;
   email?: string;
   verificationCode?: string;
+  referralCode?: string;
 }
 
 export const RegistrationCard: React.FC<RegistrationCardProps> = ({
@@ -51,8 +51,6 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
   onToggleLang,
 }) => {
   const [lang, setLang] = useState<Language>(currentLang);
-  const [countryCode, setCountryCode] = useState('+880');
-  const [phone, setPhone] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -81,7 +79,6 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
   const [errors, setErrors] = useState<FormErrors>({});
   const [generalError, setGeneralError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [showCountryDropdown, setShowCountryDropdown] = useState(false);
 
   // Countdown timer for Email OTP send
   useEffect(() => {
@@ -147,33 +144,6 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
   const validateForm = (): boolean => {
     const newErrors: FormErrors = {};
 
-    if (!phone.trim()) {
-      newErrors.phone = lang === 'bn' ? 'আপনার ফোন নম্বর লিখুন' : 'Please enter your phone number';
-    } else if (phone.trim().length < 8) {
-      newErrors.phone = lang === 'bn' ? 'সঠিক ফোন নম্বর দিন' : 'Enter a valid phone number';
-    }
-
-    if (!username.trim()) {
-      newErrors.username = lang === 'bn' ? 'আপনার ডাকনাম লিখুন' : 'Please enter your nickname';
-    }
-
-    if (!password) {
-      newErrors.password = lang === 'bn' ? 'পাসওয়ার্ড তৈরি করুন' : 'Please create a password';
-    } else if (password.length < 6) {
-      newErrors.password =
-        lang === 'bn'
-          ? 'পাসওয়ার্ড অন্তত ৬ অক্ষরের হতে হবে'
-          : 'Password must be at least 6 characters';
-    }
-
-    if (!confirmPassword) {
-      newErrors.confirmPassword =
-        lang === 'bn' ? 'পাসওয়ার্ড নিশ্চিত করুন' : 'Please confirm your password';
-    } else if (password !== confirmPassword) {
-      newErrors.confirmPassword =
-        lang === 'bn' ? 'দুটি পাসওয়ার্ড মেলেনি' : 'Passwords do not match';
-    }
-
     if (!email.trim()) {
       newErrors.email = lang === 'bn' ? 'আপনার ইমেল ঠিকানা লিখুন' : 'Please enter your email';
     } else {
@@ -197,6 +167,34 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
         lang === 'bn' ? 'যাচাইকরণ কোডটি ভুল' : 'Verification code is incorrect';
     }
 
+    if (!username.trim()) {
+      newErrors.username = lang === 'bn' ? 'আপনার ডাকনাম লিখুন' : 'Please enter your nickname';
+    }
+
+    if (!password) {
+      newErrors.password = lang === 'bn' ? 'পাসওয়ার্ড তৈরি করুন' : 'Please create a password';
+    } else if (password.length < 6) {
+      newErrors.password =
+        lang === 'bn'
+          ? 'পাসওয়ার্ড অন্তত ৬ অক্ষরের হতে হবে'
+          : 'Password must be at least 6 characters';
+    }
+
+    if (!confirmPassword) {
+      newErrors.confirmPassword =
+        lang === 'bn' ? 'পাসওয়ার্ড নিশ্চিত করুন' : 'Please confirm your password';
+    } else if (password !== confirmPassword) {
+      newErrors.confirmPassword =
+        lang === 'bn' ? 'দুটি পাসওয়ার্ড মেলেনি' : 'Passwords do not match';
+    }
+
+    if (!referralCode || !referralCode.trim()) {
+      newErrors.referralCode =
+        lang === 'bn'
+          ? 'রেফার কোড দেওয়া বাধ্যতামূলক। রেফার কোড ছাড়া একাউন্ট তৈরি করা যাবে না।'
+          : 'Referral code is mandatory. You cannot register without a referral code.';
+    }
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -208,40 +206,68 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
 
     setIsSubmitting(true);
     try {
-      const rawDigits = phone.trim().replace(/\D/g, '');
-      const last10 = rawDigits.slice(-10);
-      const standardPhone = countryCode === '+880'
-        ? `+880 ${last10}`
-        : `${countryCode} ${rawDigits.replace(/^0+/, '')}`;
+      const inviterCode = (referralCode || extractPendingReferralCode() || '').trim().toUpperCase();
 
-      // Enforce strict one-account-per-phone rule before attempting registration (fast check)
-      const phoneCheck = await isPhoneAlreadyRegistered(standardPhone);
-
-      if (phoneCheck.registered) {
+      if (!inviterCode) {
         setIsSubmitting(false);
         setErrors((prev) => ({
           ...prev,
-          phone:
+          referralCode:
             lang === 'bn'
-              ? 'এই মোবাইল নম্বর দিয়ে ইতিমধ্যে একটি অ্যাকাউন্ট তৈরি করা হয়েছে।'
-              : 'An account with this phone number already exists.',
+              ? 'রেফার কোড দেওয়া বাধ্যতামূলক। রেফার কোড ছাড়া একাউন্ট তৈরি করা যাবে না।'
+              : 'Referral code is mandatory. You cannot register without a referral code.',
         }));
         setGeneralError(
           lang === 'bn'
-            ? 'এই মোবাইল নম্বর দিয়ে ইতিমধ্যে একটি অ্যাকাউন্ট রয়েছে। একটি নম্বর দিয়ে শুধুমাত্র একটি আইডি করা সম্ভব। অনুগ্রহ করে লগইন করুন।'
-            : 'An account already exists with this phone number. Only one ID per phone number is allowed. Please log in.'
+            ? 'রেফার কোড দেওয়া বাধ্যতামূলক। অনুগ্রহ করে একটি সঠিক রেফার কোড লিখুন।'
+            : 'Referral code is required. Please provide a valid referral code.'
         );
         return;
       }
 
-      const inviterCode = (referralCode || extractPendingReferralCode() || '').trim().toUpperCase();
+      // Check manager permission for inviter if referral code is provided
+      if (inviterCode) {
+        try {
+          const usersQuery = query(collection(db, 'users'), where('referralCode', '==', inviterCode));
+          const inviterSnap = await getDocs(usersQuery);
+          if (!inviterSnap.empty) {
+            const inviterData = inviterSnap.docs[0].data();
+            if (!inviterData.canRefer) {
+              const permErr = lang === 'bn'
+                ? 'এই রেফারেল কোডটির ব্যবহারের অনুমতি নেই। দয়া করে ব্যবস্থাপক প্রতিনিধির সঙ্গে যোগাযোগ করুন।'
+                : 'This referral code requires manager permission. Please contact manager representative.';
+              setGeneralError(permErr);
+              setIsSubmitting(false);
+              return;
+            }
+
+            if (inviterData.referralLimit !== undefined && Number(inviterData.referralLimit) > 0) {
+              const qCount = query(collection(db, 'users'), where('referredBy', '==', inviterCode));
+              const cSnap = await getDocs(qCount);
+              if (cSnap.size >= Number(inviterData.referralLimit)) {
+                const limitErr = lang === 'bn'
+                  ? 'এই রেফারেল কোডের সর্বোচ্চ রেফার সীমা পূর্ণ হয়েছে। দয়া করে ব্যবস্থাপক প্রতিনিধির সঙ্গে যোগাযোগ করুন।'
+                  : 'Referral limit reached for this code. Please contact manager representative.';
+                setGeneralError(limitErr);
+                setIsSubmitting(false);
+                return;
+              }
+            }
+          }
+        } catch (vErr: any) {
+          console.warn('[RegistrationCard] Inviter check warning:', vErr);
+        }
+      }
+
+      const cleanEmail = email.trim().toLowerCase();
+      const cleanPassword = password.trim();
 
       const result = await registerWithFirebase(
         {
-          email: email.trim(),
-          phone: standardPhone,
+          email: cleanEmail,
+          phone: '',
           username: username.trim(),
-          password,
+          password: cleanPassword,
           referralCode: inviterCode,
         },
         lang
@@ -252,12 +278,12 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
         clearPendingReferralCode();
 
         onRegistrationSuccess({
-          phone: standardPhone,
+          phone: '',
           username: username.trim(),
-          password,
-          confirmPassword,
+          password: cleanPassword,
+          confirmPassword: cleanPassword,
           referralCode: inviterCode || result.user.referredBy || '',
-          email: email.trim(),
+          email: cleanEmail,
         });
       } else {
         setGeneralError(
@@ -277,17 +303,17 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
   // Text strings based on language
   const t = {
     signIn: lang === 'bn' ? 'সাইন ইন' : 'Sign In',
-    signUp: lang === 'bn' ? 'সাইন আপ' : 'Sign Up',
+    signUp: lang === 'bn' ? 'ইমেইল সাইন আপ' : 'Register with Mail',
     langLabel: lang === 'bn' ? 'English' : 'বাংলা',
-    phonePlaceholder: lang === 'bn' ? 'আপনার ফোন নম্বর লিখুন' : 'Enter your phone number',
-    nicknamePlaceholder: lang === 'bn' ? 'আপনার ডাকনাম লিখুন' : 'Enter your nickname',
-    passwordPlaceholder: lang === 'bn' ? 'পাসওয়ার্ড তৈরি করুন' : 'Create password',
-    confirmPasswordPlaceholder: lang === 'bn' ? 'পাসওয়ার্ড নিশ্চিত করুন' : 'Confirm password',
-    emailPlaceholder: lang === 'bn' ? 'আপনার ইমেল লিখুন' : 'Enter your email',
+    emailLabel: lang === 'bn' ? 'ইমেইল (মেইন)' : 'Email (Main)',
+    emailPlaceholder: lang === 'bn' ? 'ইমেইল' : 'Email',
     sendBtn: lang === 'bn' ? 'সেন্ড' : 'Send',
-    emailCodePlaceholder:
-      lang === 'bn' ? 'ইমেল যাচাইকরণ কোড লিখুন' : 'Enter email verification code',
-    registerBtn: lang === 'bn' ? 'নিবন্ধন করুন' : 'Register Now',
+    emailCodePlaceholder: lang === 'bn' ? 'যাচাইকরণ কোড' : 'Verification code',
+    nicknamePlaceholder: lang === 'bn' ? 'ডাকনাম' : 'Nickname',
+    passwordPlaceholder: lang === 'bn' ? 'পাসওয়ার্ড' : 'Password',
+    confirmPasswordPlaceholder: lang === 'bn' ? 'পাসওয়ার্ড নিশ্চিত করুন' : 'Confirm password',
+    referralPlaceholder: lang === 'bn' ? 'আমন্ত্রণ / রেফার কোড' : 'Referral code',
+    registerBtn: lang === 'bn' ? 'ইমেইল দিয়ে নিবন্ধন করুন' : 'Register with Email',
   };
 
   const isCodeCorrect = sentOtpCode && emailVerificationCode.trim() === sentOtpCode;
@@ -295,10 +321,10 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
   return (
     <div
       id="registration-card"
-      className="w-full max-w-[460px] mx-auto bg-[#062a1f]/95 backdrop-blur-2xl rounded-[22px] sm:rounded-[26px] p-4 sm:p-6 shadow-[0_20px_50px_-12px_rgba(0,0,0,0.7),0_0_30px_rgba(16,185,129,0.14)] border border-emerald-500/30 transition-all duration-300"
+      className="w-full max-w-[460px] mx-auto bg-[#08362b]/95 backdrop-blur-2xl rounded-[22px] sm:rounded-[26px] p-4 sm:p-6 shadow-[0_20px_50px_-12px_rgba(0,0,0,0.6),0_0_30px_rgba(16,185,129,0.12)] border border-emerald-500/25 transition-all duration-300"
     >
       {/* Top Bar: Tabs & Language Pill */}
-      <div className="flex items-center justify-between pb-2 sm:pb-3 mb-1.5 sm:mb-2 border-b border-emerald-500/20">
+      <div className="flex items-center justify-between pb-2 sm:pb-3 mb-2 border-b border-emerald-500/20">
         {/* Left: Sign In / Sign Up Tabs */}
         <div className="flex items-center gap-5 sm:gap-7">
           <button
@@ -316,7 +342,6 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
             className="relative pb-1 text-base sm:text-lg font-bold text-emerald-400 transition-colors"
           >
             {t.signUp}
-            {/* Active vibrant emerald underline bar */}
             <span className="absolute bottom-0 left-0 right-0 h-1 bg-emerald-400 rounded-full shadow-[0_0_12px_rgba(52,211,153,0.8)]" />
           </button>
         </div>
@@ -326,7 +351,7 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
           type="button"
           id="lang-toggle-btn"
           onClick={handleLangToggle}
-          className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#041c14] hover:bg-[#06241b] text-emerald-300 text-xs font-medium border border-emerald-500/30 transition-all shadow-sm active:scale-95"
+          className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/[0.08] hover:bg-white/[0.14] text-emerald-300 text-xs font-medium border border-emerald-500/30 transition-all shadow-sm active:scale-95 cursor-pointer"
         >
           <Globe className="w-3.5 h-3.5 text-emerald-400" />
           <span>{t.langLabel}</span>
@@ -334,192 +359,25 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
       </div>
 
       {/* Main Registration Form */}
-      <form onSubmit={handleSubmit} className="space-y-2 sm:space-y-2.5 pt-0.5" noValidate>
+      <form onSubmit={handleSubmit} className="space-y-3 sm:space-y-3.5 pt-1" noValidate>
         {generalError && (
-          <div className="p-2.5 rounded-xl bg-rose-950/50 border border-rose-500/40 text-rose-300 text-xs sm:text-sm flex items-start gap-2 animate-in fade-in">
-            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+          <div className="p-3 rounded-xl bg-rose-950/50 border border-rose-500/40 text-rose-300 text-xs sm:text-sm flex items-start gap-2 animate-in fade-in">
+            <AlertCircle className="w-4.5 h-4.5 text-rose-400 shrink-0 mt-0.5" />
             <span>{generalError}</span>
           </div>
         )}
 
-        {/* 1. Phone Input Room */}
+        {/* 1. EMAIL ROOM (MAIN) - হাল্কা ও পরিচ্ছন্ন, কোনো উদাহরণ নেই */}
         <div>
           <div
-            className={`relative flex items-center min-h-[44px] sm:min-h-[48px] px-3.5 sm:px-4 rounded-xl sm:rounded-2xl bg-[#031c15]/90 border transition-all duration-200 ${
-              errors.phone
-                ? 'border-rose-500 bg-rose-950/20'
-                : 'border-emerald-500/30 hover:border-emerald-500/50 focus-within:border-emerald-400 focus-within:ring-2 focus-within:ring-emerald-400/20'
-            }`}
-          >
-            {/* Country code prefix with phone icon */}
-            <div className="relative flex items-center gap-2 pr-3 shrink-0">
-              <Phone className="w-5 h-5 text-emerald-400" />
-              <button
-                type="button"
-                onClick={() => setShowCountryDropdown(!showCountryDropdown)}
-                className="flex items-center gap-1 text-sm sm:text-base font-semibold text-emerald-200 hover:text-emerald-100"
-              >
-                <span>{countryCode}</span>
-                <ChevronDown className="w-3.5 h-3.5 text-emerald-400/80" />
-              </button>
-
-              {/* Country Code Dropdown */}
-              {showCountryDropdown && (
-                <div className="absolute top-12 left-0 z-30 w-36 bg-[#062a1f] rounded-xl shadow-2xl border border-emerald-500/40 py-1 text-sm font-medium">
-                  {['+880', '+91', '+1', '+44', '+971', '+966', '+60'].map((code) => (
-                    <button
-                      key={code}
-                      type="button"
-                      onClick={() => {
-                        setCountryCode(code);
-                        setShowCountryDropdown(false);
-                      }}
-                      className="w-full text-left px-3 py-2 hover:bg-[#08382a] text-emerald-100 flex items-center justify-between"
-                    >
-                      <span>{code}</span>
-                      {countryCode === code && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Subtle vertical divider */}
-            <div className="h-6 w-px bg-emerald-500/20 mr-3 shrink-0" />
-
-            {/* Phone input */}
-            <input
-              id="phone-input"
-              type="tel"
-              value={phone}
-              onChange={(e) => {
-                setPhone(e.target.value);
-                if (errors.phone) setErrors((prev) => ({ ...prev, phone: undefined }));
-              }}
-              placeholder={t.phonePlaceholder}
-              className="w-full h-full bg-transparent text-sm sm:text-base text-white placeholder:text-emerald-200/40 font-medium focus:outline-none"
-            />
-          </div>
-          {errors.phone && (
-            <p className="text-xs text-rose-400 mt-1 px-2 flex items-center gap-1">
-              <AlertCircle className="w-3.5 h-3.5" /> {errors.phone}
-            </p>
-          )}
-        </div>
-
-        {/* 2. Nickname / Username Room */}
-        <div>
-          <div
-            className={`relative flex items-center min-h-[48px] sm:min-h-[54px] px-3.5 sm:px-4 rounded-xl sm:rounded-2xl bg-[#031c15]/90 border transition-all duration-200 ${
-              errors.username
-                ? 'border-rose-500 bg-rose-950/20'
-                : 'border-emerald-500/30 hover:border-emerald-500/50 focus-within:border-emerald-400 focus-within:ring-2 focus-within:ring-emerald-400/20'
-            }`}
-          >
-            <User className="w-5 h-5 text-emerald-400 mr-3 shrink-0" />
-            <input
-              id="username-input"
-              type="text"
-              value={username}
-              onChange={(e) => {
-                setUsername(e.target.value);
-                if (errors.username) setErrors((prev) => ({ ...prev, username: undefined }));
-              }}
-              placeholder={t.nicknamePlaceholder}
-              className="w-full h-full bg-transparent text-sm sm:text-base text-white placeholder:text-emerald-200/40 font-medium focus:outline-none"
-            />
-          </div>
-          {errors.username && (
-            <p className="text-xs text-rose-400 mt-1 px-2 flex items-center gap-1">
-              <AlertCircle className="w-3.5 h-3.5" /> {errors.username}
-            </p>
-          )}
-        </div>
-
-        {/* 3. Create Password Room */}
-        <div>
-          <div
-            className={`relative flex items-center min-h-[48px] sm:min-h-[54px] px-3.5 sm:px-4 rounded-xl sm:rounded-2xl bg-[#031c15]/90 border transition-all duration-200 ${
-              errors.password
-                ? 'border-rose-500 bg-rose-950/20'
-                : 'border-emerald-500/30 hover:border-emerald-500/50 focus-within:border-emerald-400 focus-within:ring-2 focus-within:ring-emerald-400/20'
-            }`}
-          >
-            <Lock className="w-5 h-5 text-emerald-400 mr-3 shrink-0" />
-            <input
-              id="password-input"
-              type={showPassword ? 'text' : 'password'}
-              value={password}
-              onChange={(e) => {
-                setPassword(e.target.value);
-                if (errors.password) setErrors((prev) => ({ ...prev, password: undefined }));
-              }}
-              placeholder={t.passwordPlaceholder}
-              className="w-full h-full bg-transparent text-sm sm:text-base text-white placeholder:text-emerald-200/40 font-medium focus:outline-none pr-8"
-            />
-            <button
-              type="button"
-              onClick={() => setShowPassword(!showPassword)}
-              className="text-emerald-400/80 hover:text-emerald-300 p-1 transition-colors"
-            >
-              {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-            </button>
-          </div>
-          {errors.password && (
-            <p className="text-xs text-rose-400 mt-1 px-2 flex items-center gap-1">
-              <AlertCircle className="w-3.5 h-3.5" /> {errors.password}
-            </p>
-          )}
-        </div>
-
-        {/* 4. Confirm Password Room */}
-        <div>
-          <div
-            className={`relative flex items-center min-h-[48px] sm:min-h-[54px] px-3.5 sm:px-4 rounded-xl sm:rounded-2xl bg-[#031c15]/90 border transition-all duration-200 ${
-              errors.confirmPassword
-                ? 'border-rose-500 bg-rose-950/20'
-                : 'border-emerald-500/30 hover:border-emerald-500/50 focus-within:border-emerald-400 focus-within:ring-2 focus-within:ring-emerald-400/20'
-            }`}
-          >
-            <Shield className="w-5 h-5 text-emerald-400 mr-3 shrink-0" />
-            <input
-              id="confirm-password-input"
-              type={showConfirmPassword ? 'text' : 'password'}
-              value={confirmPassword}
-              onChange={(e) => {
-                setConfirmPassword(e.target.value);
-                if (errors.confirmPassword)
-                  setErrors((prev) => ({ ...prev, confirmPassword: undefined }));
-              }}
-              placeholder={t.confirmPasswordPlaceholder}
-              className="w-full h-full bg-transparent text-sm sm:text-base text-white placeholder:text-emerald-200/40 font-medium focus:outline-none pr-8"
-            />
-            <button
-              type="button"
-              onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-              className="text-emerald-400/80 hover:text-emerald-300 p-1 transition-colors"
-            >
-              {showConfirmPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-            </button>
-          </div>
-          {errors.confirmPassword && (
-            <p className="text-xs text-rose-400 mt-1 px-2 flex items-center gap-1">
-              <AlertCircle className="w-3.5 h-3.5" /> {errors.confirmPassword}
-            </p>
-          )}
-        </div>
-
-        {/* 5. Email Room with "সেন্ড" (Send) button */}
-        <div>
-          <div
-            className={`relative flex items-center justify-between min-h-[48px] sm:min-h-[54px] px-3.5 sm:px-4 rounded-xl sm:rounded-2xl bg-[#031c15]/90 border transition-all duration-200 ${
+            className={`relative flex items-center justify-between min-h-[46px] sm:min-h-[48px] px-3.5 sm:px-4 py-1.5 rounded-xl sm:rounded-2xl bg-white/[0.10] hover:bg-white/[0.14] focus-within:bg-white/[0.18] border transition-all duration-200 ${
               errors.email
                 ? 'border-rose-500 bg-rose-950/20'
-                : 'border-emerald-500/30 hover:border-emerald-500/50 focus-within:border-emerald-400 focus-within:ring-2 focus-within:ring-emerald-400/20'
+                : 'border-white/15 hover:border-emerald-400/40 focus-within:border-emerald-400 focus-within:ring-2 focus-within:ring-emerald-400/25'
             }`}
           >
             <div className="flex items-center flex-1 mr-2">
-              <Mail className="w-5 h-5 text-emerald-400 mr-3 shrink-0" />
+              <Mail className="w-5 h-5 text-emerald-400 mr-3.5 shrink-0" />
               <input
                 id="email-input"
                 type="email"
@@ -529,7 +387,7 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
                   if (errors.email) setErrors((prev) => ({ ...prev, email: undefined }));
                 }}
                 placeholder={t.emailPlaceholder}
-                className="w-full h-full bg-transparent text-sm sm:text-base text-white placeholder:text-emerald-200/40 font-medium focus:outline-none"
+                className="w-full h-full bg-transparent text-[15px] sm:text-base text-white placeholder:text-emerald-100/50 font-normal focus:outline-none"
               />
             </div>
 
@@ -539,9 +397,9 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
               type="button"
               onClick={handleSendEmailCode}
               disabled={sendCooldown > 0}
-              className={`shrink-0 px-4 sm:px-5 py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-1.5 transition-all shadow-sm active:scale-95 cursor-pointer ${
+              className={`shrink-0 px-3.5 sm:px-4 py-1.5 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-1.5 transition-all shadow-sm active:scale-95 cursor-pointer min-h-[34px] ${
                 sendCooldown > 0
-                  ? 'bg-[#06241b] text-emerald-400/50 cursor-not-allowed border border-emerald-500/20'
+                  ? 'bg-white/[0.05] text-emerald-400/50 cursor-not-allowed border border-emerald-500/20'
                   : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-emerald-600/30'
               }`}
             >
@@ -552,14 +410,14 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
             </button>
           </div>
           {errors.email && (
-            <p className="text-xs text-rose-400 mt-1 px-2 flex items-center gap-1">
+            <p className="text-xs text-rose-400 mt-1 px-2 flex items-center gap-1 font-medium">
               <AlertCircle className="w-3.5 h-3.5" /> {errors.email}
             </p>
           )}
 
           {/* Email OTP sent banner with quick tap-to-fill */}
           {codeNotification && (
-            <div className="mt-2 p-3 rounded-xl bg-emerald-950/60 border border-emerald-500/40 text-emerald-200 text-xs flex items-center justify-between gap-2 animate-in fade-in slide-in-from-top-1 duration-200">
+            <div className="mt-2.5 p-3 rounded-xl bg-emerald-950/60 border border-emerald-500/40 text-emerald-200 text-xs flex items-center justify-between gap-2 animate-in fade-in slide-in-from-top-1 duration-200">
               <div className="flex items-center gap-2 overflow-hidden">
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
                 <span className="truncate">
@@ -573,16 +431,16 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
               <button
                 type="button"
                 onClick={handleAutoFillCode}
-                className="shrink-0 px-2.5 py-1 rounded-lg bg-emerald-500/20 border border-emerald-500/40 hover:bg-emerald-500/30 text-emerald-200 font-semibold flex items-center gap-1 text-[11px] shadow-xs active:scale-95 cursor-pointer"
+                className="shrink-0 px-3 py-1.5 rounded-lg bg-emerald-500/20 border border-emerald-500/40 hover:bg-emerald-500/30 text-emerald-200 font-semibold flex items-center gap-1 text-xs shadow-xs active:scale-95 cursor-pointer"
               >
                 {isCopied ? (
                   <>
-                    <Check className="w-3 h-3 text-emerald-400" />
+                    <Check className="w-3.5 h-3.5 text-emerald-400" />
                     <span>{lang === 'bn' ? 'বসানো হয়েছে' : 'Pasted'}</span>
                   </>
                 ) : (
                   <>
-                    <Copy className="w-3 h-3 text-emerald-400" />
+                    <Copy className="w-3.5 h-3.5 text-emerald-400" />
                     <span>{lang === 'bn' ? 'কোড বসান' : 'Paste'}</span>
                   </>
                 )}
@@ -591,19 +449,19 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
           )}
         </div>
 
-        {/* 6. Email Verification Code Room */}
+        {/* 2. EMAIL VERIFICATION CODE ROOM - হাল্কা ও পরিচ্ছন্ন */}
         <div>
           <div
-            className={`relative flex items-center justify-between min-h-[48px] sm:min-h-[54px] px-3.5 sm:px-4 rounded-xl sm:rounded-2xl bg-[#031c15]/90 border transition-all duration-200 ${
+            className={`relative flex items-center justify-between min-h-[46px] sm:min-h-[48px] px-3.5 sm:px-4 py-1.5 rounded-xl sm:rounded-2xl bg-white/[0.10] hover:bg-white/[0.14] focus-within:bg-white/[0.18] border transition-all duration-200 ${
               errors.verificationCode
                 ? 'border-rose-500 bg-rose-950/20'
                 : isCodeCorrect
                 ? 'border-emerald-500 bg-emerald-950/40'
-                : 'border-emerald-500/30 hover:border-emerald-500/50 focus-within:border-emerald-400 focus-within:ring-2 focus-within:ring-emerald-400/20'
+                : 'border-white/15 hover:border-emerald-400/40 focus-within:border-emerald-400 focus-within:ring-2 focus-within:ring-emerald-400/25'
             }`}
           >
             <div className="flex items-center flex-1 mr-2">
-              <KeyRound className="w-5 h-5 text-emerald-400 mr-3 shrink-0" />
+              <KeyRound className="w-5 h-5 text-emerald-400 mr-3.5 shrink-0" />
               <input
                 id="email-verification-code-input"
                 type="text"
@@ -616,7 +474,7 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
                   }
                 }}
                 placeholder={t.emailCodePlaceholder}
-                className="w-full h-full bg-transparent text-sm sm:text-base text-white placeholder:text-emerald-200/40 font-medium tracking-wider focus:outline-none"
+                className="w-full h-full bg-transparent text-[15px] sm:text-base text-white placeholder:text-emerald-100/50 font-medium tracking-wider focus:outline-none"
               />
             </div>
 
@@ -628,33 +486,159 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
             )}
           </div>
           {errors.verificationCode && (
-            <p className="text-xs text-rose-400 mt-1 px-2 flex items-center gap-1">
+            <p className="text-xs text-rose-400 mt-1 px-2 flex items-center gap-1 font-medium">
               <AlertCircle className="w-3.5 h-3.5" /> {errors.verificationCode}
             </p>
           )}
         </div>
 
-        {/* 7. Referral Code Room */}
+        {/* 3. NICKNAME / USERNAME ROOM - হাল্কা ও পরিচ্ছন্ন */}
         <div>
-          <div className="relative flex items-center min-h-[48px] sm:min-h-[54px] px-3.5 sm:px-4 rounded-xl sm:rounded-2xl bg-[#031c15]/90 border border-emerald-500/30 hover:border-emerald-500/50 focus-within:border-emerald-400 focus-within:ring-2 focus-within:ring-emerald-400/20 transition-all duration-200">
-            <UserPlus className="w-5 h-5 text-emerald-400 mr-3 shrink-0" />
+          <div
+            className={`relative flex items-center min-h-[46px] sm:min-h-[48px] px-3.5 sm:px-4 py-1.5 rounded-xl sm:rounded-2xl bg-white/[0.10] hover:bg-white/[0.14] focus-within:bg-white/[0.18] border transition-all duration-200 ${
+              errors.username
+                ? 'border-rose-500 bg-rose-950/20'
+                : 'border-white/15 hover:border-emerald-400/40 focus-within:border-emerald-400 focus-within:ring-2 focus-within:ring-emerald-400/25'
+            }`}
+          >
+            <User className="w-5 h-5 text-emerald-400 mr-3.5 shrink-0" />
+            <input
+              id="username-input"
+              type="text"
+              value={username}
+              onChange={(e) => {
+                setUsername(e.target.value);
+                if (errors.username) setErrors((prev) => ({ ...prev, username: undefined }));
+              }}
+              placeholder={t.nicknamePlaceholder}
+              className="w-full h-full bg-transparent text-[15px] sm:text-base text-white placeholder:text-emerald-100/50 font-normal focus:outline-none"
+            />
+          </div>
+          {errors.username && (
+            <p className="text-xs text-rose-400 mt-1 px-2 flex items-center gap-1 font-medium">
+              <AlertCircle className="w-3.5 h-3.5" /> {errors.username}
+            </p>
+          )}
+        </div>
+
+        {/* 4. CREATE PASSWORD ROOM - হাল্কা ও পরিচ্ছন্ন */}
+        <div>
+          <div
+            className={`relative flex items-center min-h-[46px] sm:min-h-[48px] px-3.5 sm:px-4 py-1.5 rounded-xl sm:rounded-2xl bg-white/[0.10] hover:bg-white/[0.14] focus-within:bg-white/[0.18] border transition-all duration-200 ${
+              errors.password
+                ? 'border-rose-500 bg-rose-950/20'
+                : 'border-white/15 hover:border-emerald-400/40 focus-within:border-emerald-400 focus-within:ring-2 focus-within:ring-emerald-400/25'
+            }`}
+          >
+            <Lock className="w-5 h-5 text-emerald-400 mr-3.5 shrink-0" />
+            <input
+              id="password-input"
+              type={showPassword ? 'text' : 'password'}
+              value={password}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                if (errors.password) setErrors((prev) => ({ ...prev, password: undefined }));
+              }}
+              placeholder={t.passwordPlaceholder}
+              className="w-full h-full bg-transparent text-[15px] sm:text-base text-white placeholder:text-emerald-100/50 font-normal focus:outline-none pr-8"
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              className="text-emerald-400/80 hover:text-emerald-300 p-1.5 transition-colors cursor-pointer"
+            >
+              {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+            </button>
+          </div>
+          {errors.password && (
+            <p className="text-xs text-rose-400 mt-1 px-2 flex items-center gap-1 font-medium">
+              <AlertCircle className="w-3.5 h-3.5" /> {errors.password}
+            </p>
+          )}
+        </div>
+
+        {/* 5. CONFIRM PASSWORD ROOM - হাল্কা ও পরিচ্ছন্ন */}
+        <div>
+          <div
+            className={`relative flex items-center min-h-[46px] sm:min-h-[48px] px-3.5 sm:px-4 py-1.5 rounded-xl sm:rounded-2xl bg-white/[0.10] hover:bg-white/[0.14] focus-within:bg-white/[0.18] border transition-all duration-200 ${
+              errors.confirmPassword
+                ? 'border-rose-500 bg-rose-950/20'
+                : 'border-white/15 hover:border-emerald-400/40 focus-within:border-emerald-400 focus-within:ring-2 focus-within:ring-emerald-400/25'
+            }`}
+          >
+            <Shield className="w-5 h-5 text-emerald-400 mr-3.5 shrink-0" />
+            <input
+              id="confirm-password-input"
+              type={showConfirmPassword ? 'text' : 'password'}
+              value={confirmPassword}
+              onChange={(e) => {
+                setConfirmPassword(e.target.value);
+                if (errors.confirmPassword)
+                  setErrors((prev) => ({ ...prev, confirmPassword: undefined }));
+              }}
+              placeholder={t.confirmPasswordPlaceholder}
+              className="w-full h-full bg-transparent text-[15px] sm:text-base text-white placeholder:text-emerald-100/50 font-normal focus:outline-none pr-8"
+            />
+            <button
+              type="button"
+              onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+              className="text-emerald-400/80 hover:text-emerald-300 p-1.5 transition-colors cursor-pointer"
+            >
+              {showConfirmPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+            </button>
+          </div>
+          {errors.confirmPassword && (
+            <p className="text-xs text-rose-400 mt-1 px-2 flex items-center gap-1 font-medium">
+              <AlertCircle className="w-3.5 h-3.5" /> {errors.confirmPassword}
+            </p>
+          )}
+        </div>
+
+        {/* 6. REFERRAL CODE ROOM (MANDATORY) - হাল্কা ও পরিচ্ছন্ন */}
+        <div>
+          <div className="flex items-center justify-between mb-1 px-1">
+            <label className="text-xs font-bold text-emerald-300">
+              {lang === 'bn' ? 'রেফারেল / আমন্ত্রণ কোড' : 'Referral Code'} <span className="text-rose-400">*</span>
+            </label>
+            <span className="text-[10px] text-rose-300 font-semibold px-2 py-0.5 rounded-full bg-rose-950/40 border border-rose-500/30">
+              {lang === 'bn' ? 'বাধ্যতামূলক' : 'Required'}
+            </span>
+          </div>
+
+          <div
+            className={`relative flex items-center min-h-[46px] sm:min-h-[48px] px-3.5 sm:px-4 py-1.5 rounded-xl sm:rounded-2xl bg-white/[0.10] hover:bg-white/[0.14] focus-within:bg-white/[0.18] border transition-all duration-200 ${
+              errors.referralCode
+                ? 'border-rose-500 bg-rose-950/20'
+                : 'border-white/15 hover:border-emerald-400/40 focus-within:border-emerald-400 focus-within:ring-2 focus-within:ring-emerald-400/25'
+            }`}
+          >
+            <UserPlus className="w-5 h-5 text-emerald-400 mr-3.5 shrink-0" />
             <input
               id="referral-code-input"
               type="text"
+              required
               value={referralCode}
-              onChange={(e) => setReferralCode(e.target.value.toUpperCase())}
-              placeholder={lang === 'bn' ? 'আমন্ত্রণ কোড (যদি থাকে)' : 'Referral Code (Optional)'}
-              className="w-full h-full bg-transparent text-sm sm:text-base text-white placeholder:text-emerald-200/40 font-semibold tracking-wider focus:outline-none"
+              onChange={(e) => {
+                setReferralCode(e.target.value.toUpperCase());
+                if (errors.referralCode) setErrors((prev) => ({ ...prev, referralCode: undefined }));
+              }}
+              placeholder={t.referralPlaceholder}
+              className="w-full h-full bg-transparent text-[15px] sm:text-base text-white placeholder:text-emerald-100/50 font-semibold tracking-wider focus:outline-none"
             />
             {referralCode && (
-              <span className="shrink-0 text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+              <span className="shrink-0 text-[11px] font-mono font-bold px-2.5 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
                 {lang === 'bn' ? 'সংযুক্ত' : 'Linked'}
               </span>
             )}
           </div>
-          {referralCode && (
+          {errors.referralCode && (
+            <p className="text-xs text-rose-400 mt-1 px-2 flex items-center gap-1 font-medium">
+              <AlertCircle className="w-3.5 h-3.5 shrink-0" /> {errors.referralCode}
+            </p>
+          )}
+          {referralCode && !errors.referralCode && (
             <p className="text-[11px] text-emerald-400/80 mt-1 px-2 flex items-center gap-1 font-medium">
-              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
               {lang === 'bn'
                 ? `আপনি ${referralCode} কোডের আমন্ত্রণে যুক্ত হচ্ছেন`
                 : `Joining with inviter code: ${referralCode}`}
@@ -663,12 +647,12 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
         </div>
 
         {/* Glowing Emerald Action Button: "নিবন্ধন করুন" */}
-        <div className="pt-1 sm:pt-1.5">
+        <div className="pt-1.5 sm:pt-2">
           <button
             id="register-submit-btn"
             type="submit"
             disabled={isSubmitting}
-            className="w-full min-h-[48px] sm:min-h-[52px] flex items-center justify-center rounded-xl sm:rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 active:scale-[0.99] text-slate-950 text-base sm:text-lg font-bold shadow-lg shadow-emerald-500/30 transition-all duration-200 cursor-pointer disabled:opacity-75"
+            className="w-full min-h-[52px] sm:min-h-[56px] flex items-center justify-center rounded-xl sm:rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 active:scale-[0.99] text-slate-950 text-base sm:text-lg font-black shadow-lg shadow-emerald-500/30 transition-all duration-200 cursor-pointer disabled:opacity-75"
           >
             {isSubmitting ? (
               <div className="flex items-center gap-2">
@@ -681,17 +665,17 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
           </button>
         </div>
 
-        {/* Bottom Link: Already have an account? Sign in */}
+        {/* Bottom Link: Already have an account? Sign in with Email */}
         <div className="text-center pt-2">
-          <p className="text-xs sm:text-sm text-emerald-200/70">
+          <p className="text-xs sm:text-sm text-emerald-200/80 font-medium">
             {lang === 'bn' ? 'ইতিমধ্যে একটি অ্যাকাউন্ট আছে? ' : 'Already have an account? '}
             <button
               type="button"
               id="switch-to-login-btn-bottom"
               onClick={onSwitchToLogin}
-              className="font-bold text-emerald-400 hover:text-emerald-300 underline underline-offset-4 cursor-pointer transition-colors"
+              className="font-black text-emerald-400 hover:text-emerald-300 underline underline-offset-4 cursor-pointer transition-colors ml-1"
             >
-              {lang === 'bn' ? 'সাইন ইন করুন' : 'Sign In'}
+              {lang === 'bn' ? 'ইমেইল দিয়ে লগইন করুন' : 'Sign In with Email'}
             </button>
           </p>
         </div>

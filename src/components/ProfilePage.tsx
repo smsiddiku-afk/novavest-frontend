@@ -61,13 +61,17 @@ import {
 import { openCrispChat } from '../utils/crispService';
 import { downloadNvtApk } from '../utils/appDownloader';
 import { AppDownloadModal } from './AppDownloadModal';
+import { NvtPromoBannerModal } from './NvtPromoBannerModal';
 import { EnergyHomeTab } from './EnergyHomeTab';
 import { InvestTabContent, INVESTMENT_PLANS } from './InvestTabContent';
+import { getPlanDailyReturnBdt } from '../utils/packageService';
 import { PositionsTabContent } from './PositionsTabContent';
 import { TransactionsTabContent } from './TransactionsTabContent';
 import { WalletHistoryModal } from './WalletHistoryModal';
 import { WalletTabContent } from './WalletTabContent';
 import { ReferralPage } from './ReferralPage';
+import { ManagerReferralModal } from './ManagerReferralModal';
+import { ManagerPermissionLockedScreen } from './ManagerPermissionLockedScreen';
 import { AddWalletPaymentModal } from './AddWalletPaymentModal';
 import { SecuritySettingsPage } from './SecuritySettingsPage';
 import { WithdrawModal } from './WithdrawModal';
@@ -78,7 +82,7 @@ import { UserProfile, Language } from '../types';
 import { ENERGY_PACKAGES_7 } from '../data/energyPackages';
 import { translations } from '../utils/translations';
 import { persistAuthUser, isSameUser } from '../utils/authService';
-import { distributeReferralDepositCommissions, getReferralTreeForUser } from '../utils/referralService';
+import { distributeReferralDepositCommissions, getReferralTreeForUser, computeVipLevelFromLevels } from '../utils/referralService';
 import { createCpanelDepositOrder, sendDepositToCpanel } from '../services/paymentConfig';
 import {
   recordFirestoreDeposit,
@@ -90,6 +94,7 @@ import {
   recordInvestmentInFirestore,
   getFirestoreUserInvestments,
   updateFirestoreWalletBalance,
+  updateFirestoreUserProfile,
   auth,
 } from '../lib/firebase';
 import { ManualDepositDetails, PaymentChannelType } from './CleanWalletScreen';
@@ -325,8 +330,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
   ]);
 
   // ─────────────────────────────────────────────────────────────
-  // REFERRAL 3-LEVEL TREE & VIP 1 PROMOTION CONDITION
-  // Rule: "vip1 তখনি শো হবে যখন প্রমোশন অপশন থেকে ৩ জন লেভেলে একটিভ থাকবে"
+  // REFERRAL 3-LEVEL TEAM DATA & REAL-TIME REFRESH
   // ─────────────────────────────────────────────────────────────
   const [referralRefreshTick, setReferralRefreshTick] = useState(0);
   const [liveAccounts, setLiveAccounts] = useState<Record<string, any>>(() => {
@@ -361,10 +365,13 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     return getReferralTreeForUser(code, user.memberId, liveAccounts);
   }, [user.referralCode, user.memberId, liveAccounts, referralRefreshTick]);
 
-  // VIP1 Condition: "vip1 তখনি শো হবে যখন প্রমোশন অপশন থেকে ৩ জন লেভেলে একটিভ থাকবে"
+  // VIP Level is determined dynamically from Promo Bonus conditions (Level 1, 2 & 3 active members):
+  // When all conditions are met in the Promo Bonus option (3 active -> VIP 1, 5 active -> VIP 2, 10 active -> VIP 3, etc.)
+  // Recharging wallet alone does NOT give VIP 1.
   const totalActiveMembersInLevels = referralTree.totalActiveCount || 0;
-  const isVip1Unlocked = totalActiveMembersInLevels >= 3;
-  const computedVipLevel = isVip1Unlocked ? Math.max(user.vipLevel || 1, 1) : 0;
+  const promoVip = computeVipLevelFromLevels(totalActiveMembersInLevels, 0);
+  const computedVipLevel = Math.max(promoVip, Number(user.vipLevel) || 0);
+  const isVip1Unlocked = computedVipLevel >= 1;
 
   // Auto-check and recover any pending gateway deposit (WatchPay / Nekpay) when returning to the app
   useEffect(() => {
@@ -402,6 +409,9 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             return {
               ...prev,
               walletBalance: prev.walletBalance + depositAmount,
+              hasDeposited: true,
+              totalDeposited: (prev.totalDeposited || 0) + depositAmount,
+              vipLevel: prev.vipLevel || 0,
               transactions: (prev.transactions || []).map((t: any) =>
                 t.id === pending.orderNo || t.hash === pending.orderNo
                   ? {
@@ -415,18 +425,6 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               ),
             };
           });
-
-          // Distribute 3-level referral deposit commissions
-          try {
-            distributeReferralDepositCommissions(
-              user.referralCode || user.memberId || user.phone || '',
-              depositAmount,
-              user.referralCode || user.memberId || '',
-              data?.order?.trxId || pending.orderNo
-            );
-          } catch (commErr) {
-            console.warn('[Referral Comm Distribute Warn]', commErr);
-          }
 
           localStorage.removeItem('pending_gateway_deposit');
 
@@ -448,6 +446,35 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
   // Modal & Toast states
   const [isDownloadModalOpen, setIsDownloadModalOpen] = useState(false);
+
+  // Promotional Banner for NVT Energy (Auto-displayed after login, 5s auto-close or manual X close)
+  const [isPromoModalOpen, setIsPromoModalOpen] = useState<boolean>(() => {
+    try {
+      const justLoggedIn = sessionStorage.getItem('nvt_just_logged_in');
+      const alreadyShown = sessionStorage.getItem('nvt_promo_modal_shown');
+      if (justLoggedIn === 'true' || !alreadyShown) {
+        return true;
+      }
+    } catch (_) {}
+    return false;
+  });
+
+  const handleClosePromoModal = () => {
+    setIsPromoModalOpen(false);
+    try {
+      sessionStorage.removeItem('nvt_just_logged_in');
+      sessionStorage.setItem('nvt_promo_modal_shown', 'true');
+    } catch (_) {}
+  };
+
+  useEffect(() => {
+    const handleOpenPromo = () => {
+      setIsPromoModalOpen(true);
+    };
+    window.addEventListener('open_nvt_promo_banner', handleOpenPromo);
+    return () => window.removeEventListener('open_nvt_promo_banner', handleOpenPromo);
+  }, []);
+
   const [isCopied, setIsCopied] = useState(false);
   const [activeSubModal, setActiveSubModal] = useState<
     | 'personal'
@@ -472,9 +499,24 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
   >(initialTab || 'home');
   const currentTab = initialTab || localTab;
   const [isWalletHistoryModalOpen, setIsWalletHistoryModalOpen] = useState(false);
+  const [isManagerReferralModalOpen, setIsManagerReferralModalOpen] = useState(false);
+  const [referralBlockReason, setReferralBlockReason] = useState<'no_permission' | 'limit_reached'>('no_permission');
 
   // Directly switch tab and notify parent on user interaction
   const switchTab = (tab: 'home' | 'invest' | 'positions' | 'transactions' | 'wallet' | 'referral' | 'profile') => {
+    if (tab === 'referral') {
+      if (!user.canRefer) {
+        setReferralBlockReason('no_permission');
+        setIsManagerReferralModalOpen(true);
+        return;
+      }
+      const directCount = referralTree?.level1Count || 0;
+      if (user.referralLimit !== undefined && Number(user.referralLimit) > 0 && directCount >= Number(user.referralLimit)) {
+        setReferralBlockReason('limit_reached');
+        setIsManagerReferralModalOpen(true);
+        return;
+      }
+    }
     setLocalTab(tab);
     scrollAppToTop();
     if (onTabChange) {
@@ -639,7 +681,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
         };
 
         if (isAutoApproved) {
-          // Auto-approved immediately (for recognized REAL TrxIDs)
+          // Auto-approved immediately (for recognized REAL TrxIDs via callback)
           updateUser((prev) => {
             const cleanPrev = (prev.transactions || []).filter(
               (t: any) => t.id !== newTxn.id && t.hash !== newTxn.id
@@ -647,28 +689,20 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             return {
               ...prev,
               walletBalance: prev.walletBalance + depositAmount,
+              hasDeposited: true,
+              totalDeposited: (prev.totalDeposited || 0) + depositAmount,
+              vipLevel: prev.vipLevel || 0,
               transactions: [newTxn, ...cleanPrev],
             };
           });
 
-          // Distribute referral deposit commissions and activate user status
-          try {
-            distributeReferralDepositCommissions(
-              user.referralCode || user.memberId || user.phone || '',
-              depositAmount,
-              user.referralCode || user.memberId || ''
-            );
-          } catch (commErr) {
-            console.warn('[Referral Comm Distribute Warn]', commErr);
-          }
-
           showToast(
             currentLang === 'bn'
-              ? `✅ TrxID যাচাই সফল! ৳${depositAmount.toLocaleString()} ওয়ালেটে যুক্ত হয়েছে (TrxID: ${trxId})`
-              : `✅ TrxID verified! ৳${depositAmount.toLocaleString()} credited to your wallet (TrxID: ${trxId})`
+              ? `🎉 ডিপোজিট কলব্যাক সফল! আসল TrxID (${trxId}) অনুমোদিত হয়েছে এবং ৳${depositAmount.toLocaleString()} ওয়ালেটে যোগ হয়েছে!`
+              : `🎉 Deposit callback successful! Real TrxID (${trxId}) approved and ৳${depositAmount.toLocaleString()} credited!`
           );
         } else {
-          // Kept PENDING awaiting banking / gateway verification
+          // Fake / Dummy / Mismatched TrxID -> Kept strictly PENDING awaiting Admin manual verification
           updateUser((prev) => {
             const cleanPrev = (prev.transactions || []).filter(
               (t: any) => t.id !== newTxn.id && t.hash !== newTxn.id
@@ -679,110 +713,12 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             };
           });
 
+          const reasonMsg = serverResult?.reason ? ` (${serverResult.reason})` : '';
           showToast(
             currentLang === 'bn'
-              ? `⏳ TrxID জমা হয়েছে! ব্যাংকিং ও গেটওয়ে সিস্টেমে যাচাই চলছে (১৫ সেকেন্ড অপেক্ষা করুন)...`
-              : `⏳ TrxID submitted! Verifying with banking & payment gateway records (please wait ~15s)...`
+              ? `⚠️ TrxID ভেরিফিকেশন পেন্ডিং: ভুয়া বা অমিল${reasonMsg} শনাক্ত হওয়ায় এটি অপেক্ষমাণ (Pending) রাখা হয়েছে। অ্যাডমিন ম্যানুয়ালি যাচাই করার পর ব্যালেন্স যোগ হবে।`
+              : `⚠️ Deposit Pending: Discrepancy detected${reasonMsg}. Placed in Pending awaiting admin manual review.`
           );
-
-          // Verification countdown for fake / unverified TrxIDs (7 polls of 2s = ~14s)
-          const orderNo = serverResult?.order?.orderId || trxId;
-          let pollCount = 0;
-          const maxPolls = 7;
-          const pollTimer = setInterval(async () => {
-            pollCount++;
-
-            try {
-              let latestStatus: string | undefined;
-              try {
-                const checkRes = await fetch(`/api/payments/order-status/${encodeURIComponent(orderNo)}`);
-                const checkData = await checkRes.json();
-                latestStatus = checkData?.order?.status?.toUpperCase();
-              } catch (_) {}
-
-              if (latestStatus === 'COMPLETED' || latestStatus === 'SUCCESS') {
-                clearInterval(pollTimer);
-
-                // Update Firestore to completed and add balance
-                await updateFirestoreDepositStatus(activeUid, trxId, 'completed', depositAmount);
-
-                // Update local user state
-                updateUser((prev) => {
-                  const alreadyApproved = (prev.transactions || []).some(
-                    (t: any) => (t.id === trxId || t.hash === trxId) && t.status === 'completed'
-                  );
-                  if (alreadyApproved) return prev;
-
-                  return {
-                    ...prev,
-                    walletBalance: prev.walletBalance + depositAmount,
-                    transactions: (prev.transactions || []).map((t: any) =>
-                      t.id === trxId || t.hash === trxId
-                        ? {
-                            ...t,
-                            status: 'completed',
-                            description: `Direct TrxID Deposit via ${method} - সফল (${trxId})`,
-                          }
-                        : t
-                    ),
-                  };
-                });
-
-                // Distribute referral deposit commissions and activate user status
-                try {
-                  distributeReferralDepositCommissions(
-                    user.referralCode || user.memberId || user.phone || '',
-                    depositAmount,
-                    user.referralCode || user.memberId || ''
-                  );
-                } catch (commErr) {
-                  console.warn('[Referral Comm Distribute Warn]', commErr);
-                }
-
-                showToast(
-                  currentLang === 'bn'
-                    ? `🎉 গেটওয়ে যাচাই সফল! ৳${depositAmount.toLocaleString()} ওয়ালেটে সফলভাবে যোগ হয়েছে!`
-                    : `🎉 Gateway confirmed deposit! ৳${depositAmount.toLocaleString()} credited successfully!`
-                );
-                return;
-              }
-
-              if (pollCount >= maxPolls) {
-                clearInterval(pollTimer);
-                // Keep the deposit safely as PENDING in Firestore and state awaiting gateway/admin review
-                return;
-              }
-
-              if (latestStatus === 'CANCELLED' || latestStatus === 'FAILED' || latestStatus === 'REJECTED') {
-                clearInterval(pollTimer);
-
-                // Mark as cancelled in Firestore only if gateway explicitly confirmed rejection
-                await updateFirestoreDepositStatus(activeUid, trxId, 'cancelled');
-
-                updateUser((prev) => ({
-                  ...prev,
-                  transactions: (prev.transactions || []).map((t: any) =>
-                    t.id === trxId || t.hash === trxId
-                      ? {
-                          ...t,
-                          status: 'cancelled',
-                          description: `TrxID Deposit via ${method} - বাতিল (${trxId})`,
-                        }
-                      : t
-                  ),
-                }));
-
-                showToast(
-                  currentLang === 'bn'
-                    ? `❌ TrxID যাচাই ব্যর্থ: গেটওয়েতে কোনো পেমেন্ট রেকর্ড মেলেনি। ডিপোজিটটি বাতিল করা হয়েছে।`
-                    : `❌ TrxID verification failed: No matching banking records found. Deposit rejected.`
-                );
-                return;
-              }
-            } catch (pErr) {
-              console.warn('[Deposit Status Polling Warn]', pErr);
-            }
-          }, 2000);
         }
       } catch (err: any) {
         console.error('[Manual Deposit Error]', err);
@@ -854,7 +790,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               try {
                 const checkRes = await fetch(`/api/payments/order-status/${orderNo}`);
                 const checkData = await checkRes.json();
-                if (checkData.success && checkData.order?.status === 'COMPLETED') {
+                if (checkData.success && checkData.order?.status === 'COMPLETED' && checkData.order?.verified === true) {
                   clearInterval(pollInterval);
 
                   // Update Firestore wallet balance and transaction record
@@ -864,11 +800,15 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                     channel: 'gogopay',
                     trxId: checkData.order?.trxId || orderNo,
                     orderNo,
+                    status: 'completed',
                   });
 
                   updateUser((prev) => ({
                     ...prev,
                     walletBalance: prev.walletBalance + Number(amount),
+                    hasDeposited: true,
+                    totalDeposited: (prev.totalDeposited || 0) + Number(amount),
+                    vipLevel: prev.vipLevel || 0,
                     transactions: [
                       {
                         id: checkData.order?.trxId || orderNo,
@@ -888,18 +828,6 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                       ...(prev.transactions || []),
                     ],
                   }));
-
-                  // Distribute 3-level referral deposit commissions
-                  try {
-                    distributeReferralDepositCommissions(
-                      user.referralCode || user.memberId || user.phone || '',
-                      Number(amount),
-                      user.referralCode || user.memberId || '',
-                      checkData.order?.trxId || orderNo
-                    );
-                  } catch (commErr) {
-                    console.warn('[Referral Comm Distribute Warn]', commErr);
-                  }
 
                   try {
                     localStorage.removeItem('pending_gateway_deposit');
@@ -998,7 +926,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               try {
                 const checkRes = await fetch(`/api/payments/order-status/${orderNo}`);
                 const checkData = await checkRes.json();
-                if (checkData.success && checkData.order?.status === 'COMPLETED') {
+                if (checkData.success && checkData.order?.status === 'COMPLETED' && checkData.order?.verified === true) {
                   clearInterval(pollInterval);
 
                   // Update Firestore wallet balance and transaction record
@@ -1014,6 +942,9 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                   updateUser((prev) => ({
                     ...prev,
                     walletBalance: prev.walletBalance + Number(amount),
+                    hasDeposited: true,
+                    totalDeposited: (prev.totalDeposited || 0) + Number(amount),
+                    vipLevel: prev.vipLevel || 0,
                     transactions: (prev.transactions || []).map((t: any) =>
                       t.id === orderNo || t.hash === orderNo
                         ? {
@@ -1026,18 +957,6 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                         : t
                     ),
                   }));
-
-                  // Distribute 3-level referral deposit commissions and activate user status
-                  try {
-                    distributeReferralDepositCommissions(
-                      user.referralCode || user.memberId || user.phone || '',
-                      Number(amount),
-                      user.referralCode || user.memberId || '',
-                      checkData.order?.trxId || orderNo
-                    );
-                  } catch (commErr) {
-                    console.warn('[Referral Comm Distribute Warn]', commErr);
-                  }
 
                   try {
                     localStorage.removeItem('pending_gateway_deposit');
@@ -1146,7 +1065,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               const checkRes = await fetch(`/api/payments/order-status/${orderNo}`);
               const checkData = await checkRes.json();
               const status = String(checkData?.order?.status || '').toUpperCase();
-              if (checkData.success && (status === 'COMPLETED' || status === 'SUCCESS')) {
+              if (checkData.success && (status === 'COMPLETED' || status === 'SUCCESS') && checkData?.order?.verified === true) {
                 clearInterval(pollInterval);
 
                 // Update Firestore wallet balance and transaction record
@@ -1155,6 +1074,9 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 updateUser((prev) => ({
                   ...prev,
                   walletBalance: prev.walletBalance + Number(amount),
+                  hasDeposited: true,
+                  totalDeposited: (prev.totalDeposited || 0) + Number(amount),
+                  vipLevel: prev.vipLevel || 0,
                   transactions: (prev.transactions || []).map((t: any) =>
                     t.id === orderNo || t.hash === orderNo
                       ? {
@@ -1167,18 +1089,6 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                       : t
                   ),
                 }));
-
-                // Distribute 3-level referral deposit commissions and activate user status
-                try {
-                  distributeReferralDepositCommissions(
-                    user.referralCode || user.memberId || user.phone || '',
-                    Number(amount),
-                    user.referralCode || user.memberId || '',
-                    checkData.order?.trxId || orderNo
-                  );
-                } catch (commErr) {
-                  console.warn('[Referral Comm Distribute Warn]', commErr);
-                }
 
                 localStorage.removeItem('pending_gateway_deposit');
 
@@ -1213,111 +1123,166 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     return null;
   };
 
-  // Check URL parameters for payment callback/return results (Go-Go-Pay, Nekpay, OKExPay)
+  // Check URL parameters for payment callback/return results (Go-Go-Pay, Nekpay, OKExPay, Cashier)
   useEffect(() => {
     try {
       const params = new URLSearchParams(window.location.search);
-      const paymentStatus =
-        params.get('payment_status') ||
-        params.get('status') ||
-        params.get('trade_status') ||
-        params.get('result');
-      const rawAmount = params.get('amount') || params.get('money') || params.get('pay_money');
+      const isPaymentReturn =
+        params.has('payment_return') ||
+        params.has('payment_status') ||
+        params.has('orderNo') ||
+        params.has('order_id') ||
+        params.has('trx_id') ||
+        params.has('trxId') ||
+        params.has('trade_no');
+
+      if (!isPaymentReturn) return;
+
+      const rawAmount = params.get('amount') || params.get('money') || params.get('pay_money') || '0';
       const amount = Number(rawAmount);
-      const orderId = params.get('order_id') || params.get('orderNo') || params.get('out_trade_no');
-      const trxId =
+      const orderId = params.get('order_id') || params.get('orderNo') || params.get('out_trade_no') || '';
+      const rawTrxId =
         params.get('trx_id') ||
+        params.get('trxId') ||
         params.get('txnid') ||
         params.get('trade_no') ||
         params.get('ref_id') ||
-        orderId;
-      const gateway = params.get('gateway') || params.get('channel') || 'gateway';
+        '';
+      const gateway = params.get('gateway') || params.get('channel') || 'channel1';
       const method = params.get('method') || 'bKash';
+      const activeUid = auth.currentUser?.uid || user.memberId || 'USER1001';
+      const finalTrxId = (rawTrxId || orderId || `TXN-${Date.now().toString().slice(-6)}`).trim();
 
-      const isSuccess =
-        paymentStatus &&
-        ['SUCCESS', 'COMPLETED', 'PAID', '1', 'TRUE', 'OK'].includes(paymentStatus.toUpperCase());
+      // Clean query parameters immediately from address bar to prevent replay on reload
+      window.history.replaceState({}, document.title, window.location.pathname);
 
-      if (isSuccess && amount > 0) {
-        const activeUid = auth.currentUser?.uid || user.memberId || 'USER1001';
+      if (amount <= 0) return;
 
-        // Forward payment return confirmation directly to cPanel deposit URL
-        sendDepositToCpanel({
-          amount,
-          method,
-          channel: gateway,
-          trxId: trxId || `TXN-${Date.now().toString().slice(-6)}`,
-          orderId: orderId || undefined,
-          status: 'COMPLETED',
-          type: 'PAYMENT_RETURN_CALLBACK',
-          userId: activeUid,
-          timestamp: new Date().toISOString(),
-        });
+      // Security check: Check live order status on backend.
+      // An order is ONLY approved/completed if the server explicitly confirmed verified=true (e.g. via real gateway callback)
+      (async () => {
+        let isServerVerified = false;
+        const lookupKey = orderId || finalTrxId;
 
-        // 1. Immediately update user wallet balance and record in Firestore
-        recordFirestoreDeposit(activeUid, {
-          amount,
-          method,
-          channel: gateway,
-          trxId: trxId || `TXN-${Date.now().toString().slice(-6)}`,
-          orderNo: orderId || undefined,
-        }).then(() => {
-          console.log('[Firestore] Callback deposit successfully synchronized');
-        }).catch((syncErr) => {
-          console.warn('[Firestore] Callback deposit sync warning:', syncErr);
-        });
-
-        // 2. Immediately update local state
-        updateUser((prev) => ({
-          ...prev,
-          walletBalance: prev.walletBalance + amount,
-          transactions: [
-            {
-              id: trxId || `TXN-${Date.now().toString().slice(-6)}`,
-              type: 'deposit',
-              amount,
-              timestamp:
-                new Date().toLocaleDateString('en-GB') +
-                ' ' +
-                new Date().toLocaleTimeString('en-US', {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                }),
-              status: 'completed',
-              description: `Payment Return Deposit (${gateway.toUpperCase()})`,
-              hash: trxId || orderId || '',
-            },
-            ...(prev.transactions || []),
-          ],
-        }));
-
-        try {
-          distributeReferralDepositCommissions(
-            user.referralCode || user.memberId,
-            amount,
-            user.referralCode || user.memberId
-          );
-        } catch (e) {
-          // ignore
+        if (lookupKey) {
+          try {
+            const checkRes = await fetch(`/api/payments/order-status/${encodeURIComponent(lookupKey)}`);
+            if (checkRes.ok) {
+              const checkData = await checkRes.json();
+              const statusStr = String(checkData?.order?.status || '').toUpperCase();
+              if (
+                checkData?.success &&
+                (statusStr === 'COMPLETED' || statusStr === 'SUCCESS') &&
+                checkData?.order?.verified === true
+              ) {
+                isServerVerified = true;
+              }
+            }
+          } catch (_) {}
         }
 
-        showToast(
-          currentLang === 'bn'
-            ? `মার্চেন্ট পেমেন্ট সফল! ৳${amount.toLocaleString()} আপনার ওয়ালেটে জমা হয়েছে (TrxID: ${trxId || orderId})`
-            : `Merchant Payment successful! ৳${amount.toLocaleString()} credited to wallet (TrxID: ${trxId || orderId})`
-        );
+        if (isServerVerified) {
+          // Authentic verified completion
+          recordFirestoreDeposit(activeUid, {
+            amount,
+            method,
+            channel: gateway,
+            trxId: finalTrxId,
+            orderNo: orderId || undefined,
+            status: 'completed',
+          }).catch((err) => console.warn('[Firestore] Sync warning:', err));
 
-        // Remove payment callback query params so refreshing doesn't duplicate
-        window.history.replaceState({}, document.title, window.location.pathname);
-      } else if (orderId && !isSuccess) {
-        // Returned from gateway with pending or unverified status
-        showToast(
-          currentLang === 'bn'
-            ? 'পেমেন্ট যাচাই প্রক্রিয়াধীন রয়েছে। আপনার ট্রানজেকশন হিস্ট্রিতে রেকর্ডটি অপেক্ষমাণ রয়েছে।'
-            : 'Payment verification is pending. The transaction is listed as pending in your history.'
-        );
-        window.history.replaceState({}, document.title, window.location.pathname);
-      }
+          updateUser((prev) => {
+            const alreadyCredited = (prev.transactions || []).some(
+              (t: any) => (t.id === finalTrxId || t.hash === finalTrxId || t.orderNo === orderId) && t.status === 'completed'
+            );
+            if (alreadyCredited) return prev;
+            return {
+              ...prev,
+              walletBalance: prev.walletBalance + amount,
+              hasDeposited: true,
+              totalDeposited: (prev.totalDeposited || 0) + amount,
+              vipLevel: prev.vipLevel || 0,
+              transactions: [
+                {
+                  id: finalTrxId,
+                  type: 'deposit',
+                  amount,
+                  timestamp:
+                    new Date().toLocaleDateString('en-GB') +
+                    ' ' +
+                    new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+                  status: 'completed',
+                  description: `Payment Return Deposit (${gateway.toUpperCase()}) - সফল`,
+                  hash: finalTrxId,
+                },
+                ...(prev.transactions || []),
+              ],
+            };
+          });
+
+          showToast(
+            currentLang === 'bn'
+              ? `মার্চেন্ট পেমেন্ট সফল! ৳${amount.toLocaleString()} আপনার ওয়ালেটে জমা হয়েছে (TrxID: ${finalTrxId})`
+              : `Merchant Payment successful! ৳${amount.toLocaleString()} credited to wallet (TrxID: ${finalTrxId})`
+          );
+        } else {
+          // Unverified / Fake TrxID or Pending submission:
+          // Strictly record as PENDING in Firestore for Admin review!
+          // NEVER credit wallet balance, NEVER distribute referral bonuses!
+          recordFirestoreDeposit(activeUid, {
+            amount,
+            method,
+            channel: gateway,
+            trxId: finalTrxId,
+            orderNo: orderId || undefined,
+            status: 'pending',
+          }).catch((err) => console.warn('[Firestore] Deposit sync warning:', err));
+
+          sendDepositToCpanel({
+            amount,
+            method,
+            channel: gateway,
+            trxId: finalTrxId,
+            orderId: orderId || undefined,
+            status: 'PENDING',
+            type: 'PAYMENT_RETURN_PENDING',
+            userId: activeUid,
+            timestamp: new Date().toISOString(),
+          }).catch(() => {});
+
+          updateUser((prev) => {
+            const cleanPrev = (prev.transactions || []).filter(
+              (t: any) => t.id !== finalTrxId && t.hash !== finalTrxId
+            );
+            return {
+              ...prev,
+              transactions: [
+                {
+                  id: finalTrxId,
+                  type: 'deposit',
+                  amount,
+                  timestamp:
+                    new Date().toLocaleDateString('en-GB') +
+                    ' ' +
+                    new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+                  status: 'pending',
+                  description: `ডিপোজিট TrxID: ${finalTrxId} (অপেক্ষমাণ)`,
+                  hash: finalTrxId,
+                  isCredit: false,
+                },
+                ...cleanPrev,
+              ],
+            };
+          });
+
+          showToast(
+            currentLang === 'bn'
+              ? `আপনার ৳${amount.toLocaleString()} ডিপোজিট অনুরোধ জমা হয়েছে (TrxID: ${finalTrxId})। অ্যাডমিন বা সিস্টেম ভেরিফিকেশনের পর ব্যালেন্স যোগ হবে।`
+              : `Deposit request of ৳${amount.toLocaleString()} submitted (TrxID: ${finalTrxId}). Balance will be credited after admin verification.`
+          );
+        }
+      })();
     } catch (err) {
       console.warn('[Payment Return Handling Warning]', err);
     }
@@ -1436,18 +1401,6 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 : t
             ),
           }));
-
-          // Distribute 3-level referral deposit commissions
-          try {
-            distributeReferralDepositCommissions(
-              user.referralCode || user.memberId || user.phone || '',
-              Number(pTx.amount) || 0,
-              user.referralCode || user.memberId || '',
-              trxKey
-            );
-          } catch (commErr) {
-            console.warn('[Referral Comm Distribute Warn]', commErr);
-          }
         }
       } catch (err) {
         console.warn('[Pending Check Error]', err);
@@ -1586,19 +1539,31 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       }
     }
 
-    // VIP requirement check (VIP 1 required for packages other than first 2)
-    if (matchedPlan && matchedPlan.requiredVipLevel > 0 && (user.vipLevel || 0) < matchedPlan.requiredVipLevel) {
+    // VIP requirement check (VIP 1 required for packages larger than Basic Plan 1200 BDT)
+    const effectiveVip = Math.max(user.vipLevel || 0, computedVipLevel);
+    const isLargerPackage = matchedPlan && (matchedPlan.minInvestmentBdt > 1200 || matchedPlan.requiredVipLevel >= 1);
+    if (isLargerPackage && effectiveVip < 1) {
       showToast(
         currentLang === 'bn'
-          ? 'এই প্যাকেজে বিনিয়োগ করতে অন্তত VIP 1 মেম্বারশিপ প্রয়োজন! অনুগ্রহ করে প্রথম দুটি প্যাকেজ কিনুন অথবা রিচার্জ করুন।'
-          : 'VIP 1 level required for this package! Please invest in the first two packages or recharge.'
+          ? 'VIP 1 ছাড়া বড় প্যাকেজগুলো কিনতে পারবেন না! অনুগ্রহ করে প্রথমে VIP 1 সক্রিয় করুন।'
+          : 'VIP 1 is required to buy larger packages! Please activate VIP 1 first.'
+      );
+      return;
+    }
+    if (matchedPlan && matchedPlan.requiredVipLevel > 0 && effectiveVip < matchedPlan.requiredVipLevel) {
+      showToast(
+        currentLang === 'bn'
+          ? `এই প্যাকেজে বিনিয়োগ করতে অন্তত VIP ${matchedPlan.requiredVipLevel} মেম্বারশিপ প্রয়োজন!`
+          : `VIP ${matchedPlan.requiredVipLevel} level required for this package!`
       );
       return;
     }
 
     const pkgVip = matchedPlan ? Math.max(matchedPlan.requiredVipLevel, 1) : 1;
-    const pkgDailyRate = matchedPlan ? matchedPlan.dailyReturnPercent : 2.5;
-    const dailyEarned = Math.round((amount * pkgDailyRate) / 100);
+    const dailyEarned = matchedPlan
+      ? getPlanDailyReturnBdt(matchedPlan)
+      : Math.round(amount * 0.02);
+    const pkgDailyRate = matchedPlan ? (matchedPlan.dailyReturnPercent || Math.round((dailyEarned / amount) * 1000) / 10) : 2.0;
 
     const nowTime = Date.now();
     const newInvestment = {
@@ -1667,15 +1632,17 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       ).catch(() => {});
     }
 
-    // ৩ লেভেল রেফারেল কমিশন (L1: ৭%, L2: ৩%, L3: ১%) আপলাইনে স্বয়ংক্রিয়ভাবে প্রদান
+    // ৩ লেভেল রেফারেল কমিশন (L1: ৭%, L2: ৩%, L3: ১%) প্যাকেজ ক্রয়ের মূল্যের অনুপাতে আপলাইনে স্বয়ংক্রিয়ভাবে প্রদান
     try {
+      const purchaserCode = user.referralCode || user.memberId || user.phone || '';
       distributeReferralDepositCommissions(
-        user.referralCode || user.memberId,
+        purchaserCode,
         amount,
-        user.referralCode || user.memberId
+        purchaserCode,
+        newInvestment.id
       );
     } catch (refErr) {
-      console.warn('[Referral Commission Distribution Error]', refErr);
+      console.warn('[Referral Package Commission Error]', refErr);
     }
 
     showToast(
@@ -1749,7 +1716,18 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
   };
 
   const handleCopyReferral = () => {
-    const refCode = user.memberId || 'NV8829';
+    if (!user.canRefer) {
+      setReferralBlockReason('no_permission');
+      setIsManagerReferralModalOpen(true);
+      return;
+    }
+    const directCount = referralTree?.level1Count || 0;
+    if (user.referralLimit !== undefined && Number(user.referralLimit) > 0 && directCount >= Number(user.referralLimit)) {
+      setReferralBlockReason('limit_reached');
+      setIsManagerReferralModalOpen(true);
+      return;
+    }
+    const refCode = user.memberId || user.referralCode || 'NV8829';
     const link = `${window.location.origin}/register?ref=${refCode}`;
     navigator.clipboard.writeText(link);
     showToast(currentLang === 'bn' ? 'রেফারেল লিংক কপি করা হয়েছে!' : 'Referral link copied!');
@@ -2120,9 +2098,11 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             onOpenHistory={() => setIsWalletHistoryModalOpen(true)}
             onBack={() => switchTab('home')}
             onClaimPromoReward={(amt, lvl) => {
+              const tierNum = parseInt(String(lvl || '').replace(/[^0-9]/g, '')) || 0;
               updateUser((prev) => ({
                 ...prev,
                 walletBalance: prev.walletBalance + amt,
+                vipLevel: Math.max(prev.vipLevel || 0, tierNum),
                 transactions: [
                   {
                     id: `PROMO-${Date.now().toString().slice(-6)}`,
@@ -2138,8 +2118,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                     status: 'completed',
                     description:
                       currentLang === 'bn'
-                        ? `${lvl} প্রমো বোনাস ক্যাশ রিওয়ার্ড`
-                        : `${lvl} Promo Bonus Cash Reward`,
+                        ? `${lvl} প্রমো বোনাস ক্যাশ রিওয়ার্ড (VIP ${tierNum})`
+                        : `${lvl} Promo Bonus Cash Reward (VIP ${tierNum})`,
                   },
                   ...(prev.transactions || []),
                 ],
@@ -2148,6 +2128,9 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               const persistentUid = user.uid || user.memberId;
               if (persistentUid) {
                 updateFirestoreWalletBalance(persistentUid, user.walletBalance + amt).catch(() => {});
+                if (tierNum > 0) {
+                  updateFirestoreUserProfile(persistentUid, { vipLevel: Math.max(user.vipLevel || 0, tierNum) }).catch(() => {});
+                }
               }
 
               showToast(
@@ -2191,14 +2174,32 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
         {/* 6. Full-Page Referral & Team Commission (হোম পেজের ইনভাইটেশন অপশন থেকে সরাসরি) */}
         {currentTab === 'referral' && (
-          <ReferralPage
-            currentLang={currentLang}
-            themeMode={themeMode}
-            userCode={user.referralCode || user.memberId || 'NV8829'}
-            userMemberId={user.memberId}
-            userBalance={user.walletBalance}
-            onBack={() => switchTab('home')}
+          !user.canRefer ? (
+            <ManagerPermissionLockedScreen
+              currentLang={currentLang}
+              onBack={() => switchTab('home')}
+              onContactManager={() => openCrispChat()}
+            />
+          ) : (
+            <ReferralPage
+              currentLang={currentLang}
+              themeMode={themeMode}
+              userCode={user.referralCode || user.memberId || 'NV8829'}
+              userMemberId={user.memberId}
+              userBalance={user.walletBalance}
+              canRefer={user.canRefer}
+              referralLimit={user.referralLimit || 0}
+              onContactManager={() => openCrispChat()}
+              onBack={() => switchTab('home')}
             onClaimReward={(amt) => {
+              if (amt < 200) {
+                showToast(
+                  currentLang === 'bn'
+                    ? 'মিনিমাম ২০০.০০ টাকা এর নিচে রেফার বোনাস ট্রান্সফার করা যাবে না।'
+                    : 'Cannot transfer referral bonus below minimum ৳200.00.'
+                );
+                return;
+              }
               updateUser((prev) => ({
                 ...prev,
                 walletBalance: prev.walletBalance + amt,
@@ -2227,6 +2228,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             }}
             showToast={showToast}
           />
+          )
         )}
 
         {/* 6. Profile Tab */}
@@ -2241,10 +2243,9 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               <div className="absolute right-0 top-0 bottom-0 w-[68%] pointer-events-none overflow-hidden select-none">
                 {/* Clean Energy Farm Photo */}
                 <img
-                  src="https://images.unsplash.com/photo-1466611653911-95081537e5b7?auto=format&fit=crop&w=800&q=80"
+                  src="/images/aeolus-wind-farm.jpg"
                   alt="Clean Energy Farm"
                   className="w-full h-full object-cover object-right opacity-30 mix-blend-screen"
-                  referrerPolicy="no-referrer"
                   loading="eager"
                   decoding="async"
                 />
@@ -2352,7 +2353,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                       <User className="w-7 h-7 sm:w-8 sm:h-8 text-white" />
                     </div>
                     {/* Gold Crown only appears once user achieves VIP 1 or higher */}
-                    {(user.vipLevel ?? 0) >= 1 && (
+                    {computedVipLevel >= 1 && (
                       <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 z-10 drop-shadow-md">
                         <Crown className="w-4 h-4 text-amber-400 fill-amber-400" />
                       </div>
@@ -2397,7 +2398,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                   </div>
                 </div>
 
-                {/* Right: VIP Badge - shows VIP 0 until VIP 1 is reached */}
+                {/* Right: VIP Badge - dynamically calculated from 3-level team */}
                 <div className="flex items-center gap-1.5 shrink-0">
                   <button
                     type="button"
@@ -2406,14 +2407,14 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                       if (computedVipLevel >= 1) {
                         showToast(
                           currentLang === 'bn'
-                            ? 'VIP 1 সক্রিয়! প্রমোশন থেকে ৩ জন সক্রিয় সদস্য যুক্ত রয়েছে।'
-                            : 'VIP 1 Active! 3 active members reached in promotion.'
+                            ? `প্রমো বোনাস থেকে VIP ${computedVipLevel} সক্রিয়! (৩ লেভেলে মোট ${totalActiveMembersInLevels} জন সক্রিয় সদস্য)`
+                            : `VIP ${computedVipLevel} Active via Promo Bonus! (${totalActiveMembersInLevels} active members across 3 levels)`
                         );
                       } else {
                         showToast(
                           currentLang === 'bn'
-                            ? `VIP 1 সক্রিয় করতে প্রমোশন লেভেলে ৩ জন সক্রিয় সদস্য প্রয়োজন (${totalActiveMembersInLevels}/৩ জন সক্রিয়)`
-                            : `VIP 1 requires 3 active members in promotion levels (${totalActiveMembersInLevels}/3 active)`
+                            ? `প্রমো বোনাস অপশন থেকে VIP 1 সক্রিয় করতে ৩ লেভেলে ৩ জন সক্রিয় সদস্য প্রয়োজন (${totalActiveMembersInLevels}/৩ জন সক্রিয়)`
+                            : `VIP 1 unlocks from Promo Bonus when 3 members are active in 3 levels (${totalActiveMembersInLevels}/3 active)`
                         );
                       }
                     }}
@@ -2424,8 +2425,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                     }`}
                     title={
                       computedVipLevel >= 1
-                        ? (currentLang === 'bn' ? "VIP 1 আনলক ও সক্রিয়" : "VIP 1 Active")
-                        : (currentLang === 'bn' ? "VIP 1 আনলক করতে প্রমোশন অপশন থেকে ৩ জন লেভেলে সক্রিয় সদস্য প্রয়োজন" : "Requires 3 active members in promotion levels")
+                        ? (currentLang === 'bn' ? `প্রমো বোনাস থেকে VIP ${computedVipLevel} সক্রিয়` : `VIP ${computedVipLevel} Active via Promo Bonus`)
+                        : (currentLang === 'bn' ? "প্রমো বোনাস অপশন থেকে শর্ত পূরণ করে VIP সক্রিয় করুন" : "Meet Promo Bonus conditions to activate VIP")
                     }
                   >
                     <Crown className={`w-4 h-4 ${computedVipLevel >= 1 ? 'text-amber-400 fill-amber-400 animate-pulse' : 'text-slate-400'}`} />
@@ -2711,47 +2712,6 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 }`} />
               </button>
 
-              {/* 7. Real 3-Level Referral Team & Commission */}
-              <button
-                id="profile-referral-team-menu-btn"
-                type="button"
-                onClick={() => switchTab('referral')}
-                className={`w-full px-4 sm:px-5 py-3.5 flex items-center justify-between transition-colors cursor-pointer text-left group ${
-                  themeMode === 'day' ? 'hover:bg-slate-50' : 'hover:bg-emerald-500/10'
-                }`}
-              >
-                <div className="flex items-center gap-3.5">
-                  <div className="w-9 h-9 rounded-full bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center text-emerald-400 group-hover:scale-105 transition-transform shrink-0">
-                    <Users className="w-4.5 h-4.5" />
-                  </div>
-                  <div>
-                    <span className={`text-[15px] font-semibold tracking-tight transition-colors block ${
-                      themeMode === 'day' ? 'text-slate-800 group-hover:text-emerald-600' : 'text-slate-100 group-hover:text-emerald-300'
-                    }`}>
-                      {currentLang === 'bn' ? 'রেফারেল টিম ও কমিশন' : 'Referral Team & Commission'}
-                    </span>
-                    <span className="text-[11px] text-slate-400 block">
-                      {currentLang === 'bn'
-                        ? `৩-লেভেল নেটওয়ার্ক | সক্রিয় সদস্য: ${totalActiveMembersInLevels}`
-                        : `3-Level Network | Active: ${totalActiveMembersInLevels}`}
-                    </span>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${
-                    isVip1Unlocked
-                      ? 'bg-amber-400/20 text-amber-300 border-amber-400/40 shadow-xs'
-                      : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/35'
-                  }`}>
-                    <Zap className="w-3 h-3" />
-                    <span>{isVip1Unlocked ? 'VIP 1' : `${totalActiveMembersInLevels}/3`}</span>
-                  </span>
-                  <ChevronRight className={`w-4.5 h-4.5 transition-colors ${
-                    themeMode === 'day' ? 'text-slate-400 group-hover:text-slate-700' : 'text-slate-500 group-hover:text-emerald-300'
-                  }`} />
-                </div>
-              </button>
-
               {/* App Download */}
               <button
                 id="profile-app-download-button"
@@ -2776,61 +2736,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 }`} />
               </button>
 
-              {/* 8. Company Profile & Architecture */}
-              <button
-                id="profile-company-profile-btn"
-                type="button"
-                onClick={() => setActiveSubModal('companyInfo')}
-                className={`w-full px-4 sm:px-5 py-3.5 flex items-center justify-between transition-colors cursor-pointer text-left group ${
-                  themeMode === 'day' ? 'hover:bg-slate-50' : 'hover:bg-emerald-500/10'
-                }`}
-              >
-                <div className="flex items-center gap-3.5">
-                  <div className="w-9 h-9 rounded-full bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center text-emerald-400 group-hover:scale-105 transition-transform shrink-0">
-                    <Building2 className="w-4.5 h-4.5" />
-                  </div>
-                  <span className={`text-[15px] font-semibold tracking-tight transition-colors ${
-                    themeMode === 'day' ? 'text-slate-800 group-hover:text-emerald-600' : 'text-slate-100 group-hover:text-emerald-300'
-                  }`}>
-                    {currentLang === 'bn' ? 'কোম্পানি প্রোফাইল ও আর্কিটেকচার' : 'Company Profile & Architecture'}
-                  </span>
-                </div>
-                <ChevronRight className={`w-4.5 h-4.5 transition-colors ${
-                  themeMode === 'day' ? 'text-slate-400 group-hover:text-slate-700' : 'text-slate-500 group-hover:text-emerald-300'
-                }`} />
-              </button>
-
-              {/* 9. Official Licences & Certifications */}
-              <button
-                id="profile-licenses-btn"
-                type="button"
-                onClick={() => setActiveSubModal('licenses')}
-                className={`w-full px-4 sm:px-5 py-3.5 flex items-center justify-between transition-colors cursor-pointer text-left group ${
-                  themeMode === 'day' ? 'hover:bg-slate-50' : 'hover:bg-emerald-500/10'
-                }`}
-              >
-                <div className="flex items-center gap-3.5">
-                  <div className="w-9 h-9 rounded-full bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center text-emerald-400 group-hover:scale-105 transition-transform shrink-0">
-                    <Award className="w-4.5 h-4.5" />
-                  </div>
-                  <span className={`text-[15px] font-semibold tracking-tight transition-colors ${
-                    themeMode === 'day' ? 'text-slate-800 group-hover:text-emerald-600' : 'text-slate-100 group-hover:text-emerald-300'
-                  }`}>
-                    {currentLang === 'bn' ? 'অফিসিয়াল লাইসেন্স ও সনদপত্র' : 'Official Licences & Certifications'}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/35">
-                    <CheckCircle2 className="w-3 h-3 text-emerald-400" />
-                    <span>{currentLang === 'bn' ? 'অনুমোদিত' : 'Verified'}</span>
-                  </span>
-                  <ChevronRight className={`w-4.5 h-4.5 transition-colors ${
-                    themeMode === 'day' ? 'text-slate-400 group-hover:text-slate-700' : 'text-slate-500 group-hover:text-emerald-300'
-                  }`} />
-                </div>
-              </button>
-
-              {/* 10. Live Chat & Support */}
+              {/* 8. Live Chat & Support */}
               <button
                 id="profile-helpline-btn"
                 type="button"
@@ -3085,6 +2991,13 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       <AppDownloadModal
         isOpen={isDownloadModalOpen}
         onClose={() => setIsDownloadModalOpen(false)}
+        currentLang={currentLang}
+      />
+
+      {/* NVT Energy Post-Login Promotional Banner Modal */}
+      <NvtPromoBannerModal
+        isOpen={isPromoModalOpen}
+        onClose={handleClosePromoModal}
         currentLang={currentLang}
       />
 
@@ -3358,7 +3271,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                       {currentLang === 'bn' ? 'যাচাইকৃত' : 'Verified'}
                     </span>
                   </div>
-                  <p className="text-xs text-slate-300 font-mono mt-0.5">{user.phone}</p>
+                  <p className="text-xs text-slate-300 font-mono mt-0.5">{user.email || user.memberId}</p>
                   <p className="text-[11px] text-emerald-300 mt-0.5">
                     {currentLang === 'bn' ? `ভিআইপি স্তর: VIP ${user.vipLevel || 0}` : `VIP Status: VIP ${user.vipLevel || 0}`}
                   </p>
@@ -3379,8 +3292,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 </div>
 
                 <div className="p-3 rounded-2xl bg-[#042018] border border-emerald-500/20 flex justify-between items-center">
-                  <span className="text-slate-300">{currentLang === 'bn' ? 'মোবাইল নম্বর' : 'Phone Number'}</span>
-                  <span className="font-semibold text-white font-mono">{user.phone}</span>
+                  <span className="text-slate-300">{currentLang === 'bn' ? 'ইমেইল এড্রেস' : 'Email Address'}</span>
+                  <span className="font-semibold text-white font-mono">{user.email || 'N/A'}</span>
                 </div>
 
                 <div className="p-3 rounded-2xl bg-[#042018] border border-emerald-500/20 flex justify-between items-center">
@@ -3444,7 +3357,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       {activeSubModal === 'security' && (
         <SecuritySettingsPage
           currentLang={currentLang}
-          userPhone={user.phone}
+          userEmail={user.email}
           onClose={() => setActiveSubModal(null)}
           showToast={showToast}
           onOpen2FA={() => setActiveSubModal('authenticator')}
@@ -3605,15 +3518,14 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-emerald-300 font-semibold mb-1.5">
-                    {currentLang === 'bn' ? 'মোবাইল নম্বর' : 'Phone Number'}
+                  <label className="block text-emerald-300/80 font-semibold mb-1.5">
+                    {currentLang === 'bn' ? 'ইমেইল এড্রেস (স্থায়ী)' : 'Email Address (Permanent)'}
                   </label>
                   <input
                     type="text"
-                    value={user.phone}
-                    onChange={(e) => updateUser((prev) => ({ ...prev, phone: e.target.value }))}
-                    className="w-full p-3 rounded-xl bg-[#042018] border border-emerald-500/30 text-white focus:outline-none focus:border-emerald-400 text-sm font-mono"
-                    placeholder="01XXXXXXXXX"
+                    value={user.email || ''}
+                    disabled
+                    className="w-full p-3 rounded-xl bg-[#031812] border border-emerald-500/20 text-slate-400 cursor-not-allowed font-mono text-sm"
                   />
                 </div>
 
@@ -4189,6 +4101,20 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
         transactions={user.transactions || []}
         currentLang={currentLang}
         themeMode={themeMode}
+      />
+
+      {/* Manager Referral Permission Alert Modal */}
+      <ManagerReferralModal
+        isOpen={isManagerReferralModalOpen}
+        onClose={() => setIsManagerReferralModalOpen(false)}
+        onContactManager={() => {
+          setIsManagerReferralModalOpen(false);
+          openCrispChat();
+        }}
+        currentLang={currentLang}
+        themeMode={themeMode}
+        reason={referralBlockReason}
+        currentLimit={user.referralLimit || 0}
       />
     </div>
   );

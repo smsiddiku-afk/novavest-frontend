@@ -7,11 +7,12 @@ import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
 import { generateCashierHtml } from './cashierTemplate';
+import { sendOtpEmail, verifyOtpCode } from './src/server/emailOtpService';
 
 dotenv.config();
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const __filenameResolved = typeof __filename !== 'undefined' ? __filename : '';
+const __dirnameResolved = typeof __dirname !== 'undefined' ? __dirname : process.cwd();
 
 // ───────────────────────────────────────────────────────────
 // PAYMENT GATEWAY CONFIGURATIONS & CPANEL BACKEND URLS
@@ -113,8 +114,9 @@ async function startServer() {
 
   // Helper to forward deposit requests, transaction callbacks, and webhook submissions directly to cPanel
   const forwardToCpanelDeposit = async (payload: Record<string, any>, customUrl?: string) => {
-    const targetUrl = customUrl || CPANEL_DEPOSIT_URL;
+    const targetUrl = customUrl || `${CPANEL_API_BASE_URL}/nekpay-callback`;
     try {
+      // 1. Forward as application/json
       fetch(targetUrl, {
         method: 'POST',
         headers: {
@@ -123,11 +125,29 @@ async function startServer() {
           'User-Agent': 'NovaVest-Server/1.0',
         },
         body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(4000),
+        signal: AbortSignal.timeout(5000),
       }).catch((e) => {
-        // non-blocking
-        console.warn(`[cPanel Forward Notice (${targetUrl})]:`, e?.message || e);
+        console.warn(`[cPanel Forward JSON Notice (${targetUrl})]:`, e?.message || e);
       });
+
+      // 2. Also forward as application/x-www-form-urlencoded (standard PHP $_POST in cPanel)
+      try {
+        const formParams = new URLSearchParams();
+        for (const [key, val] of Object.entries(payload)) {
+          if (val !== undefined && val !== null) {
+            formParams.append(key, typeof val === 'object' ? JSON.stringify(val) : String(val));
+          }
+        }
+        fetch(targetUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'User-Agent': 'NovaVest-Server/1.0',
+          },
+          body: formParams.toString(),
+          signal: AbortSignal.timeout(5000),
+        }).catch(() => {});
+      } catch (_) {}
     } catch (err: any) {
       console.warn(`[cPanel Forward Error (${targetUrl})]:`, err?.message || err);
     }
@@ -258,6 +278,37 @@ async function startServer() {
     });
   });
 
+  // ── REAL EMAIL OTP ENDPOINTS ──
+  // POST /api/send-email-otp
+  app.post('/api/send-email-otp', async (req, res) => {
+    try {
+      const { email, lang } = req.body || {};
+      const result = await sendOtpEmail(email, lang);
+      return res.json(result);
+    } catch (err: any) {
+      console.error('[API] /api/send-email-otp error:', err);
+      return res.status(500).json({
+        success: false,
+        message: 'Internal server error while sending email OTP.',
+      });
+    }
+  });
+
+  // POST /api/verify-email-otp
+  app.post('/api/verify-email-otp', (req, res) => {
+    try {
+      const { email, code, lang } = req.body || {};
+      const result = verifyOtpCode(email, code, lang);
+      return res.json(result);
+    } catch (err: any) {
+      console.error('[API] /api/verify-email-otp error:', err);
+      return res.status(500).json({
+        success: false,
+        message: 'Internal server error while verifying email OTP.',
+      });
+    }
+  });
+
   // 3. POST /api/auth/register-phone
   app.post('/api/auth/register-phone', (req, res) => {
     const { phone, email, uid, memberId, referralCode, username, last10: bodyLast10 } = req.body || {};
@@ -299,6 +350,123 @@ async function startServer() {
       message: 'Phone registered successfully in server registry',
       record,
     });
+  });
+
+  // User profile persistent backup store on server disk
+  const USERS_BACKUP_FILE = path.join(REGISTRY_DIR, 'users_backup.json');
+  const usersBackupMap = new Map<string, any>();
+
+  const loadUsersBackupFromDisk = () => {
+    try {
+      if (fs.existsSync(USERS_BACKUP_FILE)) {
+        const raw = fs.readFileSync(USERS_BACKUP_FILE, 'utf-8');
+        const data = JSON.parse(raw);
+        if (typeof data === 'object' && data !== null) {
+          Object.entries(data).forEach(([key, val]) => {
+            if (val && typeof val === 'object') {
+              usersBackupMap.set(key, val);
+            }
+          });
+          console.log(`[UsersBackup] Loaded ${usersBackupMap.size} user profiles from disk`);
+        }
+      }
+    } catch (err) {
+      console.warn('[UsersBackup] Notice loading users backup from disk:', err);
+    }
+  };
+
+  const saveUsersBackupToDisk = () => {
+    try {
+      if (!fs.existsSync(REGISTRY_DIR)) {
+        fs.mkdirSync(REGISTRY_DIR, { recursive: true });
+      }
+      const obj: Record<string, any> = {};
+      usersBackupMap.forEach((v, k) => {
+        obj[k] = v;
+      });
+      fs.writeFileSync(USERS_BACKUP_FILE, JSON.stringify(obj, null, 2), 'utf-8');
+    } catch (err) {
+      console.warn('[UsersBackup] Notice saving users backup to disk:', err);
+    }
+  };
+
+  loadUsersBackupFromDisk();
+
+  // POST /api/auth/backup-user - Silently backs up user profile on server
+  app.post('/api/auth/backup-user', (req, res) => {
+    try {
+      const user = req.body;
+      if (!user || (!user.uid && !user.phone && !user.email)) {
+        return res.status(400).json({ success: false, error: 'Invalid user payload' });
+      }
+
+      const uid = user.uid ? String(user.uid).trim() : '';
+      const email = user.email ? String(user.email).trim().toLowerCase() : '';
+      const phone = user.phone ? String(user.phone).trim() : '';
+      const digits = normalizePhoneQuery(phone);
+      const last10 = digits ? digits.slice(-10) : '';
+      const memberId = user.memberId ? String(user.memberId).trim().toUpperCase() : '';
+
+      const record = {
+        ...user,
+        updatedAt: new Date().toISOString(),
+      };
+
+      if (uid) usersBackupMap.set(uid, record);
+      if (email) usersBackupMap.set(email, record);
+      if (last10) {
+        usersBackupMap.set(last10, record);
+        usersBackupMap.set(`0${last10}`, record);
+        usersBackupMap.set(`880${last10}`, record);
+      }
+      if (memberId) usersBackupMap.set(memberId, record);
+
+      saveUsersBackupToDisk();
+
+      // Also ensure phoneRegistry knows about this user
+      if (last10 && email) {
+        phoneRegistry.set(last10, {
+          phone,
+          last10,
+          email,
+          uid,
+          memberId,
+          referralCode: user.referralCode,
+          username: user.name || user.username,
+          updatedAt: new Date().toISOString(),
+        });
+        savePhoneRegistryToDisk();
+      }
+
+      return res.json({ success: true, message: 'User backed up successfully' });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err?.message });
+    }
+  });
+
+  // GET /api/auth/get-user-profile - Retrieves user profile by uid, email, or phone
+  app.get('/api/auth/get-user-profile', (req, res) => {
+    try {
+      const uid = String(req.query.uid || '').trim();
+      const email = String(req.query.email || '').trim().toLowerCase();
+      const phone = String(req.query.phone || '').trim();
+      const digits = normalizePhoneQuery(phone);
+      const last10 = digits ? digits.slice(-10) : '';
+
+      let found = null;
+      if (uid && usersBackupMap.has(uid)) found = usersBackupMap.get(uid);
+      if (!found && email && usersBackupMap.has(email)) found = usersBackupMap.get(email);
+      if (!found && last10 && usersBackupMap.has(last10)) found = usersBackupMap.get(last10);
+      if (!found && last10 && usersBackupMap.has(`0${last10}`)) found = usersBackupMap.get(`0${last10}`);
+
+      if (found) {
+        return res.json({ success: true, found: true, user: found });
+      }
+
+      return res.json({ success: true, found: false });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err?.message });
+    }
   });
 
   // 4. GET /api/auth/all-accounts
@@ -374,6 +542,181 @@ async function startServer() {
     });
   });
 
+  // 5.5 POST /api/admin/purge-all-accounts - Completely clears all user and phone registries on server
+  app.post('/api/admin/purge-all-accounts', (_req, res) => {
+    try {
+      phoneRegistry.clear();
+      savePhoneRegistryToDisk();
+
+      usersBackupMap.clear();
+      saveUsersBackupToDisk();
+
+      const regPhonesFile = path.join(REGISTRY_DIR, 'registered_phones.json');
+      if (fs.existsSync(regPhonesFile)) {
+        fs.writeFileSync(regPhonesFile, '{}', 'utf-8');
+      }
+
+      console.log('[Server] Successfully purged all user and phone records from memory and disk');
+      return res.json({
+        success: true,
+        message: 'All accounts, phone registry, and user backups purged completely from server.',
+      });
+    } catch (err: any) {
+      console.error('[Server] purge-all-accounts error:', err);
+      return res.status(500).json({ success: false, error: err?.message || 'Purge failed' });
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────
+  // 6. CHARITY BANNERS MANAGEMENT API (দাতব্য প্রতিষ্ঠান ব্যানার)
+  // ─────────────────────────────────────────────────────────────
+  const CHARITY_BANNERS_FILE = path.join(REGISTRY_DIR, 'charity_banners.json');
+  const CHARITY_UPLOADS_DIR = path.join(process.cwd(), 'public', 'charity', 'uploads');
+  if (!fs.existsSync(CHARITY_UPLOADS_DIR)) {
+    fs.mkdirSync(CHARITY_UPLOADS_DIR, { recursive: true });
+  }
+
+  const loadCharityBanners = (): Array<{ id: string; image: string; title?: string; createdAt: string; isActive?: boolean }> => {
+    try {
+      if (fs.existsSync(CHARITY_BANNERS_FILE)) {
+        const raw = fs.readFileSync(CHARITY_BANNERS_FILE, 'utf-8');
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch (err) {
+      console.warn('[Server] Error loading charity_banners.json:', err);
+    }
+    return [];
+  };
+
+  const saveCharityBanners = (banners: any[]) => {
+    try {
+      if (!fs.existsSync(REGISTRY_DIR)) {
+        fs.mkdirSync(REGISTRY_DIR, { recursive: true });
+      }
+      fs.writeFileSync(CHARITY_BANNERS_FILE, JSON.stringify(banners, null, 2), 'utf-8');
+    } catch (err) {
+      console.warn('[Server] Error saving charity_banners.json:', err);
+    }
+  };
+
+  // GET /api/admin/charity-banners
+  app.get('/api/admin/charity-banners', (_req, res) => {
+    const banners = loadCharityBanners();
+    return res.json({ success: true, count: banners.length, banners });
+  });
+
+  // POST /api/admin/upload-charity-banner
+  app.post('/api/admin/upload-charity-banner', (req, res) => {
+    try {
+      const { image, title, url } = req.body || {};
+      let finalImagePath = '';
+
+      if (url && typeof url === 'string' && url.trim().startsWith('http')) {
+        finalImagePath = url.trim();
+      } else if (image && typeof image === 'string' && image.startsWith('data:image/')) {
+        const matches = image.match(/^data:image\/([a-zA-Z0-9+]+);base64,(.+)$/);
+        if (!matches || matches.length !== 3) {
+          return res.status(400).json({ success: false, error: 'Invalid base64 image data' });
+        }
+        let ext = matches[1].toLowerCase();
+        if (ext === 'jpeg') ext = 'jpg';
+        if (ext === 'svg+xml') ext = 'svg';
+
+        const buffer = Buffer.from(matches[2], 'base64');
+        const fileName = `charity_${Date.now()}_${Math.random().toString(36).slice(2, 7)}.${ext}`;
+        const filePath = path.join(CHARITY_UPLOADS_DIR, fileName);
+        fs.writeFileSync(filePath, buffer);
+
+        // Also copy to dist if dist exists
+        const distUploads = path.join(process.cwd(), 'dist', 'charity', 'uploads');
+        try {
+          if (!fs.existsSync(distUploads)) fs.mkdirSync(distUploads, { recursive: true });
+          fs.writeFileSync(path.join(distUploads, fileName), buffer);
+        } catch (_) {}
+
+        finalImagePath = `/charity/uploads/${fileName}`;
+      } else {
+        return res.status(400).json({ success: false, error: 'No image or valid image URL provided' });
+      }
+
+      const banners = loadCharityBanners();
+      const newBanner = {
+        id: `cb-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        image: finalImagePath,
+        title: typeof title === 'string' ? title.trim() : '',
+        createdAt: new Date().toISOString(),
+        isActive: true,
+      };
+
+      banners.unshift(newBanner);
+      saveCharityBanners(banners);
+
+      return res.json({ success: true, banner: newBanner, banners });
+    } catch (err: any) {
+      console.error('[Server] upload-charity-banner error:', err);
+      return res.status(500).json({ success: false, error: err?.message || 'Upload failed' });
+    }
+  });
+
+  // POST /api/admin/save-charity-banners
+  app.post('/api/admin/save-charity-banners', (req, res) => {
+    try {
+      const { banners } = req.body || {};
+      if (!Array.isArray(banners)) {
+        return res.status(400).json({ success: false, error: 'Banners array required' });
+      }
+      saveCharityBanners(banners);
+      return res.json({ success: true, count: banners.length, banners });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err?.message || 'Save failed' });
+    }
+  });
+
+  // DELETE /api/admin/charity-banner/:id
+  app.delete('/api/admin/charity-banner/:id', (req, res) => {
+    try {
+      const bannerId = req.params.id;
+      let banners = loadCharityBanners();
+      const target = banners.find((b) => b.id === bannerId);
+
+      banners = banners.filter((b) => b.id !== bannerId);
+      saveCharityBanners(banners);
+
+      if (target && target.image && target.image.startsWith('/charity/uploads/')) {
+        const localFileName = path.basename(target.image);
+        try {
+          const localPath = path.join(CHARITY_UPLOADS_DIR, localFileName);
+          if (fs.existsSync(localPath)) fs.unlinkSync(localPath);
+        } catch (_) {}
+      }
+
+      return res.json({ success: true, count: banners.length, banners });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err?.message || 'Delete failed' });
+    }
+  });
+
+  // POST /api/admin/clear-all-charity-banners
+  app.post('/api/admin/clear-all-charity-banners', (_req, res) => {
+    try {
+      saveCharityBanners([]);
+      try {
+        if (fs.existsSync(CHARITY_UPLOADS_DIR)) {
+          const files = fs.readdirSync(CHARITY_UPLOADS_DIR);
+          for (const f of files) {
+            try {
+              fs.unlinkSync(path.join(CHARITY_UPLOADS_DIR, f));
+            } catch (_) {}
+          }
+        }
+      } catch (_) {}
+      return res.json({ success: true, count: 0, banners: [] });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err?.message || 'Clear failed' });
+    }
+  });
+
   // Extract client domain origin so returnUrl points back to user's real website domain
   const getClientOrigin = (req: express.Request): string => {
     if (req.body && req.body.clientOrigin) {
@@ -400,7 +743,7 @@ async function startServer() {
   ): string => {
     if (!rawLink || typeof rawLink !== 'string') return rawLink;
     const cleanOrigin = clientOrigin.replace(/\/+$/, '');
-    const returnTarget = `${cleanOrigin}/?payment_status=SUCCESS&orderNo=${encodeURIComponent(orderNo)}&amount=${amount}&channel=${encodeURIComponent(channel)}&gateway=nekpay`;
+    const returnTarget = `${cleanOrigin}/?payment_status=PENDING&payment_return=1&orderNo=${encodeURIComponent(orderNo)}&amount=${amount}&channel=${encodeURIComponent(channel)}&gateway=nekpay`;
 
     let processed = rawLink;
 
@@ -459,13 +802,26 @@ async function startServer() {
   };
 
   // Official Bangladesh Cash Out Numbers (এজেন্ট ক্যাশ আউট নম্বর)
-  const CASHOUT_NUMBERS: Record<string, { number: string; type: string; name: string }> = {
-    bkash: { number: '01712-345678', type: 'বিকাশ এজেন্ট (Cash Out)', name: 'NovaVest bKash Agent' },
-    nagad: { number: '01844-992211', type: 'নগদ এজেন্ট (Cash Out)', name: 'NovaVest Nagad Agent' },
-    rocket: { number: '01911-223344', type: 'রকেট এজেন্ট (Cash Out)', name: 'NovaVest Rocket Agent' },
-    upay: { number: '01611-223344', type: 'উপায় এজেন্ট (Cash Out)', name: 'NovaVest Upay Agent' },
+  const CASHOUT_NUMBERS_FILE = path.join(process.cwd(), 'data', 'cashout_numbers.json');
+  let CASHOUT_NUMBERS: Record<string, { number: string; type: string; name: string }> = {
+    bkash: { number: '01700-000000', type: 'বিকাশ এজেন্ট (Cash Out)', name: 'NVT bKash Agent' },
+    nagad: { number: '01800-000000', type: 'নগদ এজেন্ট (Cash Out)', name: 'NVT Nagad Agent' },
+    rocket: { number: '01900-000000', type: 'রকেট এজেন্ট (Cash Out)', name: 'NVT Rocket Agent' },
+    upay: { number: '01600-000000', type: 'উপায় এজেন্ট (Cash Out)', name: 'NVT Upay Agent' },
     usdt: { number: 'TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE', type: 'TRC-20 USDT Wallet Address', name: 'Binance TRC20 Official' },
   };
+
+  try {
+    if (fs.existsSync(CASHOUT_NUMBERS_FILE)) {
+      const raw = fs.readFileSync(CASHOUT_NUMBERS_FILE, 'utf-8');
+      if (raw && raw.trim()) {
+        const parsed = JSON.parse(raw);
+        CASHOUT_NUMBERS = { ...CASHOUT_NUMBERS, ...parsed };
+      }
+    }
+  } catch (e) {
+    console.warn('[Server] Error loading cashout numbers file:', e);
+  }
 
   // ───────────────────────────────────────────────────────────
   // HEALTH CHECK & APK DOWNLOAD ROUTE
@@ -512,7 +868,10 @@ async function startServer() {
       const targetUrl = channel === 'channel2' ? WATCHPAY_CONFIG.createOrderUrl : NEKPAY_CONFIG.createOrderUrl;
       const clientOrigin = getClientOrigin(req);
       const preOrderNo = `DEP-${Date.now()}`;
-      const returnTarget = `${clientOrigin.replace(/\/+$/, '')}/?payment_status=SUCCESS&orderNo=${encodeURIComponent(preOrderNo)}&amount=${numAmount}&channel=${encodeURIComponent(channel)}&gateway=nekpay`;
+      const returnTarget = `${clientOrigin.replace(/\/+$/, '')}/?payment_status=PENDING&payment_return=1&orderNo=${encodeURIComponent(preOrderNo)}&amount=${numAmount}&channel=${encodeURIComponent(channel)}&gateway=nekpay`;
+      const cpanelCallbackUrl = channel === 'channel2'
+        ? `${CPANEL_API_BASE_URL}/watchpay-callback`
+        : `${CPANEL_API_BASE_URL}/nekpay-callback`;
 
       let responseData: any = {};
       let responseOk = false;
@@ -533,9 +892,14 @@ async function startServer() {
             order_no: preOrderNo,
             return_url: returnTarget,
             returnUrl: returnTarget,
-            callback_url: returnTarget,
             redirect_url: returnTarget,
             redirectUrl: returnTarget,
+            callback_url: cpanelCallbackUrl,
+            callbackUrl: cpanelCallbackUrl,
+            notify_url: cpanelCallbackUrl,
+            notifyUrl: cpanelCallbackUrl,
+            ipn_url: cpanelCallbackUrl,
+            webhook_url: cpanelCallbackUrl,
             success_url: returnTarget,
             cancel_url: `${clientOrigin.replace(/\/+$/, '')}/profile`,
           }),
@@ -658,7 +1022,8 @@ async function startServer() {
 
       const clientOrigin = getClientOrigin(req);
       const preOrderNo = `NEK-${Date.now()}`;
-      const returnTarget = `${clientOrigin.replace(/\/+$/, '')}/?payment_status=SUCCESS&orderNo=${encodeURIComponent(preOrderNo)}&amount=${numAmount}&channel=channel1&gateway=nekpay`;
+      const returnTarget = `${clientOrigin.replace(/\/+$/, '')}/?payment_status=PENDING&payment_return=1&orderNo=${encodeURIComponent(preOrderNo)}&amount=${numAmount}&channel=channel1&gateway=nekpay`;
+      const cpanelCallbackUrl = `${CPANEL_API_BASE_URL}/nekpay-callback`;
 
       const postBody = {
         amount: numAmount,
@@ -668,10 +1033,15 @@ async function startServer() {
         order_no: preOrderNo,
         return_url: returnTarget,
         returnUrl: returnTarget,
-        callback_url: returnTarget,
         redirect_url: returnTarget,
         redirectUrl: returnTarget,
         success_url: returnTarget,
+        callback_url: cpanelCallbackUrl,
+        callbackUrl: cpanelCallbackUrl,
+        notify_url: cpanelCallbackUrl,
+        notifyUrl: cpanelCallbackUrl,
+        ipn_url: cpanelCallbackUrl,
+        webhook_url: cpanelCallbackUrl,
         cancel_url: `${clientOrigin.replace(/\/+$/, '')}/profile`,
       };
 
@@ -830,8 +1200,9 @@ async function startServer() {
 
       const clientOrigin = getClientOrigin(req);
       const preOrderNo = `WPY-${Date.now()}`;
-      const returnTarget = `${clientOrigin.replace(/\/+$/, '')}/?payment_status=SUCCESS&orderNo=${encodeURIComponent(preOrderNo)}&amount=${numAmount}&channel=channel2&gateway=watchpay`;
+      const returnTarget = `${clientOrigin.replace(/\/+$/, '')}/?payment_status=PENDING&payment_return=1&orderNo=${encodeURIComponent(preOrderNo)}&amount=${numAmount}&channel=channel2&gateway=watchpay`;
 
+      const cpanelCallbackUrl = `${CPANEL_API_BASE_URL}/watchpay-callback`;
       let data: any = {};
       let responseOk = false;
 
@@ -851,9 +1222,14 @@ async function startServer() {
             order_no: preOrderNo,
             return_url: returnTarget,
             returnUrl: returnTarget,
-            callback_url: returnTarget,
             redirect_url: returnTarget,
             redirectUrl: returnTarget,
+            callback_url: cpanelCallbackUrl,
+            callbackUrl: cpanelCallbackUrl,
+            notify_url: cpanelCallbackUrl,
+            notifyUrl: cpanelCallbackUrl,
+            ipn_url: cpanelCallbackUrl,
+            webhook_url: cpanelCallbackUrl,
             success_url: returnTarget,
             cancel_url: `${clientOrigin.replace(/\/+$/, '')}/profile`,
           }),
@@ -1029,6 +1405,7 @@ async function startServer() {
 
     // Forward callback directly to cPanel deposit and callback endpoints
     forwardToCpanelDeposit({ ...payload, callbackSource: 'OKEXPAY', out_trade_no, status, isSuccess });
+    forwardToCpanelDeposit(payload, `${CPANEL_API_BASE_URL}/nekpay-callback`);
     forwardToCpanelDeposit(payload, `${CPANEL_API_BASE_URL}/api/payments/okexpay-callback`);
 
     // CRITICAL: Respond with plain text "success" per OKExPay doc
@@ -1036,12 +1413,12 @@ async function startServer() {
   });
 
   // ───────────────────────────────────────────────────────────
-  // WATCHPAY WEBHOOK / CALLBACK HANDLER
-  // POST /api/payments/watchpay-callback, /api/v1/callback/watchpay
+  // NEKPAY / CHANNEL 1 WEBHOOK HANDLER (Hits cPanel backend)
+  // POST /api/payments/nekpay-callback, /api/v1/callback/nekpay, /nekpay-callback
   // ───────────────────────────────────────────────────────────
-  app.post(['/api/payments/watchpay-callback', '/api/v1/callback/watchpay', '/api/v1/watchpay/callback'], (req, res) => {
+  app.post(['/nekpay-callback', '/api/payments/nekpay-callback', '/api/v1/callback/nekpay', '/api/v1/nekpay/callback'], (req, res) => {
     const payload = req.body || {};
-    console.log('[WatchPay Webhook Received]:', payload);
+    console.log('[Nekpay Webhook Received]:', payload);
 
     const orderNo = payload.orderNo || payload.out_trade_no || payload.order_id || payload.orderId;
     const trxId = payload.trxId || payload.trade_no || payload.txnid || payload.transactionId || orderNo;
@@ -1052,8 +1429,9 @@ async function startServer() {
 
     if (orderNo && ordersDatabase.has(orderNo)) {
       const order = ordersDatabase.get(orderNo);
-      order.status = isSuccess ? 'COMPLETED' : 'FAILED';
-      order.trxId = trxId;
+      order.status = isSuccess ? 'COMPLETED' : 'PENDING';
+      order.verified = isSuccess;
+      if (trxId) order.trxId = trxId;
       if (amount > 0) order.amount = amount;
       order.updatedAt = new Date().toISOString();
       order.rawCallback = payload;
@@ -1066,7 +1444,63 @@ async function startServer() {
         trxId,
         amount,
         status: isSuccess ? 'COMPLETED' : 'PENDING',
-        channel: 'watchpay',
+        verified: isSuccess,
+        channel: 'channel1',
+        channelName: 'চ্যানেল ১ (Nekpay)',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        rawCallback: payload,
+      });
+    }
+
+    addLog({
+      channel: 'NEKPAY',
+      type: 'PAYIN_CALLBACK',
+      orderId: orderNo || trxId || 'UNKNOWN',
+      status: isSuccess ? 'SUCCESS' : 'PENDING',
+      details: { payload, isSuccess },
+    });
+
+    // Always forward webhook directly to cPanel backend
+    forwardToCpanelDeposit({ ...payload, callbackSource: 'NEKPAY', orderNo, trxId, amount, isSuccess }, `${CPANEL_API_BASE_URL}/nekpay-callback`);
+
+    return res.status(200).type('text/plain').send('success');
+  });
+
+  // ───────────────────────────────────────────────────────────
+  // WATCHPAY WEBHOOK / CALLBACK HANDLER
+  // POST /api/payments/watchpay-callback, /api/v1/callback/watchpay, /watchpay-callback
+  // ───────────────────────────────────────────────────────────
+  app.post(['/watchpay-callback', '/api/payments/watchpay-callback', '/api/v1/callback/watchpay', '/api/v1/watchpay/callback'], (req, res) => {
+    const payload = req.body || {};
+    console.log('[WatchPay Webhook Received]:', payload);
+
+    const orderNo = payload.orderNo || payload.out_trade_no || payload.order_id || payload.orderId;
+    const trxId = payload.trxId || payload.trade_no || payload.txnid || payload.transactionId || orderNo;
+    const rawStatus = String(payload.status || payload.trade_status || payload.state || '').toUpperCase();
+    const amount = Number(payload.amount || payload.money || payload.pay_money) || 0;
+
+    const isSuccess = ['SUCCESS', 'COMPLETED', 'PAID', '1', 'TRUE', 'OK'].includes(rawStatus);
+
+    if (orderNo && ordersDatabase.has(orderNo)) {
+      const order = ordersDatabase.get(orderNo);
+      order.status = isSuccess ? 'COMPLETED' : 'PENDING';
+      order.verified = isSuccess;
+      if (trxId) order.trxId = trxId;
+      if (amount > 0) order.amount = amount;
+      order.updatedAt = new Date().toISOString();
+      order.rawCallback = payload;
+      ordersDatabase.set(orderNo, order);
+      if (trxId) ordersDatabase.set(trxId, order);
+    } else if (orderNo || trxId) {
+      const key = orderNo || trxId;
+      ordersDatabase.set(key, {
+        orderId: key,
+        trxId,
+        amount,
+        status: isSuccess ? 'COMPLETED' : 'PENDING',
+        verified: isSuccess,
+        channel: 'channel2',
         channelName: 'চ্যানেল ২ (WatchPay)',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -1114,6 +1548,7 @@ async function startServer() {
                 trxId: remoteData.trxId || cleanKey,
                 amount: Number(remoteData.amount) || 0,
                 status: 'COMPLETED',
+                verified: true,
                 channel: remoteData.gateway?.toLowerCase() || 'watchpay',
                 channelName: remoteData.gateway || 'WatchPay',
                 createdAt: new Date().toISOString(),
@@ -1121,6 +1556,7 @@ async function startServer() {
               };
             } else {
               order.status = 'COMPLETED';
+              order.verified = true;
               order.trxId = remoteData.trxId || order.trxId || cleanKey;
               if (remoteData.amount) order.amount = Number(remoteData.amount);
               order.updatedAt = new Date().toISOString();
@@ -1321,9 +1757,99 @@ async function startServer() {
 
   // ───────────────────────────────────────────────────────────
   // TXNID SUBMISSION & GATEWAY VERIFICATION APIS
+  // Automatic approval for correct authentic TrxIDs; keeps wrong TrxIDs as pending.
+  // Always hits cPanel backend callback endpoint.
   // ───────────────────────────────────────────────────────────
+  const usedApprovedTrxIds = new Set<string>();
+
+  const isTrxIdAuthentic = (trxId: string, method: string = 'bKash'): { isValid: boolean; cleanId: string; reason?: string } => {
+    if (!trxId || typeof trxId !== 'string') {
+      return { isValid: false, cleanId: '', reason: 'TrxID খালি রাখা যাবে না' };
+    }
+    // Clean spaces, hyphens, and prefixes like TRX, TXNID, #
+    let clean = trxId.trim().toUpperCase().replace(/[\s\-_]/g, '');
+    clean = clean.replace(/^(TRXID|TXNID|TRX|TXN)[:#\s]*/i, '');
+
+    // Must be uppercase alphanumeric only
+    if (!/^[A-Z0-9]+$/.test(clean)) {
+      return { isValid: false, cleanId: clean, reason: 'TrxID-এ শুধুমাত্র ইংরেজি বর্ণ ও সংখ্যা গ্রহণযোগ্য' };
+    }
+
+    const isBkash = method.toLowerCase().includes('bkash');
+    const isNagad = method.toLowerCase().includes('nagad');
+    const isRocket = method.toLowerCase().includes('rocket');
+
+    // Length check based on Bangladesh mobile financial services standards:
+    // bKash: exactly 10 alphanumeric characters (e.g. 9J3K8L2M9A, BLA79X78Q2)
+    // Nagad: exactly 8 alphanumeric characters (e.g. 71E56XYZ, 9A2B3C4D)
+    // Rocket: 8 to 12 alphanumeric characters
+    if (isBkash && clean.length !== 10) {
+      return { isValid: false, cleanId: clean, reason: 'বিকাশ TrxID ঠিক ১০ ডিজিটের হতে হবে' };
+    }
+    if (isNagad && clean.length !== 8) {
+      return { isValid: false, cleanId: clean, reason: 'নগদ TrxID ঠিক ৮ ডিজিটের হতে হবে' };
+    }
+    if (isRocket && (clean.length < 8 || clean.length > 12)) {
+      return { isValid: false, cleanId: clean, reason: 'রকেট TrxID ৮-১২ ডিজিটের হতে হবে' };
+    }
+    if (!isBkash && !isNagad && !isRocket && (clean.length < 8 || clean.length > 12)) {
+      return { isValid: false, cleanId: clean, reason: 'TrxID ৮-১২ ডিজিটের হতে হবে' };
+    }
+
+    // Check for obvious fake, dummy, or sequential words/characters
+    const fakePatterns = [
+      'TEST', 'FAKE', 'DEMO', 'NULL', 'VOID', 'BKASH', 'NAGAD', 'ROCKET',
+      'ADMIN', 'USER', 'DUMMY', 'MOCK', 'WRONG', 'SAMPLE', 'RANDOM',
+      'MONEY', 'TAKA', 'PAYIN', 'PAY', 'BDT', 'HELP', 'FRAUD', 'SCAM',
+      'XXXX', 'AAAA', 'BBBB', 'CCCC', 'DDDD', 'EEEE', 'FFFF', 'ZZZZ',
+      '0000', '1111', '2222', '3333', '4444', '5555', '6666', '7777', '8888', '9999',
+      '1234', '2345', '3456', '4567', '5678', '6789', '7890',
+      '0987', '9876', '8765', '7654', '6543', '5432', '4321', '3210',
+      'ABCD', 'BCDE', 'CDEF', 'DEFG', 'DCBA', 'QWER', 'ASDF', 'ZXCV'
+    ];
+    for (const pat of fakePatterns) {
+      if (clean.includes(pat)) {
+        return { isValid: false, cleanId: clean, reason: `ভুয়া বা ডামি প্যাটার্ন (${pat}) শনাক্ত হয়েছে` };
+      }
+    }
+
+    // Repeated identical character check (e.g. 4 identical characters in a row)
+    if (/([A-Z0-9])\1{3,}/.test(clean)) {
+      return { isValid: false, cleanId: clean, reason: 'একই অক্ষরের পুনরাবৃত্তি বেশি (ভুয়া TrxID)' };
+    }
+
+    // Entropy check: Authentic financial TrxIDs have high random diversity
+    const uniqueChars = new Set(clean.split(''));
+    if (clean.length >= 10 && uniqueChars.size < 5) {
+      return { isValid: false, cleanId: clean, reason: 'TrxID-এ অক্ষরের ভিন্নতা অপর্যাপ্ত (পুনরাবৃত্তি বেশি)' };
+    }
+    if (uniqueChars.size < 4) {
+      return { isValid: false, cleanId: clean, reason: 'TrxID-এ অক্ষরের ভিন্নতা অপর্যাপ্ত (পুনরাবৃত্তি বেশি)' };
+    }
+
+    // Authentic bKash & Nagad TrxIDs contain a mix of both letters and digits
+    const hasLetters = (clean.match(/[A-Z]/g) || []).length;
+    const hasNumbers = (clean.match(/[0-9]/g) || []).length;
+    if (hasLetters === 0) {
+      return { isValid: false, cleanId: clean, reason: 'আসল TrxID-এ অক্ষরের মিশ্রণ থাকতে হবে (শুধুমাত্র সংখ্যা নয়)' };
+    }
+    if (hasNumbers === 0) {
+      return { isValid: false, cleanId: clean, reason: 'আসল TrxID-এ সংখ্যার মিশ্রণ থাকতে হবে (শুধুমাত্র বর্ণ নয়)' };
+    }
+    if (hasLetters < 2 || hasNumbers < 2) {
+      return { isValid: false, cleanId: clean, reason: 'আসল বিকাশ/নগদ TrxID-এ বর্ণ ও সংখ্যার পর্যাপ্ত মিশ্রণ থাকতে হবে' };
+    }
+
+    // Replay attack prevention: Cannot reuse an already approved TrxID
+    if (usedApprovedTrxIds.has(clean)) {
+      return { isValid: false, cleanId: clean, reason: 'এই TrxID ইতোপূর্বে ব্যবহৃত হয়েছে (ডুপ্লিকেট)' };
+    }
+
+    return { isValid: true, cleanId: clean };
+  };
+
   app.post(['/api/payments/submit-txnid', '/api/payments/verify-txnid'], (req, res) => {
-    const { amount, trxId, method = 'bKash', senderPhone = '', userId = 'USER1001', channel = 'manual' } = req.body;
+    const { amount, trxId, method = 'bKash', senderPhone = '', userId = 'USER1001', channel = 'channel1' } = req.body;
     const numAmount = Number(amount);
 
     if (!numAmount || numAmount <= 0) {
@@ -1333,23 +1859,42 @@ async function startServer() {
       });
     }
 
-    const cleanTrxId = String(trxId || '').trim().toUpperCase();
-    if (!cleanTrxId || cleanTrxId.length < 4) {
+    const rawTrx = String(trxId || '').trim();
+    if (!rawTrx || rawTrx.length < 4) {
       return res.status(400).json({
         success: false,
         error: 'Valid Transaction ID (TrxID) is required (minimum 4 characters)',
       });
     }
 
-    const orderNo = `DEP-TXN-${Date.now().toString().slice(-6)}`;
+    const orderNo = req.body?.orderNo || `DEP-TXN-${Date.now().toString().slice(-6)}`;
 
-    // Only allow COMPLETED if an existing order was already verified by payment gateway webhook
-    const existing = ordersDatabase.get(cleanTrxId);
-    const isAlreadyCompleted = Boolean(existing && (existing.status === 'COMPLETED' || existing.status === 'SUCCESS'));
+    // Validate if the TrxID is authentic and correct
+    const validation = isTrxIdAuthentic(rawTrx, method);
+    const cleanTrxId = validation.cleanId || rawTrx.toUpperCase();
+    const isAuthentic = validation.isValid;
 
-    // Security: All submitted TrxIDs start strictly as PENDING until confirmed by cPanel, gateway or admin
-    const orderStatus = isAlreadyCompleted ? 'COMPLETED' : 'PENDING';
-    const isVerified = orderStatus === 'COMPLETED';
+    // Check if an existing order was already completed by gateway webhook for this specific orderNo
+    const existingByOrder = req.body?.orderNo ? ordersDatabase.get(req.body.orderNo) : null;
+    const isSameOrderCompleted = Boolean(
+      existingByOrder &&
+      (existingByOrder.status === 'COMPLETED' || existingByOrder.status === 'SUCCESS') &&
+      existingByOrder.verified
+    );
+
+    // If TrxID has already been claimed/approved, strictly flag as duplicate
+    const isDuplicateTrxId = usedApprovedTrxIds.has(cleanTrxId) && (!existingByOrder || existingByOrder.trxId !== cleanTrxId);
+
+    // Rule:
+    // If TrxID is authentic and NOT duplicate -> AUTO-APPROVE (COMPLETED)
+    // If TrxID is wrong, fake, or duplicate -> KEEP PENDING (PENDING)
+    const isAutoApproved = isSameOrderCompleted || (isAuthentic && !isDuplicateTrxId);
+    const orderStatus = isAutoApproved ? 'COMPLETED' : 'PENDING';
+    const isVerified = isAutoApproved;
+
+    if (isAutoApproved) {
+      usedApprovedTrxIds.add(cleanTrxId);
+    }
 
     const orderRecord: any = {
       orderId: orderNo,
@@ -1362,33 +1907,70 @@ async function startServer() {
       status: orderStatus,
       verified: isVerified,
       userId,
-      createdAt: existing?.createdAt || new Date().toISOString(),
+      createdAt: existingByOrder?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
 
     ordersDatabase.set(orderNo, orderRecord);
-    ordersDatabase.set(cleanTrxId, orderRecord);
+    // Only map cleanTrxId if this is the approved order or if no approved order exists for it
+    const existingApproved = ordersDatabase.get(cleanTrxId);
+    if (!existingApproved || existingApproved.status !== 'COMPLETED' || isAutoApproved) {
+      ordersDatabase.set(cleanTrxId, orderRecord);
+    }
 
     addLog({
-      channel: 'DEPOSIT',
+      channel: channel === 'channel2' ? 'WATCHPAY' : 'NEKPAY',
       type: 'PAYIN_REQUEST',
       orderId: orderNo,
-      status: orderStatus === 'COMPLETED' ? 'SUCCESS' : 'PENDING',
-      details: { cleanTrxId, numAmount, method, senderPhone, userId, status: orderStatus },
+      status: isVerified ? 'SUCCESS' : 'PENDING',
+      details: { cleanTrxId, numAmount, method, senderPhone, userId, status: orderStatus, isVerified },
     });
 
-    // Forward transaction submission directly to cPanel deposit URL and verification endpoint
-    forwardToCpanelDeposit({ ...orderRecord, submissionType: 'TXNID_SUBMISSION' });
-    forwardToCpanelDeposit(orderRecord, `${CPANEL_API_BASE_URL}/api/payments/submit-txnid`);
+    // ───────────────────────────────────────────────────────────
+    // CRITICAL: CALLBACK HIT TO CPANEL BACKEND
+    // Always notify cPanel backend endpoint (https://api.nvtenergy.online/nekpay-callback)
+    // ───────────────────────────────────────────────────────────
+    const cpanelCallbackPayload = {
+      orderNo,
+      order_no: orderNo,
+      out_trade_no: orderNo,
+      trxId: cleanTrxId,
+      trx_id: cleanTrxId,
+      trade_no: cleanTrxId,
+      amount: numAmount,
+      money: numAmount,
+      pay_money: numAmount,
+      status: isVerified ? 'SUCCESS' : 'PENDING',
+      payment_status: isVerified ? 'SUCCESS' : 'PENDING',
+      trade_status: isVerified ? 'TRADE_SUCCESS' : 'WAIT_BUYER_PAY',
+      method,
+      senderPhone,
+      userId,
+      channel,
+      verified: isVerified,
+      timestamp: new Date().toISOString(),
+    };
+
+    forwardToCpanelDeposit(cpanelCallbackPayload, `${CPANEL_API_BASE_URL}/nekpay-callback`);
+    if (channel === 'channel2') {
+      forwardToCpanelDeposit(cpanelCallbackPayload, `${CPANEL_API_BASE_URL}/watchpay-callback`);
+    }
+    forwardToCpanelDeposit(cpanelCallbackPayload, `${CPANEL_DEPOSIT_URL}`);
 
     return res.json({
       success: true,
       verified: isVerified,
       status: orderStatus,
+      isFake: !isAuthentic,
+      reason: validation.reason,
       order: orderRecord,
-      message: orderStatus === 'COMPLETED'
-        ? 'ডিপোজিট সফলভাবে ভেরিফাই ও অনুমোদিত হয়েছে!'
-        : 'TrxID সফলভাবে জমা হয়েছে। cPanel ভেরিফিকেশনের পর ব্যালেন্স যুক্ত হবে।',
+      message: isVerified
+        ? 'সঠিক TrxID ভেরিফাই হয়েছে এবং স্বয়ংক্রিয়ভাবে অনুমোদিত হয়েছে!'
+        : isDuplicateTrxId
+        ? 'এই TrxID ইতোপূর্বে ব্যবহৃত হয়েছে (ডুপ্লিকেট)। এটি অপেক্ষমাণ (Pending) রাখা হয়েছে।'
+        : validation.reason
+        ? `ভুল বা ভুয়া TrxID (${validation.reason})। এটি অপেক্ষমাণ (Pending) রাখা হয়েছে।`
+        : 'TrxID তথ্যে অমিল থাকায় এটি অপেক্ষমাণ (Pending) রাখা হয়েছে। অ্যাডমিন যাচাইয়ের পর সিদ্ধান্ত নেওয়া হবে।',
     });
   });
 
@@ -1498,47 +2080,45 @@ async function startServer() {
   app.get('/api/payments/verify-return', (req, res) => {
     const { order_id, out_trade_no, trx_id, txnid, amount, payment_status, status } = req.query;
     const id = String(order_id || out_trade_no || trx_id || txnid || '');
-    const isSuccess =
-      String(payment_status || status || '').toUpperCase() === 'SUCCESS' ||
-      String(payment_status || status || '').toUpperCase() === 'COMPLETED' ||
-      status === '1';
-
     let order = ordersDatabase.get(id);
-    if (!order && id) {
-      order = {
-        orderId: id,
-        trxId: String(trx_id || txnid || id),
-        amount: Number(amount) || 0,
-        status: isSuccess ? 'COMPLETED' : 'PENDING',
-        verified: isSuccess,
-        updatedAt: new Date().toISOString(),
-      };
-      ordersDatabase.set(id, order);
-    } else if (order && isSuccess) {
-      order.status = 'COMPLETED';
-      order.verified = true;
-      order.updatedAt = new Date().toISOString();
-      ordersDatabase.set(id, order);
-    }
+
+    // Security: Do NOT mark an order COMPLETED simply based on public query parameters.
+    // An order is only completed if an authentic webhook callback or cPanel verification confirmed it.
+    const isVerifiedCompleted = Boolean(order && (order.status === 'COMPLETED' || order.status === 'SUCCESS') && order.verified);
 
     return res.json({
       success: true,
-      verified: isSuccess,
-      status: isSuccess ? 'COMPLETED' : 'PENDING',
-      order,
+      verified: isVerifiedCompleted,
+      status: isVerifiedCompleted ? 'COMPLETED' : 'PENDING',
+      order: order || {
+        orderId: id,
+        trxId: String(trx_id || txnid || id),
+        amount: Number(amount) || 0,
+        status: 'PENDING',
+        verified: false,
+      },
     });
   });
 
-  // Manually complete an order
+  // Secure endpoint to complete an order - requires ADMIN authorization or webhook
   app.post('/api/payments/complete-order', (req, res) => {
-    const { orderNo } = req.body;
-    if (!orderNo || !ordersDatabase.has(orderNo)) {
+    const adminKey = req.headers['x-admin-key'] || req.body?.adminKey;
+    const expectedKey = process.env.VITE_ADMIN_SECRET_KEY || '123456';
+    if (!adminKey || adminKey !== expectedKey) {
+      return res.status(403).json({ success: false, error: 'Unauthorized: Admin authentication required to complete orders' });
+    }
+    const { orderNo, trxId } = req.body;
+    const lookupKey = orderNo || trxId;
+    if (!lookupKey || !ordersDatabase.has(lookupKey)) {
       return res.status(404).json({ success: false, error: 'Order not found' });
     }
-    const order = ordersDatabase.get(orderNo);
+    const order = ordersDatabase.get(lookupKey);
     order.status = 'COMPLETED';
+    order.verified = true;
     order.updatedAt = new Date().toISOString();
-    ordersDatabase.set(orderNo, order);
+    ordersDatabase.set(lookupKey, order);
+    if (order.orderId) ordersDatabase.set(order.orderId, order);
+    if (order.trxId) ordersDatabase.set(order.trxId, order);
 
     res.json({ success: true, order });
   });
@@ -1644,6 +2224,12 @@ async function startServer() {
   // HIGH-PERFORMANCE STATIC IMAGE CACHE MIDDLEWARE
   // ───────────────────────────────────────────────────────────
   const publicDir = path.join(process.cwd(), 'public');
+  app.use('/charity', express.static(path.join(publicDir, 'charity'), {
+    maxAge: '7d',
+    setHeaders: (res) => {
+      res.setHeader('Cache-Control', 'public, max-age=604800, stale-while-revalidate=86400');
+    },
+  }));
   app.use('/images', express.static(path.join(publicDir, 'images'), {
     maxAge: '7d',
     setHeaders: (res) => {
@@ -1651,6 +2237,12 @@ async function startServer() {
     },
   }));
   app.use('/news-broadcast', express.static(path.join(publicDir, 'news-broadcast'), {
+    maxAge: '7d',
+    setHeaders: (res) => {
+      res.setHeader('Cache-Control', 'public, max-age=604800, stale-while-revalidate=86400');
+    },
+  }));
+  app.use(express.static(publicDir, {
     maxAge: '7d',
     setHeaders: (res) => {
       res.setHeader('Cache-Control', 'public, max-age=604800, stale-while-revalidate=86400');

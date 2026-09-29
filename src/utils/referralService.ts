@@ -683,9 +683,18 @@ export function getReferralTreeForUser(
   let yesterdayEarnings = 0;
 
   const now = new Date();
-  const todayStr = now.toISOString().split('T')[0];
-  const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-  const yesterdayStr = yesterday.toISOString().split('T')[0];
+  const getDayKey = (d: Date) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
+  const todayLocal = getDayKey(now);
+  const todayIso = now.toISOString().split('T')[0];
+
+  const yDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const yesterdayLocal = getDayKey(yDate);
+  const yesterdayIso = yDate.toISOString().split('T')[0];
 
   // Sum earnings from real commission logs if available
   if (myLogs.length > 0) {
@@ -695,23 +704,53 @@ export function getReferralTreeForUser(
       else if (log.level === 2) l2Earnings += amt;
       else if (log.level === 3) l3Earnings += amt;
 
-      const logDate = log.timestamp ? log.timestamp.split('T')[0] : '';
-      if (logDate === todayStr) {
+      const logIsoDate = log.timestamp ? log.timestamp.split('T')[0] : '';
+      let logLocalDate = '';
+      try {
+        if (log.timestamp) logLocalDate = getDayKey(new Date(log.timestamp));
+      } catch {}
+
+      const isToday = logIsoDate === todayIso || logLocalDate === todayLocal;
+      const isYesterday = !isToday && (logIsoDate === yesterdayIso || logLocalDate === yesterdayLocal);
+
+      if (isToday) {
         todayEarnings += amt;
-      } else if (logDate === yesterdayStr) {
+      } else if (isYesterday) {
         yesterdayEarnings += amt;
       }
     });
   } else {
     // If no logs yet, calculate based on current active investment rates
+    const checkDateReward = (acc: any, rate: number) => {
+      const comm = Number(acc.investAmount || 0) * rate;
+      if (comm <= 0) return 0;
+      let accLocalDate = '';
+      let accIsoDate = '';
+      try {
+        if (acc.joinedAt) {
+          const d = new Date(acc.joinedAt);
+          accLocalDate = getDayKey(d);
+          accIsoDate = d.toISOString().split('T')[0];
+        }
+      } catch {}
+      if (accLocalDate === todayLocal || accIsoDate === todayIso) {
+        todayEarnings += comm;
+      } else if (accLocalDate === yesterdayLocal || accIsoDate === yesterdayIso) {
+        yesterdayEarnings += comm;
+      } else if (!acc.joinedAt) {
+        todayEarnings += comm;
+      }
+      return comm;
+    };
+
     l1Accounts.forEach((acc) => {
-      l1Earnings += Number(acc.investAmount || 0) * TIER_COMMISSION_RATES[1];
+      l1Earnings += checkDateReward(acc, TIER_COMMISSION_RATES[1]);
     });
     l2Accounts.forEach((acc) => {
-      l2Earnings += Number(acc.investAmount || 0) * TIER_COMMISSION_RATES[2];
+      l2Earnings += checkDateReward(acc, TIER_COMMISSION_RATES[2]);
     });
     l3Accounts.forEach((acc) => {
-      l3Earnings += Number(acc.investAmount || 0) * TIER_COMMISSION_RATES[3];
+      l3Earnings += checkDateReward(acc, TIER_COMMISSION_RATES[3]);
     });
   }
 
@@ -891,6 +930,40 @@ export async function distributeReferralDepositCommissionsCloud(
         });
 
         console.log(`[ReferralService Cloud] Level ${level} (${rate * 100}%): Credited ৳${commission} to ${uplineUser.username || uplineCode}`);
+
+        // Record log locally and in Firestore for accurate today/yesterday stats
+        const commId = `COMM-CLOUD-${Date.now()}-L${level}-${Math.random().toString(36).slice(-4)}`;
+        const nowIso = new Date().toISOString();
+
+        if (typeof window !== 'undefined') {
+          try {
+            const rawLogs = localStorage.getItem(STORAGE_KEY_COMMISSION_LOGS);
+            const logs = rawLogs ? JSON.parse(rawLogs) : [];
+            logs.unshift({
+              id: commId,
+              recipientCode: uplineCode,
+              sourceUserCode: currentChildCode,
+              level: level as 1 | 2 | 3,
+              rate,
+              depositAmount,
+              commissionAmount: commission,
+              timestamp: nowIso,
+            });
+            if (logs.length > 200) logs.length = 200;
+            localStorage.setItem(STORAGE_KEY_COMMISSION_LOGS, JSON.stringify(logs));
+          } catch (_) {}
+        }
+
+        recordCommissionInFirestore({
+          id: commId,
+          recipientCode: uplineCode,
+          sourceUserCode: currentChildCode,
+          level,
+          rate,
+          depositAmount,
+          commissionAmount: commission,
+          timestamp: nowIso,
+        }).catch(() => {});
 
         // Update local rewards if upline is currently logged in or on this device
         if (typeof window !== 'undefined') {
@@ -1368,6 +1441,34 @@ export function clearTestReferralMembers(rootCode?: string, rootMemberId?: strin
   } catch (err) {
     console.warn('[ReferralService] clearTestReferralMembers error:', err);
   }
+}
+
+/**
+ * VIP level calculation from Promo Bonus conditions:
+ * Active members across 3-tier team network:
+ * - 3 active members in 3 levels: VIP 1
+ * - 5 active members in 3 levels: VIP 2
+ * - 10 active members in 3 levels: VIP 3
+ * - 20 active members in 3 levels: VIP 4
+ * - 40 active members in 3 levels: VIP 5
+ * - 80 active members in 3 levels: VIP 6
+ * - 160 active members in 3 levels: VIP 7
+ * - 320 active members in 3 levels: VIP 8
+ */
+export function computeVipLevelFromLevels(totalActiveIn3Levels: number, baseVipLevel: number = 0): number {
+  const activeCount = Math.max(0, Number(totalActiveIn3Levels) || 0);
+  let earnedLevel = 0;
+  if (activeCount >= 320) earnedLevel = 8;
+  else if (activeCount >= 160) earnedLevel = 7;
+  else if (activeCount >= 80) earnedLevel = 6;
+  else if (activeCount >= 40) earnedLevel = 5;
+  else if (activeCount >= 20) earnedLevel = 4;
+  else if (activeCount >= 10) earnedLevel = 3;
+  else if (activeCount >= 5) earnedLevel = 2;
+  else if (activeCount >= 3) earnedLevel = 1;
+  else earnedLevel = 0;
+
+  return Math.max(earnedLevel, Number(baseVipLevel) || 0);
 }
 
 // Auto-sync global referral network from Firestore & clean any old test simulations

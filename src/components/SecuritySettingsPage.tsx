@@ -18,6 +18,7 @@ import { Language } from '../types';
 interface SecuritySettingsPageProps {
   currentLang?: Language;
   userPhone?: string;
+  userEmail?: string;
   onClose: () => void;
   showToast?: (message: string) => void;
   onOpen2FA?: () => void;
@@ -26,7 +27,8 @@ interface SecuritySettingsPageProps {
 
 export const SecuritySettingsPage: React.FC<SecuritySettingsPageProps> = ({
   currentLang = 'en',
-  userPhone = '+880 1712-345678',
+  userPhone,
+  userEmail,
   onClose,
   showToast,
   onOpen2FA,
@@ -233,7 +235,9 @@ export const SecuritySettingsPage: React.FC<SecuritySettingsPageProps> = ({
                   </span>
                 </div>
                 <p className="text-xs text-slate-300 mt-0.5 font-mono">
-                  {userPhone ? `${isBn ? 'সংযুক্ত ফোন' : 'Linked Phone'}: ${userPhone}` : 'ID Protected'}
+                  {userEmail
+                    ? `${isBn ? 'সংযুক্ত ইমেইল' : 'Linked Email'}: ${userEmail}`
+                    : (userPhone ? `${isBn ? 'সংযুক্ত অ্যাকাউন্ট' : 'Linked Account'}: ${userPhone}` : 'ID Protected')}
                 </p>
               </div>
             </div>

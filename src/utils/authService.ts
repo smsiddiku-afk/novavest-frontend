@@ -278,6 +278,15 @@ export const persistAuthUser = (user: UserProfile): void => {
       console.warn('[AuthService] Background Firestore sync failed:', err);
     });
   }
+
+  // 6. Persistent server backup
+  try {
+    fetch('/api/auth/backup-user', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: serialized,
+    }).catch(() => {});
+  } catch {}
 };
 
 /**
@@ -355,7 +364,20 @@ if (typeof window !== 'undefined') {
   onFirebaseAuthChanged(auth, async (firebaseUser: FirebaseUser | null) => {
     if (firebaseUser) {
       try {
-        const firestoreProfile = await getFirestoreUserProfile(firebaseUser.uid);
+        let firestoreProfile: UserProfile | null = null;
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            firestoreProfile = await Promise.race([
+              getFirestoreUserProfile(firebaseUser.uid),
+              new Promise<null>((res) => setTimeout(() => res(null), 3000)),
+            ]);
+            if (firestoreProfile) break;
+          } catch (_) {}
+          if (attempt === 0 && !firestoreProfile) {
+            await new Promise((r) => setTimeout(r, 500));
+          }
+        }
+
         if (firestoreProfile) {
           const mergedUser: UserProfile = {
             ...firestoreProfile,
@@ -365,17 +387,65 @@ if (typeof window !== 'undefined') {
             persistAuthUser(mergedUser);
           }
           attachFirestoreListener(firebaseUser.uid);
-        } else {
-          // If firestoreProfile is null, the user account has been deleted by an administrator or does not exist.
-          // NEVER resurrect or re-create user here. Immediately sign out and clear session!
-          console.warn('[AuthService] User profile not found in Firestore. Account may have been removed. Signing out.');
-          try {
-            await signOut(auth);
-          } catch (_) {}
-          clearPersistedAuthUser();
+          return;
         }
+
+        // If firestoreProfile returned null or timed out, NEVER wipe the user session!
+        // 1. Check local session
+        const localUser = inMemoryAuthUser || getPersistedAuthUser();
+        if (
+          localUser &&
+          (localUser.uid === firebaseUser.uid ||
+            (firebaseUser.email && localUser.email?.toLowerCase() === firebaseUser.email.toLowerCase()))
+        ) {
+          console.log('[AuthService] Preserving local user session during site reload/reconnect:', localUser.uid);
+          updateFirestoreUserProfile(localUser.uid || firebaseUser.uid, localUser).catch(() => {});
+          persistAuthUser(localUser);
+          attachFirestoreListener(localUser.uid || firebaseUser.uid);
+          return;
+        }
+
+        // 2. Check server backup
+        try {
+          const srvRes = await fetch(
+            `/api/auth/get-user-profile?uid=${encodeURIComponent(firebaseUser.uid)}&email=${encodeURIComponent(
+              firebaseUser.email || ''
+            )}`
+          );
+          if (srvRes.ok) {
+            const srvData = await srvRes.json();
+            if (srvData && srvData.found && srvData.user) {
+              console.log('[AuthService] Restored user from server backup:', srvData.user.email);
+              const restored: UserProfile = { ...srvData.user, uid: firebaseUser.uid };
+              persistAuthUser(restored);
+              updateFirestoreUserProfile(firebaseUser.uid, restored).catch(() => {});
+              attachFirestoreListener(firebaseUser.uid);
+              return;
+            }
+          }
+        } catch (_) {}
+
+        // 3. Synthesize fallback profile from authenticated firebase user rather than kicking out
+        const fallbackName =
+          firebaseUser.displayName || (firebaseUser.email ? firebaseUser.email.split('@')[0] : 'NVT Member');
+        const fallbackMemberId = `NVT${Math.floor(100000 + Math.random() * 900000)}`;
+        const fallbackProfile: UserProfile = {
+          uid: firebaseUser.uid,
+          name: fallbackName,
+          email: firebaseUser.email || '',
+          phone: firebaseUser.phoneNumber || '',
+          memberId: fallbackMemberId,
+          referralCode: fallbackMemberId.replace(/[^A-Z0-9]/gi, '').slice(-6).toUpperCase(),
+          walletBalance: 0.0,
+          memberSince: new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+          isVerified: true,
+          transactions: [],
+        };
+        persistAuthUser(fallbackProfile);
+        updateFirestoreUserProfile(firebaseUser.uid, fallbackProfile).catch(() => {});
+        attachFirestoreListener(firebaseUser.uid);
       } catch (err) {
-        console.warn('[AuthService] Error restoring user from Firestore:', err);
+        console.warn('[AuthService] Error in onFirebaseAuthChanged handler:', err);
       }
     } else {
       if (activeFirestoreUnsubscribe) {
@@ -593,18 +663,21 @@ export const signInWithFirebase = async (
     let lastAuthErr: any = null;
     let successfulEmail = uniqueCandidates[0] || '';
 
-    // Iteratively attempt login across candidates
+    // Iteratively attempt login across candidates and password variants
     for (const candEmail of uniqueCandidates) {
-      try {
-        cred = await signInWithEmailAndPassword(auth, candEmail, pass);
-        successfulEmail = candEmail;
-        break;
-      } catch (err: any) {
-        lastAuthErr = err;
-        if (err?.code === 'auth/network-request-failed') {
-          throw err;
+      for (const p of passwordsToTry) {
+        try {
+          cred = await signInWithEmailAndPassword(auth, candEmail, p);
+          successfulEmail = candEmail;
+          break;
+        } catch (err: any) {
+          lastAuthErr = err;
+          if (err?.code === 'auth/network-request-failed') {
+            throw err;
+          }
         }
       }
+      if (cred) break;
     }
 
     if (!cred) {
@@ -644,31 +717,75 @@ export const signInWithFirebase = async (
       throw lastAuthErr;
     }
 
-    // Fast Firestore profile retrieval (max 1.5s)
+    // Firestore profile retrieval with retry & multi-tier fallbacks
     let firestoreUser: UserProfile | null = null;
-    try {
-      firestoreUser = await Promise.race([
-        getFirestoreUserProfile(cred.user.uid),
-        new Promise<null>((res) => setTimeout(() => res(null), 1500)),
-      ]);
-    } catch {
-      // fallback
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        firestoreUser = await Promise.race([
+          getFirestoreUserProfile(cred.user.uid),
+          new Promise<null>((res) => setTimeout(() => res(null), 3500)),
+        ]);
+        if (firestoreUser) break;
+      } catch (_) {}
+      if (attempt === 0 && !firestoreUser) {
+        await new Promise((r) => setTimeout(r, 400));
+      }
     }
 
+    // Fallback 1: Local storage user
     if (!firestoreUser) {
-      // Check if user was permanently deleted by admin
-      console.warn('[AuthService] Attempted login to non-existent or deleted account:', cred.user.uid);
+      const local = inMemoryAuthUser || getPersistedAuthUser();
+      if (
+        local &&
+        (local.uid === cred.user.uid ||
+          (cred.user.email && local.email?.toLowerCase() === cred.user.email.toLowerCase()))
+      ) {
+        firestoreUser = local;
+      }
+    }
+
+    // Fallback 2: Server backup
+    if (!firestoreUser) {
       try {
-        await signOut(auth);
+        const srvRes = await fetch(
+          `/api/auth/get-user-profile?uid=${encodeURIComponent(cred.user.uid)}&email=${encodeURIComponent(
+            cred.user.email || ''
+          )}`
+        );
+        if (srvRes.ok) {
+          const srvData = await srvRes.json();
+          if (srvData && srvData.found && srvData.user) {
+            firestoreUser = { ...srvData.user, uid: cred.user.uid };
+          }
+        }
       } catch (_) {}
-      clearPersistedAuthUser();
-      return {
-        success: false,
-        error:
-          lang === 'bn'
-            ? 'এই অ্যাকাউন্টটি ডাটাবেজে পাওয়া যায়নি বা অ্যাডমিন কর্তৃক মুছে ফেলা হয়েছে।'
-            : 'This account was not found or has been removed by the administrator.',
+    }
+
+    // Fallback 3: Synthesize fresh profile so verified user is NEVER locked out
+    if (!firestoreUser) {
+      const genMemberId = `NVT${Math.floor(100000 + Math.random() * 900000)}`;
+      const derivedName = cred.user.displayName || (cred.user.email ? cred.user.email.split('@')[0] : 'NVT Member');
+      firestoreUser = {
+        uid: cred.user.uid,
+        name: derivedName,
+        email: cred.user.email || successfulEmail || '',
+        phone: cred.user.phoneNumber || (rawInput.match(/^\+?[0-9]{8,15}$/) ? rawInput : ''),
+        memberId: genMemberId,
+        referralCode: genMemberId.replace(/[^A-Z0-9]/gi, '').slice(-6).toUpperCase(),
+        walletBalance: 0.0,
+        memberSince: new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+        isVerified: true,
+        transactions: [],
       };
+      // Save it to firestore in background so profile heals permanently
+      createFirestoreUserProfile(cred.user.uid, {
+        name: firestoreUser.name || 'NVT Member',
+        phone: firestoreUser.phone || '',
+        email: firestoreUser.email || successfulEmail || '',
+        memberId: firestoreUser.memberId,
+        referralCode: firestoreUser.referralCode,
+        walletBalance: firestoreUser.walletBalance || 0.0,
+      }).catch(() => {});
     }
 
     const user: UserProfile = {
@@ -719,7 +836,8 @@ export const registerWithFirebase = async (
   },
   lang: 'bn' | 'en' = 'bn'
 ): Promise<{ success: boolean; user?: UserProfile; error?: string }> => {
-  let finalEmail = data.email?.trim();
+  let finalEmail = data.email?.trim().toLowerCase();
+  const cleanPassword = data.password.trim();
   const digits = normalizePhone(data.phone);
   const last10 = digits.slice(-10);
 
@@ -749,13 +867,17 @@ export const registerWithFirebase = async (
     // 1. Create Firebase Auth user
     let cred: any;
     try {
-      cred = await createUserWithEmailAndPassword(auth, finalEmail, data.password);
+      cred = await createUserWithEmailAndPassword(auth, finalEmail, cleanPassword);
     } catch (authErr: any) {
       if (authErr?.code === 'auth/email-already-in-use') {
         try {
-          cred = await signInWithEmailAndPassword(auth, finalEmail, data.password);
+          cred = await signInWithEmailAndPassword(auth, finalEmail, cleanPassword);
         } catch {
-          throw authErr;
+          throw new Error(
+            lang === 'bn'
+              ? 'এই ইমেইলটি ইতিমধ্যে নিবন্ধিত রয়েছে। অনুগ্রহ করে সাইন ইন করুন অথবা পাসওয়ার্ড রিসেট করুন।'
+              : 'This email is already registered. Please sign in or reset your password.'
+          );
         }
       } else {
         throw authErr;
@@ -777,6 +899,11 @@ export const registerWithFirebase = async (
       walletBalance: 0.0,
       memberSince: new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
       isVerified: true,
+      vipLevel: 0,
+      canRefer: false,
+      referralLimit: 0,
+      activeInvestments: [],
+      totalInvested: 0,
       transactions: [],
     };
 

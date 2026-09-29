@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { scrollAppToTop } from '../utils/scrollHelper';
-import { getLivePackages } from '../utils/packageService';
+import { getLivePackages, getPlanDailyReturnBdt } from '../utils/packageService';
 import {
   Sun,
   Wind,
@@ -45,6 +45,7 @@ export interface InvestmentPlan {
   minInvestmentUsd: number;
   minInvestmentBdt: number;
   durationDays: number;
+  dailyReturnBdt?: number;
   dailyReturnPercent: number;
   totalReturnPercent: number;
   maxPurchaseLimit?: number; // e.g. 2 for first 2 packages
@@ -103,7 +104,7 @@ export const INVESTMENT_PLANS: InvestmentPlan[] = [
     nameBn: 'প্রিমিয়াম প্ল্যান',
     taglineEn: 'Long Term Growth | Sustainable',
     taglineBn: 'দীর্ঘমেয়াদী প্রবৃদ্ধি | টেকসই শক্তি',
-    image: 'https://images.unsplash.com/photo-1574943320219-553eb213f72d?auto=format&fit=crop&w=800&q=80',
+    image: '/images/hydro-plant.jpg',
     minInvestmentUsd: 100,
     minInvestmentBdt: 12000,
     durationDays: 60,
@@ -291,7 +292,16 @@ export const InvestTabContent: React.FC<InvestTabContentProps> = ({
   const handleOpenInvest = (plan: InvestmentPlan) => {
     setInsufficientError(null);
 
-    // Rule 1: Check VIP Lock if required
+    // Rule 1: VIP 1 is strictly required for all packages larger than Basic Plan (1200 BDT)
+    const isLargerPackage = plan.minInvestmentBdt > 1200 || plan.requiredVipLevel >= 1;
+    if (isLargerPackage && userVipLevel < 1) {
+      setVipLockModal({
+        ...plan,
+        requiredVipLevel: 1,
+      });
+      return;
+    }
+
     if (plan.requiredVipLevel > 0 && userVipLevel < plan.requiredVipLevel) {
       setVipLockModal(plan);
       return;
@@ -589,6 +599,8 @@ export const InvestTabContent: React.FC<InvestTabContentProps> = ({
           const purchasedCount = getPurchasedCount(plan);
           const isLimitExceeded = plan.maxPurchaseLimit !== undefined && purchasedCount >= plan.maxPurchaseLimit;
           const isVipLocked = plan.requiredVipLevel > 0 && userVipLevel < plan.requiredVipLevel;
+          const dailyBdt = getPlanDailyReturnBdt(plan);
+          const totalReturnBdt = dailyBdt * (Number(plan.durationDays) || 30);
 
           return (
             <div
@@ -703,28 +715,28 @@ export const InvestTabContent: React.FC<InvestTabContentProps> = ({
                       </span>
                     </div>
 
-                    {/* Daily Return */}
+                    {/* Daily Return in Taka (e.g. 24৳) */}
                     <div className="flex items-center justify-between">
                       <span className="text-slate-300/80 flex items-center gap-1.5 font-medium">
                         <TrendingUp className="w-3.5 h-3.5 text-[#00e676]" />
                         <span>{isBn ? 'দৈনিক লাভ' : 'Daily Return'}</span>
                       </span>
-                      <span className="font-extrabold text-[#00e676] font-mono">
-                        {plan.dailyReturnPercent}%
+                      <span className="font-extrabold text-[#00e676] font-mono text-base">
+                        {dailyBdt}৳
                       </span>
                     </div>
                   </div>
                 </div>
 
-                {/* Right side: Total Return + Invest Button */}
+                {/* Right side: Total Profit + Invest Button */}
                 <div className="flex sm:flex-col items-center justify-between sm:justify-center sm:items-end gap-2.5 sm:gap-2 pt-2 sm:pt-0 border-t sm:border-t-0 border-emerald-500/20 shrink-0 min-w-[120px]">
                   <div className="text-left sm:text-right relative">
                     <span className="text-[11px] text-slate-300/80 block font-medium">
-                      {isBn ? 'মোট রিটার্ন' : 'Total Return'}
+                      {isBn ? 'মোট লাভ' : 'Total Profit'}
                     </span>
                     <div className="flex items-center gap-1">
                       <span className="text-2xl sm:text-3xl font-black text-[#00e676] font-mono tracking-tight">
-                        {plan.totalReturnPercent}%
+                        {totalReturnBdt.toLocaleString()}৳
                       </span>
                       <span className="text-sm opacity-70">🌿</span>
                     </div>
@@ -802,9 +814,9 @@ export const InvestTabContent: React.FC<InvestTabContentProps> = ({
                 </span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-slate-300">{isBn ? 'দৈনিক লাভ' : 'Daily Yield'} ({activeInvestModal.dailyReturnPercent}%):</span>
-                <span className="text-[#00e676] font-mono font-bold">
-                  +৳{((activeInvestModal.minInvestmentBdt * activeInvestModal.dailyReturnPercent) / 100).toFixed(2)} / দিন
+                <span className="text-slate-300">{isBn ? 'দৈনিক লাভ' : 'Daily Yield'}:</span>
+                <span className="text-[#00e676] font-mono font-bold text-sm">
+                  +{getPlanDailyReturnBdt(activeInvestModal)}৳ / {isBn ? 'দিন' : 'Day'}
                 </span>
               </div>
               <div className="flex items-center justify-between">
@@ -816,7 +828,7 @@ export const InvestTabContent: React.FC<InvestTabContentProps> = ({
               <div className="flex items-center justify-between border-t border-emerald-500/20 pt-2">
                 <span className="text-slate-200 font-bold">{isBn ? 'মোট লাভ' : 'Total Profit'}:</span>
                 <span className="text-[#00e676] font-mono font-black text-sm">
-                  +৳{((activeInvestModal.minInvestmentBdt * activeInvestModal.dailyReturnPercent * activeInvestModal.durationDays) / 100).toFixed(2)} ({activeInvestModal.totalReturnPercent}%)
+                  +{(getPlanDailyReturnBdt(activeInvestModal) * (Number(activeInvestModal.durationDays) || 30)).toLocaleString()}৳
                 </span>
               </div>
             </div>
@@ -896,21 +908,29 @@ export const InvestTabContent: React.FC<InvestTabContentProps> = ({
               </p>
             </div>
 
-            <div className="p-3.5 rounded-2xl bg-[#04211a] border border-amber-400/20 text-xs space-y-2 text-slate-200">
+            <div className="p-3.5 rounded-2xl bg-[#04211a] border border-amber-400/20 text-xs space-y-2.5 text-slate-200">
               <div className="flex items-start gap-2">
-                <span className="text-amber-400 font-bold">1.</span>
+                <span className="w-5 h-5 rounded-full bg-amber-500/20 border border-amber-400/40 text-amber-300 font-bold flex items-center justify-center shrink-0 text-[11px]">1</span>
                 <p>
                   {isBn
-                    ? 'ভিআইপি ১ (VIP 1) তখনি শো ও সক্রিয় হবে যখন প্রমোশন অপশন থেকে ৩ জন সদস্য লেভেলে সক্রিয় (অ্যাক্টিভ) থাকবে।'
-                    : 'VIP 1 will only unlock when at least 3 members are active in the levels from the promotion option.'}
+                    ? 'উচ্চ স্তরের প্যাকেজে বিনিয়োগ করতে আপনার অ্যাকাউন্টে প্রয়োজনীয় VIP স্তর থাকতে হবে।'
+                    : 'Investing in advanced packages requires the corresponding VIP level for your account.'}
                 </p>
               </div>
               <div className="flex items-start gap-2">
-                <span className="text-amber-400 font-bold">2.</span>
+                <span className="w-5 h-5 rounded-full bg-amber-500/20 border border-amber-400/40 text-amber-300 font-bold flex items-center justify-center shrink-0 text-[11px]">2</span>
                 <p>
                   {isBn
-                    ? 'আপনার রেফারেল লিংক শেয়ার করে অথবা ৩ লেভেল রেফার চেকার ব্যবহার করে সক্রিয় সদস্য যুক্ত করুন।'
-                    : 'Share your referral code or use the 3-level referral checker simulator to activate members.'}
+                    ? 'VIP 1 ছাড়া বড় প্যাকেজগুলো কেনা যাবে না। শুধুমাত্র বেসিক প্ল্যান (Basic Plan - ৳১,২০০) সকল নতুন ব্যবহারকারীর জন্য উন্মুক্ত।'
+                    : 'Packages larger than Basic Plan require VIP 1. Only Basic Plan (৳1,200) is open to entry-level accounts.'}
+                </p>
+              </div>
+              <div className="flex items-start gap-2">
+                <span className="w-5 h-5 rounded-full bg-amber-500/20 border border-amber-400/40 text-amber-300 font-bold flex items-center justify-center shrink-0 text-[11px]">3</span>
+                <p>
+                  {isBn
+                    ? 'আপনার ওয়ালেট ব্যালেন্স দিয়ে প্রাথমিক প্যাকেজে বিনিয়োগ করে বা পর্যায়ক্রমে উচ্চতর প্যাকেজ আনলক করুন।'
+                    : 'Invest through initial packages with your balance to progress to higher tiers.'}
                 </p>
               </div>
             </div>

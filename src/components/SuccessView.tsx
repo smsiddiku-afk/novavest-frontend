@@ -85,7 +85,7 @@ export const SuccessView: React.FC<SuccessViewProps> = ({
           onClick={onGoToLogin}
           className="w-full min-h-[48px] rounded-2xl bg-[#031c15] hover:bg-[#06241b] text-emerald-100 font-semibold flex items-center justify-center gap-2 border border-emerald-500/30 transition-all cursor-pointer active:scale-98 text-sm"
         >
-          <span>সাইন ইন পেজে যান (Go to Sign In)</span>
+          <span>ইমেইল দিয়ে সাইন ইন করুন (Sign In with Email)</span>
           <ArrowRight className="w-4 h-4" />
         </button>
 

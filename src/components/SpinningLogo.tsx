@@ -220,19 +220,6 @@ export const SpinningLogo: React.FC<SpinningLogoProps> = ({
               Nova Terra Energy
             </span>
           </div>
-
-          <p
-            className={`${currentSize.subSize} text-amber-400 font-bold tracking-[0.14em] uppercase mt-0.5 flex items-center justify-center gap-1`}
-          >
-            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shadow-[0_0_6px_#f59e0b] animate-ping inline-block" />
-            <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-300 via-orange-400 to-cyan-300 font-bold">
-              {subtitle || (lang === 'bn' ? 'জ্বালানী, গ্যাস ও বিদ্যুৎ গ্রিড' : 'Fuel, Gas & Electric Power Grid')}
-            </span>
-          </p>
-
-          <p className="text-[9px] text-slate-400/90 font-mono tracking-wide mt-0.5">
-            {lang === 'bn' ? 'NVT অফিশিয়াল এনার্জি ইনভেস্টমেন্ট পোর্টাল' : 'NVT Official Energy & Fuel Portal'}
-          </p>
         </div>
       )}
     </div>

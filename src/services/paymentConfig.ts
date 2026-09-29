@@ -80,7 +80,7 @@ export function sanitizePaymentLink(
   const cleanOrigin = origin.replace(/\/+$/, '');
   const cleanOrderNo = orderNo || `ORD-${Date.now()}`;
   const numAmount = amount || 0;
-  const returnTarget = `${cleanOrigin}/?payment_status=SUCCESS&orderNo=${encodeURIComponent(cleanOrderNo)}&amount=${numAmount}&channel=${encodeURIComponent(channel)}&gateway=nekpay`;
+  const returnTarget = `${cleanOrigin}/?payment_status=PENDING&payment_return=1&orderNo=${encodeURIComponent(cleanOrderNo)}&amount=${numAmount}&channel=${encodeURIComponent(channel)}&gateway=nekpay`;
 
   let processed = rawLink;
 
@@ -173,7 +173,7 @@ export async function createCpanelDepositOrder(
   }).catch(() => {});
 
   const cleanOrigin = clientOrigin.replace(/\/+$/, '');
-  const returnTarget = `${cleanOrigin}/?payment_status=SUCCESS&amount=${amount}&channel=${encodeURIComponent(channel)}&gateway=nekpay`;
+  const returnTarget = `${cleanOrigin}/?payment_status=PENDING&payment_return=1&amount=${amount}&channel=${encodeURIComponent(channel)}&gateway=nekpay`;
 
   const requestBody = JSON.stringify({
     amount,
@@ -184,9 +184,14 @@ export async function createCpanelDepositOrder(
     clientOrigin,
     return_url: returnTarget,
     returnUrl: returnTarget,
-    callback_url: returnTarget,
     redirect_url: returnTarget,
     redirectUrl: returnTarget,
+    callback_url: channel === 'channel2' ? `${CPANEL_BASE_URL}/watchpay-callback` : `${CPANEL_BASE_URL}/nekpay-callback`,
+    callbackUrl: channel === 'channel2' ? `${CPANEL_BASE_URL}/watchpay-callback` : `${CPANEL_BASE_URL}/nekpay-callback`,
+    notify_url: channel === 'channel2' ? `${CPANEL_BASE_URL}/watchpay-callback` : `${CPANEL_BASE_URL}/nekpay-callback`,
+    notifyUrl: channel === 'channel2' ? `${CPANEL_BASE_URL}/watchpay-callback` : `${CPANEL_BASE_URL}/nekpay-callback`,
+    ipn_url: channel === 'channel2' ? `${CPANEL_BASE_URL}/watchpay-callback` : `${CPANEL_BASE_URL}/nekpay-callback`,
+    webhook_url: channel === 'channel2' ? `${CPANEL_BASE_URL}/watchpay-callback` : `${CPANEL_BASE_URL}/nekpay-callback`,
     success_url: returnTarget,
     cancel_url: `${cleanOrigin}/profile`,
   });

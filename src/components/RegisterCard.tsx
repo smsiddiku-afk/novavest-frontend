@@ -1,9 +1,14 @@
 import React, { useState } from 'react';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
-import { doc, setDoc } from 'firebase/firestore';
+import { doc, setDoc, query, collection, where, getDocs } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
 import { User, Mail, Lock, Phone, ArrowLeft, AlertCircle } from 'lucide-react';
 import { Language } from '../types';
+import {
+  extractPendingReferralCode,
+  registerUserInReferralNetwork,
+  clearPendingReferralCode,
+} from '../utils/referralService';
 
 interface RegisterCardProps {
   currentLang?: Language;
@@ -22,7 +27,7 @@ export const RegisterCard: React.FC<RegisterCardProps> = ({
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
-  const [referralCode, setReferralCode] = useState('');
+  const [referralCode, setReferralCode] = useState(() => extractPendingReferralCode() || '');
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
@@ -37,28 +42,90 @@ export const RegisterCard: React.FC<RegisterCardProps> = ({
       return;
     }
 
+    const inviterCode = (referralCode || extractPendingReferralCode() || '').trim().toUpperCase();
+
+    if (!inviterCode) {
+      const msg = currentLang === 'bn' ? 'রেফার কোড দেওয়া বাধ্যতামূলক। রেফার কোড ছাড়া একাউন্ট তৈরি করা সম্ভব নয়।' : 'Referral code is mandatory. Registration is not allowed without referral code.';
+      setErrorMsg(msg);
+      if (showToast) showToast(msg);
+      return;
+    }
+
     setIsLoading(true);
     try {
+      // Check manager permission for inviter if referral code is provided
+      if (inviterCode) {
+        try {
+          const usersQuery = query(collection(db, 'users'), where('referralCode', '==', inviterCode));
+          const inviterSnap = await getDocs(usersQuery);
+          if (!inviterSnap.empty) {
+            const inviterData = inviterSnap.docs[0].data();
+            if (!inviterData.canRefer) {
+              const permErr = currentLang === 'bn'
+                ? 'এই রেফারেল কোডটির ব্যবহারের অনুমতি নেই। দয়া করে ব্যবস্থাপক প্রতিনিধির সঙ্গে যোগাযোগ করুন।'
+                : 'This referral code requires manager permission. Please contact manager representative.';
+              setErrorMsg(permErr);
+              if (showToast) showToast(permErr);
+              setIsLoading(false);
+              return;
+            }
+
+            if (inviterData.referralLimit !== undefined && Number(inviterData.referralLimit) > 0) {
+              const qCount = query(collection(db, 'users'), where('referredBy', '==', inviterCode));
+              const cSnap = await getDocs(qCount);
+              if (cSnap.size >= Number(inviterData.referralLimit)) {
+                const limitErr = currentLang === 'bn'
+                  ? 'এই রেফারেল কোডের সর্বোচ্চ রেফার সীমা পূর্ণ হয়েছে। দয়া করে ব্যবস্থাপক প্রতিনিধির সঙ্গে যোগাযোগ করুন।'
+                  : 'Referral limit reached for this code. Please contact manager representative.';
+                setErrorMsg(limitErr);
+                if (showToast) showToast(limitErr);
+                setIsLoading(false);
+                return;
+              }
+            }
+          }
+        } catch (vErr: any) {
+          console.warn('[RegisterCard] Inviter check warning:', vErr);
+        }
+      }
+
       // ফায়ারবেস অথ তৈরি
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
 
-      // ইউনিক রেফারেল কোড জেনरेट
+      // ইউনিক রেফারেল কোড জেনারেট
       const generatedRefCode = 'NVT' + Math.floor(100000 + Math.random() * 900000);
 
-      // ফায়ারস্টোরে ইউজারের ডাটা সেভ
+      // ফায়ারস্টোরে ইউজারের ডাটা সেভ (বাই ডিফল্ট canRefer: false এবং referralLimit: 0 থাকবে)
       await setDoc(doc(db, 'users', user.uid), {
         uid: user.uid,
         name: name,
         email: email,
         phone: phone,
         referralCode: generatedRefCode,
-        referredBy: referralCode.trim() || '',
+        referredBy: inviterCode,
         walletBalance: 0,
         balance: 0,
         vipLevel: 0,
+        canRefer: false,
+        referralLimit: 0,
         createdAt: new Date().toISOString(),
       });
+
+      // রেজিস্টার ইন রেফারেল নেটওয়ার্ক
+      try {
+        await registerUserInReferralNetwork(
+          user.uid,
+          generatedRefCode,
+          inviterCode,
+          phone,
+          name,
+          generatedRefCode
+        );
+        clearPendingReferralCode();
+      } catch (refErr) {
+        console.warn('[RegisterCard] Referral network registration warning:', refErr);
+      }
 
       if (showToast) {
         showToast(currentLang === 'bn' ? 'রেজিস্ট্রেশন সফল হয়েছে!' : 'Registration successful!');

@@ -487,12 +487,11 @@ export const HowPowerGridWorksSection: React.FC<HowPowerGridWorksSectionProps> =
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="rounded-2xl bg-[#0c1426] border border-slate-800 overflow-hidden">
                 <img
-                  src="https://images.unsplash.com/photo-1509391365360-2e959784a276?auto=format&fit=crop&w=600&q=80"
+                  src="/images/apex-helios-solar.jpg"
                   alt="Solar Park"
                   loading="lazy"
                   decoding="async"
                   className="w-full h-36 object-cover"
-                  referrerPolicy="no-referrer"
                 />
                 <div className="p-3.5 space-y-1">
                   <span className="text-[10px] text-amber-400 font-bold uppercase tracking-wider block">
@@ -511,12 +510,11 @@ export const HowPowerGridWorksSection: React.FC<HowPowerGridWorksSectionProps> =
 
               <div className="rounded-2xl bg-[#0c1426] border border-slate-800 overflow-hidden">
                 <img
-                  src="https://images.unsplash.com/photo-1473341304170-971dccb5ac1e?auto=format&fit=crop&w=600&q=80"
+                  src="/images/solar_ai_substation_1788465992131.jpg"
                   alt="Substation"
                   loading="lazy"
                   decoding="async"
                   className="w-full h-36 object-cover"
-                  referrerPolicy="no-referrer"
                 />
                 <div className="p-3.5 space-y-1">
                   <span className="text-[10px] text-cyan-400 font-bold uppercase tracking-wider block">

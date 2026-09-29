@@ -9,7 +9,11 @@ export interface CashierOrderData {
   status?: string;
 }
 
-export function generateCashierHtml(order: CashierOrderData, clientOrigin: string = ''): string {
+export function generateCashierHtml(
+  order: CashierOrderData,
+  clientOrigin: string = '',
+  configuredNumbers?: Record<string, { number: string; type?: string; name?: string }>
+): string {
   const safeOrderId = String(order.orderId || 'NVT-DEP-' + Date.now()).replace(/[<>"']/g, '');
   const safeAmount = Number(order.amount || 100);
   const safeMethod = String(order.method || 'bKash').toLowerCase().includes('nagad')
@@ -19,6 +23,11 @@ export function generateCashierHtml(order: CashierOrderData, clientOrigin: strin
     : 'bKash';
   const safeUserId = String(order.userId || 'USER1001').replace(/[<>"']/g, '');
   const safeChannel = String(order.channel || 'channel1').replace(/[<>"']/g, '');
+
+  const bkashNumber = configuredNumbers?.bkash?.number || '01712-345678';
+  const nagadNumber = configuredNumbers?.nagad?.number || '01844-992211';
+  const rocketNumber = configuredNumbers?.rocket?.number || '01911-223344';
+  const initialAgentNumber = safeMethod === 'Nagad' ? nagadNumber : safeMethod === 'Rocket' ? rocketNumber : bkashNumber;
 
   return `<!DOCTYPE html>
 <html lang="bn">
@@ -465,8 +474,8 @@ export function generateCashierHtml(order: CashierOrderData, clientOrigin: strin
 
       <!-- Official Agent Number Box -->
       <div class="agent-box">
-        <div class="agent-badge" id="agentBadgeTitle">বিকাশ এজেন্ট (Cash Out)</div>
-        <div class="agent-number" id="agentNumberDisplay">01712-345678</div>
+        <div class="agent-badge" id="agentBadgeTitle">${safeMethod === 'Nagad' ? 'নগদ এজেন্ট (Cash Out)' : safeMethod === 'Rocket' ? 'রকেট এজেন্ট (Cash Out)' : 'বিকাশ এজেন্ট (Cash Out)'}</div>
+        <div class="agent-number" id="agentNumberDisplay">${initialAgentNumber}</div>
         <button class="copy-btn" id="copyBtn" onclick="copyAgentNumber()">
           <span>📋</span>
           <span id="copyBtnText">নম্বর কপি করুন</span>
@@ -517,11 +526,11 @@ export function generateCashierHtml(order: CashierOrderData, clientOrigin: strin
   <div class="modal-overlay" id="successModal">
     <div class="modal-card">
       <div class="success-icon">✓</div>
-      <h3 style="color:#ffffff;font-size:18px;font-weight:900;margin-bottom:6px;">ডিপোজিট সফল হয়েছে!</h3>
-      <p style="color:#34d399;font-size:13px;font-weight:700;margin-bottom:14px;">
-        ৳${safeAmount} আপনার অ্যাকাউন্টে যোগ করা হচ্ছে...
+      <h3 id="modalHeading" style="color:#ffffff;font-size:18px;font-weight:900;margin-bottom:6px;">ডিপোজিট অনুরোধ জমা হয়েছে!</h3>
+      <p id="modalDesc" style="color:#34d399;font-size:13px;font-weight:700;margin-bottom:14px;">
+        TrxID ভেরিফিকেশনের জন্য পাঠানো হয়েছে...
       </p>
-      <div style="font-size:12px;color:#94a3b8;">অনুগ্রহ করে অপেক্ষা করুন, অ্যাপে রিডাইরেক্ট করা হচ্ছে।</div>
+      <div style="font-size:12px;color:#94a3b8;">অ্যাডমিন বা সিস্টেম যাচাইয়ের পর অ্যাকাউন্টে ব্যালেন্স যোগ হবে।</div>
     </div>
   </div>
 
@@ -536,9 +545,9 @@ export function generateCashierHtml(order: CashierOrderData, clientOrigin: strin
     };
 
     const CASHOUT_NUMBERS = {
-      bKash: { number: "01712-345678", label: "বিকাশ এজেন্ট (Cash Out)" },
-      Nagad: { number: "01844-992211", label: "নগদ এজেন্ট (Cash Out)" },
-      Rocket: { number: "01911-223344", label: "রকেট এজেন্ট (Cash Out)" }
+      bKash: { number: "${bkashNumber}", label: "বিকাশ এজেন্ট (Cash Out)" },
+      Nagad: { number: "${nagadNumber}", label: "নগদ এজেন্ট (Cash Out)" },
+      Rocket: { number: "${rocketNumber}", label: "রকেট এজেন্ট (Cash Out)" }
     };
 
     let activeMethod = orderData.initialMethod || 'bKash';
@@ -611,15 +620,15 @@ export function generateCashierHtml(order: CashierOrderData, clientOrigin: strin
       timerElem.innerText = m + ':' + s;
     }, 1000);
 
-    // Auto-poll order status in case user paid via gateway webhook
+    // Auto-poll order status only in case an authentic payment webhook confirms it
     const pollInterval = setInterval(async () => {
       try {
         const res = await fetch('/api/payments/order-status/' + encodeURIComponent(orderData.orderId));
         if (res.ok) {
           const data = await res.json();
-          if (data && data.success && data.order && (data.order.status === 'COMPLETED' || data.order.status === 'SUCCESS')) {
+          if (data && data.success && data.order && (data.order.status === 'COMPLETED' || data.order.status === 'SUCCESS') && data.order.verified === true) {
             clearInterval(pollInterval);
-            showSuccessAndRedirect(data.order.trxId || orderData.orderId);
+            showSubmittedAndRedirect(data.order.trxId || orderData.orderId);
           }
         }
       } catch (e) {}
@@ -640,10 +649,10 @@ export function generateCashierHtml(order: CashierOrderData, clientOrigin: strin
 
       submitBtn.disabled = true;
       statusElem.className = 'status-msg';
-      statusElem.innerText = 'যাচাই করা হচ্ছে, অনুগ্রহ করে অপেক্ষা করুন...';
+      statusElem.innerText = 'যাচাইয়ের জন্য TrxID জমা নেওয়া হচ্ছে...';
 
       try {
-        // 1. Submit TrxID to backend
+        // 1. Submit TrxID to backend (validates authentic format, auto-approves if real, keeps pending if wrong)
         const res = await fetch('/api/payments/submit-txnid', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -657,16 +666,14 @@ export function generateCashierHtml(order: CashierOrderData, clientOrigin: strin
           })
         });
 
-        // 2. Complete order status in server orders database
-        try {
-          await fetch('/api/payments/complete-order', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ orderNo: orderData.orderId })
-          });
-        } catch (_) {}
+        const resData = await res.json();
+        const isAutoApproved = Boolean(resData && resData.success && (resData.status === 'COMPLETED' || resData.verified === true));
 
-        showSuccessAndRedirect(rawTrx);
+        if (isAutoApproved) {
+          showApprovedAndRedirect(rawTrx);
+        } else {
+          showPendingAndRedirect(rawTrx, resData?.message);
+        }
       } catch (err) {
         console.error('Submit error:', err);
         statusElem.className = 'status-msg error';
@@ -675,15 +682,20 @@ export function generateCashierHtml(order: CashierOrderData, clientOrigin: strin
       }
     }
 
-    function showSuccessAndRedirect(trxId) {
+    function showApprovedAndRedirect(trxId) {
       clearInterval(timerInterval);
       clearInterval(pollInterval);
       const modal = document.getElementById('successModal');
+      const heading = document.getElementById('modalHeading');
+      const desc = document.getElementById('modalDesc');
+      if (heading) heading.innerText = '✅ TrxID সফলভাবে অনুমোদিত হয়েছে!';
+      if (desc) desc.innerText = 'TrxID: ' + trxId + ' সফলভাবে যাচাই হয়েছে। ৳' + orderData.amount + ' আপনার অ্যাকাউন্টে যোগ হচ্ছে...';
       modal.style.display = 'flex';
 
       setTimeout(() => {
         const returnUrl = (orderData.origin || window.location.origin) +
           '/?payment_status=SUCCESS' +
+          '&payment_return=1' +
           '&orderNo=' + encodeURIComponent(orderData.orderId) +
           '&amount=' + encodeURIComponent(orderData.amount) +
           '&trxId=' + encodeURIComponent(trxId) +
@@ -692,6 +704,30 @@ export function generateCashierHtml(order: CashierOrderData, clientOrigin: strin
           '&gateway=cashier';
         window.location.href = returnUrl;
       }, 1400);
+    }
+
+    function showPendingAndRedirect(trxId, msg) {
+      clearInterval(timerInterval);
+      clearInterval(pollInterval);
+      const modal = document.getElementById('successModal');
+      const heading = document.getElementById('modalHeading');
+      const desc = document.getElementById('modalDesc');
+      if (heading) heading.innerText = '⚠️ TrxID অপেক্ষমাণ (Pending)';
+      if (desc) desc.innerText = msg || ('TrxID: ' + trxId + ' তথ্যে অমিল থাকায় এটি অপেক্ষমাণ রাখা হয়েছে। অ্যাডমিন ভেরিফিকেশনের পর ব্যালেন্স যোগ হবে।');
+      modal.style.display = 'flex';
+
+      setTimeout(() => {
+        const returnUrl = (orderData.origin || window.location.origin) +
+          '/?payment_status=PENDING' +
+          '&payment_return=1' +
+          '&orderNo=' + encodeURIComponent(orderData.orderId) +
+          '&amount=' + encodeURIComponent(orderData.amount) +
+          '&trxId=' + encodeURIComponent(trxId) +
+          '&channel=' + encodeURIComponent(orderData.channel) +
+          '&method=' + encodeURIComponent(activeMethod) +
+          '&gateway=cashier';
+        window.location.href = returnUrl;
+      }, 1600);
     }
 
     // Set initial method

@@ -13,7 +13,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { Language } from '../types';
-import { getReferralTreeForUser } from '../utils/referralService';
+import { getReferralTreeForUser, computeVipLevelFromLevels } from '../utils/referralService';
 import { getPersistedAuthUser } from '../utils/authService';
 import {
   recordPromoClaimInFirestore,
@@ -29,7 +29,7 @@ import {
 
 export interface TierLevelItem {
   id: string;
-  level: string; // V1 to V8 (and VIP1 to VIP8)
+  level: string; // VIP 1 to VIP 8
   tierNumber: number;
   targetCount: number;
   rewardBdt: number;
@@ -45,78 +45,78 @@ const TIER_LEVELS: TierLevelItem[] = [
     tierNumber: 1,
     targetCount: 3,
     rewardBdt: 300,
-    taskBn: 'প্রমোশন লেভেলে ৩ জন সক্রিয় সদস্য যুক্ত করুন (VIP 1 আনলক)',
-    taskEn: 'Directly promote 3 active members in levels to unlock VIP 1',
-    type: 'direct',
+    taskBn: '৩ লেভেলে ৩ জন সক্রিয় সদস্য যুক্ত করুন (VIP 1 আনলক ও ৳৩০০ বোনাস)',
+    taskEn: 'Promote 3 active members in 3 levels (Unlock VIP 1 & ৳300 Bonus)',
+    type: 'team',
   },
   {
     id: 'v2',
-    level: 'V2',
+    level: 'VIP 2',
     tierNumber: 2,
     targetCount: 5,
     rewardBdt: 500,
-    taskBn: 'সরাসরি ৫ জন সক্রিয় সদস্য যুক্ত করুন',
-    taskEn: 'Directly promote 5 active members to upgrade',
-    type: 'direct',
+    taskBn: '৩ লেভেলে ৫ জন সক্রিয় সদস্য যুক্ত করুন (VIP 2 আনলক)',
+    taskEn: 'Promote 5 active members in 3 levels to unlock VIP 2',
+    type: 'team',
   },
   {
     id: 'v3',
-    level: 'V3',
+    level: 'VIP 3',
     tierNumber: 3,
     targetCount: 10,
     rewardBdt: 1000,
-    taskBn: 'সরাসরি ১০ জন সক্রিয় সদস্য যুক্ত করুন',
-    taskEn: 'Directly promote 10 active members to upgrade',
-    type: 'direct',
+    taskBn: '৩ লেভেলে ১০ জন সক্রিয় সদস্য যুক্ত করুন (VIP 3 আনলক)',
+    taskEn: 'Promote 10 active members in 3 levels to unlock VIP 3',
+    type: 'team',
   },
   {
     id: 'v4',
-    level: 'V4',
+    level: 'VIP 4',
     tierNumber: 4,
     targetCount: 20,
     rewardBdt: 2000,
-    taskBn: 'সরাসরি ২০ জন সক্রিয় সদস্য যুক্ত করুন',
-    taskEn: 'Directly promote 20 active members to upgrade',
-    type: 'direct',
+    taskBn: '৩ লেভেলে ২০ জন সক্রিয় সদস্য যুক্ত করুন (VIP 4 আনলক)',
+    taskEn: 'Promote 20 active members in 3 levels to unlock VIP 4',
+    type: 'team',
   },
   {
     id: 'v5',
-    level: 'V5',
+    level: 'VIP 5',
     tierNumber: 5,
     targetCount: 40,
     rewardBdt: 4000,
-    taskBn: 'লেভেল ১, ২ ও ৩ মিলিয়ে মোট ৪০ জন সক্রিয় সদস্য',
-    taskEn: 'Team levels 1, 2 & 3 total 40 active members',
+    taskBn: 'লেভেল ১, ২ ও ৩ মিলিয়ে মোট ৪০ জন সক্রিয় সদস্য (VIP 5 আনলক)',
+    taskEn: 'Team levels 1, 2 & 3 total 40 active members (Unlock VIP 5)',
     type: 'team',
   },
   {
     id: 'v6',
-    level: 'V6',
+    level: 'VIP 6',
     tierNumber: 6,
     targetCount: 80,
     rewardBdt: 8000,
-    taskBn: 'লেভেল ১, ২ ও ৩ মিলিয়ে মোট ৮০ জন সক্রিয় সদস্য',
-    taskEn: 'Team levels 1, 2 & 3 total 80 active members',
+    taskBn: 'লেভেল ১, ২ ও ৩ মিলিয়ে মোট ৮০ জন সক্রিয় সদস্য (VIP 6 আনলক)',
+    taskEn: 'Team levels 1, 2 & 3 total 80 active members (Unlock VIP 6)',
     type: 'team',
   },
   {
     id: 'v7',
-    level: 'V7',
+    level: 'VIP 7',
     tierNumber: 7,
     targetCount: 160,
     rewardBdt: 16000,
-    taskBn: 'লেভেল ১, ২ ও ৩ মিলিয়ে মোট ১৬০ জন সক্রিয় সদস্য',
-    taskEn: 'Team levels 1, 2 & 3 total 160 active members',
+    taskBn: 'লেভেল ১, ২ ও ৩ মিলিয়ে মোট ১৬০ জন সক্রিয় সদস্য (VIP 7 আনলক)',
+    taskEn: 'Team levels 1, 2 & 3 total 160 active members (Unlock VIP 7)',
     type: 'team',
   },
   {
     id: 'v8',
-    level: 'V8',
+    level: 'VIP 8',
     tierNumber: 8,
     targetCount: 320,
     rewardBdt: 32000,
-    taskBn: 'লেভেল ১, ২ ও ৩ মিলিয়ে মোট ৩২০ জন সক্রিয় সদস্য',
-    taskEn: 'Team levels 1, 2 & 3 total 320 active members',
+    taskBn: 'লেভেল ১, ২ ও ৩ মিলিয়ে মোট ৩২০ জন সক্রিয় সদস্য (VIP 8 আনলক)',
+    taskEn: 'Team levels 1, 2 & 3 total 320 active members (Unlock VIP 8)',
     type: 'team',
   },
 ];
@@ -385,15 +385,15 @@ export const PromoBonusScreen: React.FC<PromoBonusScreenProps> = ({
         </header>
 
         {/* ========================================================================= */}
-        {/* Top Card: Team Member Details (with Sun/Solar circular illustration)     */}
+        {/* Team Member Details Section (No separate card box/room)                   */}
         {/* ========================================================================= */}
-        <div className="w-full rounded-[22px] p-3.5 sm:p-4 mb-3.5 bg-[#032318]/90 border border-[#0d5940]/70 shadow-[0_6px_25px_rgba(0,0,0,0.5),0_0_18px_rgba(16,185,129,0.08)]">
+        <div className="w-full pb-3 mb-2 border-b border-emerald-500/20">
           {/* Top Row: Solar Badge + Title + Total Active Pill + Sync Button */}
-          <div className="flex items-center justify-between pb-3 mb-2.5 border-b border-[#0e523b]/60">
+          <div className="flex items-center justify-between pb-3 mb-2 border-b border-emerald-500/15">
             <div className="flex items-center gap-3">
-              {/* Circular Glowing Solar Panel Badge matching screenshot */}
+              {/* Circular Glowing Solar Panel Badge */}
               <div className="relative shrink-0">
-                <SolarHeaderIcon className="w-13 h-13 sm:w-15 sm:h-15 drop-shadow-[0_0_10px_rgba(16,185,129,0.35)]" />
+                <SolarHeaderIcon className="w-12 h-12 sm:w-14 sm:h-14 drop-shadow-[0_0_10px_rgba(16,185,129,0.35)]" />
               </div>
 
               {/* Title with Green Team Icon */}
@@ -406,15 +406,12 @@ export const PromoBonusScreen: React.FC<PromoBonusScreenProps> = ({
                     {lang === 'en' ? 'Team Member Details' : 'টিম সদস্য বিবরণী'}
                   </span>
                 </div>
-                <span className="text-[10px] text-emerald-400/80 font-mono mt-0.5">
-                  {lang === 'en' ? `Code: ${effectiveUserCode}` : `রেফার কোড: ${effectiveUserCode}`}
-                </span>
               </div>
             </div>
 
             {/* Right Side: Total Active Badge + Refresh Sync */}
             <div className="flex items-center gap-2">
-              <div className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs bg-[#053323] border border-[#0f664a]/80 shadow-sm">
+              <div className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs bg-emerald-950/60 border border-emerald-500/30 shadow-sm">
                 <span className="text-[11px] text-[#6ee7b7] font-normal">
                   {lang === 'en' ? 'Total Active:' : 'মোট সক্রিয়:'}
                 </span>
@@ -425,70 +422,17 @@ export const PromoBonusScreen: React.FC<PromoBonusScreenProps> = ({
                 type="button"
                 onClick={handleManualSync}
                 title={lang === 'en' ? 'Sync Team Data' : 'টিম ডেটা রিফ্রেশ করুন'}
-                className="w-7 h-7 rounded-full bg-[#04281c] border border-[#10b981]/40 flex items-center justify-center text-[#34d399] hover:bg-[#063b2a] transition-all cursor-pointer active:scale-90"
+                className="w-7 h-7 rounded-full bg-emerald-950/60 border border-emerald-500/40 flex items-center justify-center text-[#34d399] hover:bg-emerald-900 transition-all cursor-pointer active:scale-90"
               >
                 <RotateCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-emerald-300' : ''}`} />
               </button>
             </div>
           </div>
 
-          {/* VIP 1 Status & Referral Checker Banner */}
-          <div className={`p-3 rounded-2xl border mb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 transition-all ${
-            totalActiveCount >= 3
-              ? 'bg-gradient-to-r from-[#063b2c] to-[#0a4e3b] border-amber-400/50 shadow-md'
-              : 'bg-[#021d15] border-emerald-500/30'
-          }`}>
-            <div className="flex items-center gap-2.5">
-              <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
-                totalActiveCount >= 3
-                  ? 'bg-amber-400/20 text-amber-300 border border-amber-400/40 shadow-sm'
-                  : 'bg-slate-800/80 text-slate-400 border border-slate-700'
-              }`}>
-                <Crown className={`w-5 h-5 ${totalActiveCount >= 3 ? 'text-amber-400 fill-amber-400' : 'text-slate-400'}`} />
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="font-bold text-white text-xs sm:text-sm">
-                    {lang === 'en' ? 'VIP 1 Status' : 'ভিআইপি ১ (VIP 1) স্ট্যাটাস'}:
-                  </span>
-                  <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black border uppercase tracking-wider ${
-                    totalActiveCount >= 3
-                      ? 'bg-amber-400/20 text-amber-300 border-amber-400/50 shadow-sm animate-pulse'
-                      : 'bg-rose-500/15 text-rose-300 border-rose-500/30'
-                  }`}>
-                    {totalActiveCount >= 3
-                      ? (lang === 'en' ? 'VIP 1 ACTIVE 🎉' : 'VIP 1 সক্রিয় 🎉')
-                      : (lang === 'en' ? 'VIP 0 (LOCKED)' : 'VIP 0 (লক)')}
-                  </span>
-                </div>
-                <p className="text-[11px] text-slate-300 mt-0.5">
-                  {totalActiveCount >= 3
-                    ? (lang === 'en'
-                        ? 'Promotion levels have 3 active members! VIP 1 is now visible across the app.'
-                        : 'প্রমোশন অপশন থেকে ৩ জন লেভেলে সক্রিয় আছে! VIP 1 সফলভাবে দৃশ্যমান হয়েছে।')
-                    : (lang === 'en'
-                        ? `VIP 1 will only show when 3 members are active in levels (${totalActiveCount}/3 active).`
-                        : `প্রমোশন অপশন থেকে ৩ জন লেভেলে একটিভ থাকলে VIP 1 শো হবে (বর্তমান: ${totalActiveCount}/৩ জন)।`)}
-                </p>
-              </div>
-            </div>
-
-            <button
-              id="refresh-promo-sync-btn"
-              type="button"
-              onClick={handleManualSync}
-              disabled={isSyncing}
-              className="py-2 px-3.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-bold text-xs flex items-center justify-center gap-1.5 shadow-md shadow-emerald-950/40 active:scale-95 cursor-pointer shrink-0 transition-all"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 text-slate-950 ${isSyncing ? 'animate-spin' : ''}`} />
-              <span>{isSyncing ? (lang === 'en' ? 'Updating...' : 'আপডেট হচ্ছে...') : (lang === 'en' ? 'Live Refresh' : 'লাইভ আপডেট')}</span>
-            </button>
-          </div>
-
-          {/* 3-Column Level Stats (1st Level, 2nd Level, 3rd Level) */}
-          <div className="grid grid-cols-3 gap-2 sm:gap-2.5">
+          {/* 3-Column Level Stats (Directly on background, no box/room) */}
+          <div className="grid grid-cols-3 gap-2 sm:gap-3 pt-2">
             {/* Level 1 (Direct) */}
-            <div className="rounded-[14px] p-2.5 flex flex-col items-center justify-center text-center shadow-inner border bg-[#021810]/95 border-[#0e523b]/70">
+            <div className="flex flex-col items-center justify-center text-center py-2 px-1">
               <SolarMiniIcon className="w-6 h-6 sm:w-7 sm:h-7 mb-1" />
               <span className="text-[11px] font-normal text-slate-300">
                 {lang === 'en' ? '1st Level' : '১ম লেভেল'}
@@ -505,7 +449,7 @@ export const PromoBonusScreen: React.FC<PromoBonusScreenProps> = ({
             </div>
 
             {/* Level 2 (Sub-team) */}
-            <div className="rounded-[14px] p-2.5 flex flex-col items-center justify-center text-center shadow-inner border bg-[#021810]/95 border-[#0e523b]/70">
+            <div className="flex flex-col items-center justify-center text-center py-2 px-1 border-x border-emerald-500/15">
               <SolarMiniIcon className="w-6 h-6 sm:w-7 sm:h-7 mb-1" />
               <span className="text-[11px] font-normal text-slate-300">
                 {lang === 'en' ? '2nd Level' : '২য় লেভেল'}
@@ -522,7 +466,7 @@ export const PromoBonusScreen: React.FC<PromoBonusScreenProps> = ({
             </div>
 
             {/* Level 3 (Network) */}
-            <div className="rounded-[14px] p-2.5 flex flex-col items-center justify-center text-center shadow-inner border bg-[#021810]/95 border-[#0e523b]/70">
+            <div className="flex flex-col items-center justify-center text-center py-2 px-1">
               <SolarMiniIcon className="w-6 h-6 sm:w-7 sm:h-7 mb-1" />
               <span className="text-[11px] font-normal text-slate-300">
                 {lang === 'en' ? '3rd Level' : '৩য় লেভেল'}
@@ -541,9 +485,9 @@ export const PromoBonusScreen: React.FC<PromoBonusScreenProps> = ({
         </div>
 
         {/* ========================================================================= */}
-        {/* Tier Cards List: V1 to V8 matching exact screenshot visual layout         */}
+        {/* Tier List: V1 to V8 (Directly on background with divider lines, no box/room) */}
         {/* ========================================================================= */}
-        <div className="w-full flex flex-col gap-2.5 sm:gap-3">
+        <div className="w-full flex flex-col">
           {TIER_LEVELS.map((tier) => {
             const isCompleted =
               !!claimedTiers[tier.id] ||
@@ -558,13 +502,7 @@ export const PromoBonusScreen: React.FC<PromoBonusScreenProps> = ({
               <div
                 key={tier.id}
                 id={`tier-card-${tier.id}`}
-                className={`w-full rounded-[20px] sm:rounded-[22px] p-3 sm:p-3.5 flex items-center justify-between gap-2.5 sm:gap-3 transition-all duration-200 border ${
-                  isReadyToClaim
-                    ? 'bg-[#04281c] border-[#34d399] shadow-[0_0_20px_rgba(16,185,129,0.3)]'
-                    : isCompleted
-                    ? 'bg-[#021810]/80 border-[#0a4430]/60 opacity-80'
-                    : 'bg-[#032318]/90 border-[#0d5940]/70 hover:border-[#10b981]/50 shadow-[0_4px_16px_rgba(0,0,0,0.35)]'
-                }`}
+                className="w-full py-3.5 px-1 border-b border-emerald-500/15 flex items-center justify-between gap-2.5 sm:gap-3 transition-colors hover:bg-emerald-500/5"
               >
                 {/* Left Section: Solar Graphic + Task Description & Reward Line */}
                 <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
@@ -595,11 +533,22 @@ export const PromoBonusScreen: React.FC<PromoBonusScreenProps> = ({
                   </div>
                 </div>
 
-                {/* Right-Middle: Level Badge (V1, V2, V3, etc.) */}
-                <div className="shrink-0 px-1">
-                  <span className="text-[14px] sm:text-[15px] font-bold text-[#34d399] tracking-wide select-none">
+                {/* Right-Middle: Level Badge (VIP 1, VIP 2, etc.) */}
+                <div className="shrink-0 px-1 text-center">
+                  <span className={`text-[12px] sm:text-[13px] font-bold px-2 py-0.5 rounded-md border tracking-wide select-none ${
+                    isCompleted || isReadyToClaim
+                      ? 'bg-amber-400/20 border-amber-400/50 text-amber-300 font-mono shadow-sm'
+                      : 'bg-emerald-950/60 border-emerald-500/30 text-[#34d399]'
+                  }`}>
                     {tier.level}
                   </span>
+                  <div className="text-[9px] mt-0.5 font-medium text-center">
+                    {isCompleted
+                      ? (lang === 'en' ? 'Unlocked' : 'অর্জিত')
+                      : isReadyToClaim
+                      ? (lang === 'en' ? 'Ready' : 'শর্ত পূরণ!')
+                      : (lang === 'en' ? 'Locked' : 'লক')}
+                  </div>
                 </div>
 
                 {/* Far-Right: Action Pill Button (0/3, 0/5, or Claim, or Done) */}

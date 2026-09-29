@@ -219,7 +219,11 @@ export default function App() {
   };
 
   const handleRegistrationSuccess = (data: RegisterFormData) => {
-    setRegisteredSuccessData(data);
+    try {
+      sessionStorage.setItem('nvt_just_logged_in', 'true');
+      sessionStorage.removeItem('nvt_promo_modal_shown');
+    } catch (_) {}
+    setRegisteredSuccessData(null);
     const current = getPersistedAuthUser();
     if (current) {
       setAuthUser(current);
@@ -233,8 +237,13 @@ export default function App() {
         referralCode: generatedMemberId.slice(-6).toUpperCase(),
         referredBy: data.referralCode || undefined,
         walletBalance: 0.0,
-        memberSince: 'May 2024',
+        memberSince: new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
         isVerified: true,
+        vipLevel: 0,
+        canRefer: false,
+        referralLimit: 0,
+        activeInvestments: [],
+        totalInvested: 0,
       };
       persistAuthUser(newUser);
       setAuthUser(newUser);
@@ -251,6 +260,10 @@ export default function App() {
   };
 
   const handleLoginSuccess = (identifier: string) => {
+    try {
+      sessionStorage.setItem('nvt_just_logged_in', 'true');
+      sessionStorage.removeItem('nvt_promo_modal_shown');
+    } catch (_) {}
     const current = getPersistedAuthUser();
     if (current) {
       setAuthUser(current);
@@ -271,6 +284,10 @@ export default function App() {
   };
 
   const handleLogout = async () => {
+    try {
+      sessionStorage.removeItem('nvt_just_logged_in');
+      sessionStorage.removeItem('nvt_promo_modal_shown');
+    } catch (_) {}
     await signOutFromFirebase();
     setAuthUser(null);
     setRegisteredSuccessData(null);
@@ -348,9 +365,7 @@ export default function App() {
         <div className="mb-2 sm:mb-3 flex flex-col items-center justify-center animate-in fade-in zoom-in-95 duration-300">
           <SpinningLogo
             size="sm"
-            showText={true}
-            lang={currentLang}
-            subtitle={currentLang === 'bn' ? 'জ্বালানী, গ্যাস ও বিদ্যুৎ গ্রিড' : 'Fuel, Gas & Electric Power Grid'}
+            showText={false}
           />
         </div>
 

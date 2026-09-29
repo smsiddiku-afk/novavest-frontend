@@ -62,6 +62,8 @@ export interface UserProfile {
   avatarUrl?: string;
   fullName?: string;
   vipLevel?: number;
+  hasDeposited?: boolean;
+  totalDeposited?: number;
   totalEarnings?: number;
   totalInvested?: number;
   totalReferralEarnings?: number;
@@ -86,6 +88,8 @@ export interface UserProfile {
   transactions?: any[];
   isAuthenticatorSet?: boolean;
   authenticatorSecret?: string;
+  canRefer?: boolean;
+  referralLimit?: number;
 }
 
 export type LegalDocType = 'terms' | 'privacy' | null;

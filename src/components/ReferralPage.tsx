@@ -52,6 +52,9 @@ interface ReferralPageProps {
   onClaimReward?: (amount: number) => void;
   showToast?: (msg: string) => void;
   userBalance?: number;
+  canRefer?: boolean;
+  referralLimit?: number;
+  onContactManager?: () => void;
 }
 
 export const ReferralPage: React.FC<ReferralPageProps> = ({
@@ -63,6 +66,9 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
   onClaimReward,
   showToast = (_msg: string) => {},
   userBalance = 0,
+  canRefer = true,
+  referralLimit = 0,
+  onContactManager,
 }) => {
   // Main Tabs: 'invite' | 'details' (exactly matches user screenshot)
   const [activeTab, setActiveTab] = useState<'invite' | 'details'>('invite');
@@ -173,6 +179,16 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
   const referralLink = `${window.location.origin}/register?ref=${userCode}`;
 
   const handleCopyCode = () => {
+    if (!canRefer) {
+      showToast(currentLang === 'bn' ? 'দয়া করে ব্যবস্থাপক প্রতিনিধির সঙ্গে যোগাযোগ করুন।' : 'Please contact the manager representative.');
+      if (onContactManager) onContactManager();
+      return;
+    }
+    if (referralLimit > 0 && teamTree.totalTeamCount >= referralLimit) {
+      showToast(currentLang === 'bn' ? `আপনার রেফারেল সীমা (${referralLimit} জন) পূর্ণ হয়েছে। দয়া করে ব্যবস্থাপক প্রতিনিধির সঙ্গে যোগাযোগ করুন।` : `Referral limit (${referralLimit}) reached. Please contact manager representative.`);
+      if (onContactManager) onContactManager();
+      return;
+    }
     navigator.clipboard.writeText(userCode);
     setCopiedCode(true);
     showToast(currentLang === 'bn' ? 'রেফারেল কোড কপি করা হয়েছে!' : 'Invitation code copied!');
@@ -180,6 +196,16 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
   };
 
   const handleShareLink = () => {
+    if (!canRefer) {
+      showToast(currentLang === 'bn' ? 'দয়া করে ব্যবস্থাপক প্রতিনিধির সঙ্গে যোগাযোগ করুন।' : 'Please contact the manager representative.');
+      if (onContactManager) onContactManager();
+      return;
+    }
+    if (referralLimit > 0 && teamTree.totalTeamCount >= referralLimit) {
+      showToast(currentLang === 'bn' ? `আপনার রেফারেল সীমা (${referralLimit} জন) পূর্ণ হয়েছে। দয়া করে ব্যবস্থাপক প্রতিনিধির সঙ্গে যোগাযোগ করুন।` : `Referral limit (${referralLimit}) reached. Please contact manager representative.`);
+      if (onContactManager) onContactManager();
+      return;
+    }
     navigator.clipboard.writeText(referralLink);
     setCopiedLink(true);
     showToast(currentLang === 'bn' ? 'আমন্ত্রণ লিংক কপি করা হয়েছে!' : 'Invitation link copied!');
@@ -200,11 +226,11 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
   };
 
   const handleClaim = () => {
-    if (availableRewards <= 0) {
+    if (availableRewards < 200) {
       showToast(
         currentLang === 'bn'
-          ? 'দাবি করার মতো কোনো রিওয়ার্ড বর্তমানে নেই।'
-          : 'No rewards available to claim right now.'
+          ? `মিনিমাম ২০০.০০ টাকা এর নিচে রেফার বোনাস ট্রান্সফার করা যাবে না (বর্তমান: ৳${availableRewards.toFixed(2)})`
+          : `Minimum referral reward transfer is ৳200.00 (Current: ৳${availableRewards.toFixed(2)})`
       );
       return;
     }
@@ -416,8 +442,8 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
                     </h2>
                     <p className="text-[10px] text-slate-300 leading-snug font-medium">
                       {currentLang === 'bn'
-                        ? 'বন্ধুদের যুক্ত করুন এবং প্রতি ডিপোজিটে সরাসরি ৩-স্তরে সর্বোচ্চ ১১% নগদ কমিশন বুঝে নিন।'
-                        : 'Invite partners & earn up to 11% instant multi-tier commissions credited directly to your wallet.'}
+                        ? 'বন্ধুদের যুক্ত করুন এবং তাদের প্রতিটি প্যাকেজ ক্রয়ে সরাসরি ৩-স্তরে সর্বোচ্চ ১১% নগদ কমিশন বুঝে নিন।'
+                        : 'Invite partners & earn up to 11% instant multi-tier commissions on every package purchase.'}
                     </p>
                   </div>
 
@@ -716,11 +742,24 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
                     <span className="text-lg sm:text-xl font-bold text-amber-500">৳</span>
                     <span>{availableRewards.toFixed(2)}</span>
                   </div>
-                  <span className="text-[10px] sm:text-[11px] text-slate-400">
-                    {currentLang === 'bn'
-                      ? 'সরাসরি ওয়ালেট ব্যালেন্সে নেওয়ার যোগ্য'
-                      : 'Transferable directly to main wallet'}
-                  </span>
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-[10px] sm:text-[11px] text-slate-400">
+                      {currentLang === 'bn'
+                        ? 'সরাসরি ওয়ালেট ব্যালেন্সে নেওয়ার যোগ্য'
+                        : 'Transferable directly to main wallet'}
+                    </span>
+                    <span className={`text-[10px] font-semibold ${
+                      availableRewards >= 200 ? 'text-emerald-400' : 'text-amber-400/90'
+                    }`}>
+                      {currentLang === 'bn'
+                        ? (availableRewards >= 200
+                            ? '✓ ট্রান্সফার করার যোগ্য (মিনিমাম ৳২০০ অর্জিত)'
+                            : `• মিনিমাম ট্রান্সফার: ২০০.০০ টাকা (বাকি: ৳${Math.max(0, 200 - availableRewards).toFixed(2)})`)
+                        : (availableRewards >= 200
+                            ? '✓ Eligible to transfer (Min ৳200 reached)'
+                            : `• Min transfer: ৳200.00 (Needed: ৳${Math.max(0, 200 - availableRewards).toFixed(2)})`)}
+                    </span>
+                  </div>
                 </div>
 
                 {/* Claim Button */}
@@ -728,14 +767,19 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
                   id="referral-claim-reward-btn"
                   type="button"
                   onClick={handleClaim}
-                  disabled={availableRewards <= 0}
-                  className={`px-6 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all shadow-md active:scale-95 cursor-pointer ${
-                    availableRewards > 0
-                      ? 'bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 shadow-amber-500/25'
+                  disabled={availableRewards < 200}
+                  className={`px-5 sm:px-6 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all shadow-md active:scale-95 ${
+                    availableRewards >= 200
+                      ? 'bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 shadow-amber-500/25 ring-2 ring-amber-400/50 cursor-pointer animate-pulse'
                       : 'bg-slate-800/80 text-slate-500 border border-slate-700/60 cursor-not-allowed opacity-75'
                   }`}
+                  title={
+                    availableRewards >= 200
+                      ? (currentLang === 'bn' ? '৳২০০+ ক্যাশ রিওয়ার্ড মূল ওয়ালেটে স্থানান্তর করুন' : 'Transfer rewards to main wallet')
+                      : (currentLang === 'bn' ? 'মিনিমাম ২০০.০০ টাকা হলে স্থানান্তর করতে পারবেন' : 'Minimum ৳200 required to transfer')
+                  }
                 >
-                  {currentLang === 'bn' ? 'দাবি করুন' : 'Claim'}
+                  {currentLang === 'bn' ? 'ট্রান্সফার করুন' : 'Transfer'}
                 </button>
               </div>
             </section>
@@ -868,8 +912,8 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
                     </h5>
                     <p className="text-slate-300 text-[11px] leading-relaxed">
                       {currentLang === 'bn'
-                        ? 'আপনার আমন্ত্রিত সদস্য যেকোনো এনার্জি প্রজেক্টে রিচার্জ বা ইনভেস্ট করার ৫ সেকেন্ডের মধ্যে কমিশন স্বয়ংক্রিয়ভাবে ক্রেডিট হয়।'
-                        : 'Commissions are credited automatically within 5 seconds whenever an invited partner recharges or activates a project.'}
+                        ? 'আপনার আমন্ত্রিত সদস্য যেকোনো এনার্জি প্যাকেজে বিনিয়োগ/ক্রয় করার সাথে সাথে ক্রয়মূল্যের অনুপাতে কমিশন স্বয়ংক্রিয়ভাবে ক্রেডিট হয়।'
+                        : 'Commissions are credited automatically in proportion to the package value whenever an invited partner purchases an energy package.'}
                     </p>
                   </div>
                 </div>
@@ -885,8 +929,8 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
                     </h5>
                     <p className="text-slate-300 text-[11px] leading-relaxed">
                       {currentLang === 'bn'
-                        ? 'সরাসরি রেফারে ৭%, ২য় স্তরে ৩% এবং ৩য় স্তরে ১% কমিশন আজীবন প্রযোজ্য। সদস্য যতবার ডিপোজিট করবে, ততবারই আপনি নিয়মিত কমিশন পাবেন।'
-                        : 'Earn 7% on Level 1 direct referrals, 3% on Level 2 sub-team, and 1% on Level 3 network depth continuously for life.'}
+                        ? 'সরাসরি রেফারে ৭%, ২য় স্তরে ৩% এবং ৩য় স্তরে ১% কমিশন প্রযোজ্য। সদস্য যতবার প্যাকেজ কিনবেন, প্যাকেজ মূল্যের অনুপাতে ততবারই আপনি নিয়মিত কমিশন পাবেন (শুধু রিচার্জে কোনো কমিশন প্রযোজ্য নয়)।'
+                        : 'Earn 7% on Level 1, 3% on Level 2, and 1% on Level 3 proportional to the purchased package price (recharging alone yields no commission).'}
                     </p>
                   </div>
                 </div>
@@ -1015,8 +1059,8 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
                   {expandedFaq === 3 && (
                     <div className="px-3 pb-3 pt-0 text-[11px] text-slate-300 border-t border-slate-800/60 leading-relaxed mt-1">
                       {currentLang === 'bn'
-                        ? 'উপরে "উত্তোলনযোগ্য ক্যাশ রিওয়ার্ড"-এর পাশে থাকা "দাবি করুন" বাটনে চাপ দিলে ব্যালেন্স সাথে সাথে মূল ওয়ালেটে চলে যাবে। এরপর বিকাশ বা নগদ দিয়ে যেকোনো সময় টাকা তুলে নিন।'
-                        : 'Click "Claim" in the Available Cash Rewards section above to transfer rewards into your main wallet, then initiate a standard withdrawal to bKash or Nagad.'}
+                        ? 'উপরে "উত্তোলনযোগ্য ক্যাশ রিওয়ার্ড"-এ ন্যূনতম ২০০.০০ টাকা হলে "ট্রান্সফার করুন" বাটনে চাপ দিলে ব্যালেন্স সাথে সাথে মূল ওয়ালেটে চলে যাবে। এরপর বিকাশ বা নগদ দিয়ে যেকোনো সময় টাকা তুলে নিন।'
+                        : 'Once you accumulate a minimum of ৳200.00, click "Transfer" in the Available Cash Rewards section above to move rewards into your main wallet, then initiate a standard withdrawal to bKash or Nagad.'}
                     </div>
                   )}
                 </div>
@@ -1079,7 +1123,11 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
                   {realMembers.length} {currentLang === 'bn' ? 'জন' : ''}
                 </span>
                 <span className="text-[11px] text-emerald-400 block font-medium">
-                  {currentLang === 'bn' ? 'সক্রিয়:' : 'Active:'} {teamTree.totalActiveCount}
+                  {currentLang === 'bn' ? 'একটিভ:' : 'Active:'} {teamTree.totalActiveCount} জন •{' '}
+                  <span className="text-amber-400">
+                    {currentLang === 'bn' ? 'ফ্রি আইডি:' : 'Free ID:'}{' '}
+                    {Math.max(0, realMembers.length - teamTree.totalActiveCount)} জন
+                  </span>
                 </span>
               </div>
             </div>
@@ -1161,9 +1209,13 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
                           <span className="font-mono font-bold text-white text-xs sm:text-sm">
                             {member.phone}
                           </span>
-                          {member.status === 'active' && (
+                          {member.status === 'active' ? (
                             <span className="px-1.5 py-0.5 rounded-md bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[9px] font-semibold">
-                              {currentLang === 'bn' ? 'সক্রিয়' : 'Active'}
+                              {currentLang === 'bn' ? 'একটিভ' : 'Active'}
+                            </span>
+                          ) : (
+                            <span className="px-1.5 py-0.5 rounded-md bg-amber-500/15 text-amber-400 border border-amber-500/30 text-[9px] font-semibold">
+                              {currentLang === 'bn' ? 'ফ্রি আইডি' : 'Free ID'}
                             </span>
                           )}
                         </div>

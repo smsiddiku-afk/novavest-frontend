@@ -18,8 +18,9 @@ export const DEFAULT_INVESTMENT_PACKAGES = [
     minInvestmentBdt: 1200,
     minInvestment: 1200,
     durationDays: 30,
-    dailyReturnPercent: 1.5,
-    totalReturnPercent: 45,
+    dailyReturnBdt: 24,
+    dailyReturnPercent: 2.0,
+    totalReturnPercent: 60,
     maxPurchaseLimit: 2,
     requiredVipLevel: 0,
     isActive: true,
@@ -40,10 +41,11 @@ export const DEFAULT_INVESTMENT_PACKAGES = [
     minInvestmentBdt: 6000,
     minInvestment: 6000,
     durationDays: 45,
+    dailyReturnBdt: 156,
     dailyReturnPercent: 2.6,
-    totalReturnPercent: 90,
+    totalReturnPercent: 117,
     maxPurchaseLimit: 2,
-    requiredVipLevel: 0,
+    requiredVipLevel: 1,
     isActive: true,
     order: 2,
   },
@@ -62,6 +64,7 @@ export const DEFAULT_INVESTMENT_PACKAGES = [
     minInvestmentBdt: 12000,
     minInvestment: 12000,
     durationDays: 60,
+    dailyReturnBdt: 300,
     dailyReturnPercent: 2.5,
     totalReturnPercent: 150,
     maxPurchaseLimit: 0,
@@ -84,6 +87,7 @@ export const DEFAULT_INVESTMENT_PACKAGES = [
     minInvestmentBdt: 24000,
     minInvestment: 24000,
     durationDays: 75,
+    dailyReturnBdt: 720,
     dailyReturnPercent: 3.0,
     totalReturnPercent: 225,
     maxPurchaseLimit: 0,
@@ -106,6 +110,7 @@ export const DEFAULT_INVESTMENT_PACKAGES = [
     minInvestmentBdt: 60000,
     minInvestment: 60000,
     durationDays: 90,
+    dailyReturnBdt: 2100,
     dailyReturnPercent: 3.5,
     totalReturnPercent: 315,
     maxPurchaseLimit: 0,
@@ -128,6 +133,7 @@ export const DEFAULT_INVESTMENT_PACKAGES = [
     minInvestmentBdt: 120000,
     minInvestment: 120000,
     durationDays: 120,
+    dailyReturnBdt: 4800,
     dailyReturnPercent: 4.0,
     totalReturnPercent: 480,
     maxPurchaseLimit: 0,
@@ -190,14 +196,20 @@ async function fetchFromFirestore() {
     const list = [];
     snap.forEach((d) => {
       const data = d.data();
+      const bdt = Number(data.minInvestmentBdt || data.minInvestment || 1200);
+      const dailyBdt = data.dailyReturnBdt !== undefined && Number(data.dailyReturnBdt) > 0
+        ? Number(data.dailyReturnBdt)
+        : Math.round((bdt * Number(data.dailyReturnPercent || 2.0)) / 100);
+
       list.push({
         ...data,
         id: d.id,
         image: resolveImageSrc(data.image, data.category || 'solar'),
-        minInvestmentBdt: Number(data.minInvestmentBdt || data.minInvestment || 1000),
-        minInvestment: Number(data.minInvestmentBdt || data.minInvestment || 1000),
-        minInvestmentUsd: Number(data.minInvestmentUsd || Math.round((data.minInvestmentBdt || data.minInvestment || 1000) / 120)),
-        dailyReturnPercent: Number(data.dailyReturnPercent || 2.0),
+        minInvestmentBdt: bdt,
+        minInvestment: bdt,
+        minInvestmentUsd: Number(data.minInvestmentUsd || Math.round(bdt / 120)),
+        dailyReturnBdt: dailyBdt,
+        dailyReturnPercent: Number(data.dailyReturnPercent || Math.round((dailyBdt / bdt) * 1000) / 10),
         durationDays: Number(data.durationDays || 30),
         totalReturnPercent: Number(data.totalReturnPercent || Math.round((data.dailyReturnPercent || 2.0) * (data.durationDays || 30))),
         requiredVipLevel: Number(data.requiredVipLevel || 0),
@@ -229,15 +241,21 @@ export const updatePackageInFirestore = async (pkg) => {
   try {
     const rawId = pkg.id || `plan-${Date.now()}`;
     const safeId = cleanDocId(rawId, `plan-${Date.now()}`);
+    const bdt = Number(pkg.minInvestmentBdt || pkg.minInvestment || 1200);
+    const dailyBdt = pkg.dailyReturnBdt !== undefined && Number(pkg.dailyReturnBdt) > 0
+      ? Number(pkg.dailyReturnBdt)
+      : Math.round((bdt * Number(pkg.dailyReturnPercent || 2.0)) / 100);
+
     const sanitized = {
       ...pkg,
       id: safeId,
-      minInvestmentBdt: Number(pkg.minInvestmentBdt || pkg.minInvestment || 1000),
-      minInvestment: Number(pkg.minInvestmentBdt || pkg.minInvestment || 1000),
-      minInvestmentUsd: Number(pkg.minInvestmentUsd || Math.round((pkg.minInvestmentBdt || pkg.minInvestment || 1000) / 120)),
-      dailyReturnPercent: Number(pkg.dailyReturnPercent || 2.0),
+      minInvestmentBdt: bdt,
+      minInvestment: bdt,
+      minInvestmentUsd: Number(pkg.minInvestmentUsd || Math.round(bdt / 120)),
+      dailyReturnBdt: dailyBdt,
+      dailyReturnPercent: Number(pkg.dailyReturnPercent || Math.round((dailyBdt / bdt) * 1000) / 10),
       durationDays: Number(pkg.durationDays || 30),
-      totalReturnPercent: Number(pkg.totalReturnPercent || Math.round((pkg.dailyReturnPercent || 2.0) * (pkg.durationDays || 30))),
+      totalReturnPercent: Number(pkg.totalReturnPercent || Math.round((dailyBdt * Number(pkg.durationDays || 30) / bdt) * 100)),
       requiredVipLevel: Number(pkg.requiredVipLevel || 0),
       maxPurchaseLimit: Number(pkg.maxPurchaseLimit) || 0,
       isActive: pkg.isActive !== false,
@@ -302,3 +320,15 @@ export const resetPackagesToDefault = async () => {
     return false;
   }
 };
+
+// Helper: Calculate or return exact daily return in Taka (BDT)
+export const getPlanDailyReturnBdt = (plan) => {
+  if (!plan) return 24;
+  if (plan.dailyReturnBdt !== undefined && plan.dailyReturnBdt !== null && Number(plan.dailyReturnBdt) > 0) {
+    return Number(plan.dailyReturnBdt);
+  }
+  const minBdt = Number(plan.minInvestmentBdt || plan.minInvestment || 1200);
+  const rate = Number(plan.dailyReturnPercent || 2.0);
+  return Math.round((minBdt * rate) / 100);
+};
+

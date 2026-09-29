@@ -1,8 +1,7 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { collection, getDocs, doc, setDoc, getDoc, query, orderBy, increment, deleteDoc } from "firebase/firestore";
 import { db, updateFirestoreDepositStatus, sanitizeFirestoreData, cleanDocId, safeDoc, safeSetDoc, safeDeleteDoc, deleteFirestoreUserProfile } from "./lib/firebase";
 import {
-  distributeReferralDepositCommissions,
   loadCommissionRatesFromFirestore,
   saveCommissionRatesToFirestore,
 } from "./utils/referralService";
@@ -77,6 +76,17 @@ export default function AdminPanel() {
   const [manualUserIdToDelete, setManualUserIdToDelete] = useState("");
   const [deletingUserId, setDeletingUserId] = useState(null);
   const [copiedId, setCopiedId] = useState("");
+
+  // ব্যানার ও ছবি আপলোড স্টেট (Charity & Site Banners)
+  const [charityBannersList, setCharityBannersList] = useState([]);
+  const [bannerUploading, setBannerUploading] = useState(false);
+  const [bannerTitleInput, setBannerTitleInput] = useState("");
+  const [bannerUrlInput, setBannerUrlInput] = useState("");
+  const [bannerPreviewSrc, setBannerPreviewSrc] = useState("");
+  const [bannerSelectedFile, setBannerSelectedFile] = useState(null);
+  const [bannerDragActive, setBannerDragActive] = useState(false);
+  const [previewingBannerImg, setPreviewingBannerImg] = useState(null);
+  const bannerFileInputRef = useRef(null);
 
   const handleLogin = (e) => {
     e.preventDefault();
@@ -165,11 +175,168 @@ export default function AdminPanel() {
         console.warn("রেফার কমিশন লোডে সমস্যা:", rateErr);
       }
 
+      // ব্যানার তালিকা লোড
+      await fetchCharityBanners();
+
     } catch (error) {
       console.error("ডেটা লোড সমস্যা:", error);
       setStatusMsg("Firestore থেকে ডেটা আনতে সমস্যা হয়েছে।");
     }
     setLoading(false);
+  };
+
+  const fetchCharityBanners = async () => {
+    try {
+      const res = await fetch('/api/admin/charity-banners');
+      if (res.ok) {
+        const data = await res.json();
+        if (data && Array.isArray(data.banners)) {
+          setCharityBannersList(data.banners);
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('nvt_charity_banners', JSON.stringify(data.banners.filter(b => b.isActive !== false)));
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("ব্যানার লোডে সমস্যা:", err);
+    }
+  };
+
+  const compressImage = (file, maxWidth = 1600, quality = 0.85) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = (event) => {
+        const img = new Image();
+        img.src = event.target.result;
+        img.onload = () => {
+          const canvas = document.createElement("canvas");
+          let width = img.width;
+          let height = img.height;
+          if (width > maxWidth) {
+            height = Math.round((height * maxWidth) / width);
+            width = maxWidth;
+          }
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL("image/jpeg", quality));
+        };
+        img.onerror = reject;
+      };
+      reader.onerror = reject;
+    });
+  };
+
+  const handleUploadCharityBanner = async (fileOrUrl, title) => {
+    setBannerUploading(true);
+    setStatusMsg("");
+    try {
+      let payload = { title: title || "" };
+      if (typeof fileOrUrl === "string" && fileOrUrl.startsWith("http")) {
+        payload.url = fileOrUrl;
+      } else if (typeof fileOrUrl === "string" && fileOrUrl.startsWith("data:image/")) {
+        payload.image = fileOrUrl;
+      } else if (fileOrUrl instanceof File) {
+        const base64 = await compressImage(fileOrUrl);
+        payload.image = base64;
+      } else {
+        throw new Error("কোনো ছবি সিলেক্ট করা হয়নি");
+      }
+
+      const res = await fetch('/api/admin/upload-charity-banner', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "আপলোড ব্যর্থ হয়েছে");
+      }
+
+      setStatusMsg("✅ ছবি সফলভাবে আপলোড হয়েছে এবং হোমপেজে যুক্ত হয়েছে!");
+      setBannerTitleInput("");
+      setBannerUrlInput("");
+      setBannerPreviewSrc("");
+      setBannerSelectedFile(null);
+      if (bannerFileInputRef.current) bannerFileInputRef.current.value = "";
+      await fetchCharityBanners();
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('charity_banners_updated'));
+      }
+    } catch (err) {
+      console.error("ব্যানার আপলোড এরর:", err);
+      setStatusMsg("❌ আপলোড ব্যর্থ হয়েছে: " + err.message);
+    } finally {
+      setBannerUploading(false);
+    }
+  };
+
+  const handleDeleteCharityBanner = async (bannerId) => {
+    if (!window.confirm("আপনি কি নিশ্চিত এই ছবিটি মুছে ফেলতে চান?")) return;
+    setStatusMsg("");
+    try {
+      const res = await fetch(`/api/admin/charity-banner/${bannerId}`, {
+        method: 'DELETE',
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setStatusMsg("✅ ছবিটি সফলভাবে মুছে ফেলা হয়েছে!");
+        await fetchCharityBanners();
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new Event('charity_banners_updated'));
+        }
+      } else {
+        throw new Error(data.error || "মুছে ফেলা যায়নি");
+      }
+    } catch (err) {
+      console.error("ব্যানার ডিলিট এরর:", err);
+      setStatusMsg("❌ ডিলিট ব্যর্থ: " + err.message);
+    }
+  };
+
+  const handleClearAllCharityBanners = async () => {
+    if (!window.confirm("সতর্কতা: আপনি কি নিশ্চিত সব ছবি ও ব্যানার সম্পূর্ণরূপে রিমুভ করতে চান?")) return;
+    setStatusMsg("");
+    try {
+      const res = await fetch('/api/admin/clear-all-charity-banners', {
+        method: 'POST',
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setStatusMsg("✅ সব ছবি সফলভাবে রিমুভ করা হয়েছে!");
+        setCharityBannersList([]);
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem('nvt_charity_banners');
+          window.dispatchEvent(new Event('charity_banners_updated'));
+        }
+      }
+    } catch (err) {
+      console.error("সব ব্যানার ক্লিয়ার এরর:", err);
+      setStatusMsg("❌ ক্লিয়ার ব্যর্থ: " + err.message);
+    }
+  };
+
+  const handleToggleCharityBannerActive = async (bannerId) => {
+    try {
+      const updated = charityBannersList.map(b => b.id === bannerId ? { ...b, isActive: b.isActive === false ? true : false } : b);
+      const res = await fetch('/api/admin/save-charity-banners', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ banners: updated }),
+      });
+      if (res.ok) {
+        setCharityBannersList(updated);
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('nvt_charity_banners', JSON.stringify(updated.filter(b => b.isActive !== false)));
+          window.dispatchEvent(new Event('charity_banners_updated'));
+        }
+      }
+    } catch (err) {
+      console.error("স্ট্যাটাস পরিবর্তন এরর:", err);
+    }
   };
 
   // ইনভেস্ট প্যাকেজ হ্যান্ডলারস
@@ -189,8 +356,9 @@ export default function AdminPanel() {
       minInvestmentBdt: 1200,
       minInvestmentUsd: 10,
       durationDays: 30,
-      dailyReturnPercent: 1.5,
-      totalReturnPercent: 45,
+      dailyReturnBdt: 24,
+      dailyReturnPercent: 2.0,
+      totalReturnPercent: 60,
       requiredVipLevel: 0,
       maxPurchaseLimit: 0,
       isActive: true,
@@ -203,7 +371,8 @@ export default function AdminPanel() {
     setIsCreatingNew(false);
     setEditingPackage(pkg);
     const bdt = Number(pkg.minInvestmentBdt || pkg.minInvestment || 1200);
-    const daily = Number(pkg.dailyReturnPercent || 1.5);
+    const dailyBdt = Number(pkg.dailyReturnBdt) || Math.round((bdt * Number(pkg.dailyReturnPercent || 2.0)) / 100);
+    const daily = Number(pkg.dailyReturnPercent || (bdt > 0 ? Math.round((dailyBdt / bdt) * 1000) / 10 : 2.0));
     const days = Number(pkg.durationDays || 30);
     setPackageFormData({
       id: pkg.id || `plan-${Date.now()}`,
@@ -219,8 +388,9 @@ export default function AdminPanel() {
       minInvestmentBdt: bdt,
       minInvestmentUsd: Number(pkg.minInvestmentUsd || Math.round(bdt / 120)),
       durationDays: days,
+      dailyReturnBdt: dailyBdt,
       dailyReturnPercent: daily,
-      totalReturnPercent: Number(pkg.totalReturnPercent || Math.round(daily * days)),
+      totalReturnPercent: Number(pkg.totalReturnPercent || Math.round((dailyBdt * days / bdt) * 100)),
       requiredVipLevel: Number(pkg.requiredVipLevel || 0),
       maxPurchaseLimit: Number(pkg.maxPurchaseLimit || 0),
       isActive: pkg.isActive !== false,
@@ -238,8 +408,9 @@ export default function AdminPanel() {
     try {
       const bdt = Number(packageFormData.minInvestmentBdt) || 1200;
       const days = Number(packageFormData.durationDays) || 30;
-      const daily = Number(packageFormData.dailyReturnPercent) || 1.5;
-      const total = Number(packageFormData.totalReturnPercent) || Math.round(daily * days);
+      const dailyBdt = Number(packageFormData.dailyReturnBdt) || Math.round((bdt * Number(packageFormData.dailyReturnPercent || 2.0)) / 100);
+      const daily = Number(packageFormData.dailyReturnPercent) || (bdt > 0 ? Math.round((dailyBdt / bdt) * 1000) / 10 : 2.0);
+      const total = Number(packageFormData.totalReturnPercent) || Math.round((dailyBdt * days / bdt) * 100);
 
       const pkgToSave = {
         ...packageFormData,
@@ -248,6 +419,7 @@ export default function AdminPanel() {
         minInvestment: bdt,
         minInvestmentUsd: Number(packageFormData.minInvestmentUsd) || Math.round(bdt / 120),
         durationDays: days,
+        dailyReturnBdt: dailyBdt,
         dailyReturnPercent: daily,
         totalReturnPercent: total,
         requiredVipLevel: Number(packageFormData.requiredVipLevel) || 0,
@@ -411,16 +583,26 @@ export default function AdminPanel() {
           cleanUId,
           trxId || cleanDId,
           isApprove ? "completed" : "cancelled",
-          Number(amount) || 0
+          Number(amount) || 0,
+          cleanDId
         );
 
         if (isApprove) {
           try {
-            const targetUser = users.find((u) => u.id === userId || u.uid === userId);
+            const targetUser = users.find((u) => u.id === userId || u.uid === userId || (u.phone && String(u.phone).slice(-10) === String(cleanUId).slice(-10)));
             const userRefCode = targetUser?.referralCode || targetUser?.memberId || targetUser?.phone || userId;
-            distributeReferralDepositCommissions(userRefCode, Number(amount));
+
+            // Update deposit status in Firestore
+            const targetUserDoc = safeDoc("users", cleanUId);
+            if (targetUserDoc) {
+              await safeSetDoc(targetUserDoc, {
+                hasDeposited: true,
+                totalDeposited: increment(Number(amount) || 0),
+                updatedAt: new Date().toISOString()
+              }, { merge: true });
+            }
           } catch (commErr) {
-            console.warn("Commission distribution notice:", commErr);
+            console.warn("User deposit update notice:", commErr);
           }
         }
       }
@@ -579,6 +761,124 @@ export default function AdminPanel() {
     }
   };
 
+  // ফায়ারবেস ও ডাটাবেজের সকল অ্যাকাউন্ট ও রেফারেল ডাটা সম্পূর্ণ রিমুভ করার হ্যান্ডলার
+  const handlePurgeAllAccounts = async () => {
+    const confirm1 = window.confirm(
+      "⚠️ সতর্কবার্তা!\n\nআপনি কি নিশ্চিতভাবে ফায়ারবেস ও ডাটাবেজের সকল ইউজার অ্যাকাউন্ট, রেফারেল কোড ও ট্রানজেকশন সম্পূর্ণ মুছে ফেলতে চান?"
+    );
+    if (!confirm1) return;
+
+    const confirm2 = window.prompt("নিশ্চিত করতে নিচের বক্সে হুবহু 'DELETE ALL' টাইপ করুন:");
+    if (confirm2 !== "DELETE ALL") {
+      alert("সঠিকভাবে কনফার্ম করেননি। অপারেশন বাতিল করা হয়েছে।");
+      return;
+    }
+
+    setStatusMsg("ফায়ারবেস থেকে সকল একাউন্ট ও রেফারেল ডেটা রিমুভ করা হচ্ছে...");
+    try {
+      await fetch('/api/admin/purge-all-accounts', { method: 'POST' }).catch(() => {});
+
+      const collectionsToPurge = [
+        "users",
+        "registered_phones",
+        "phone_index",
+        "referral_nodes",
+        "deposits",
+        "transactions",
+        "withdrawals",
+        "investments",
+        "promo_claims",
+        "deleted_accounts"
+      ];
+
+      for (const col of collectionsToPurge) {
+        try {
+          const snap = await getDocs(collection(db, col));
+          for (const d of snap.docs) {
+            await deleteDoc(doc(db, col, d.id));
+          }
+        } catch (_) {}
+      }
+
+      try {
+        localStorage.removeItem("novavest_registered_accounts");
+        localStorage.removeItem("novaterra_referral_accounts_v3");
+        localStorage.removeItem("novavest_user");
+        localStorage.removeItem("nvt_user");
+      } catch (_) {}
+
+      setUsers([]);
+      setStatusMsg("✅ ফায়ারবেসের সকল ইউজার একাউন্ট ও রেফারেল কোড সফলভাবে সম্পূর্ণ রিমুভ করা হয়েছে!");
+      fetchAllData();
+    } catch (err) {
+      console.error("Purge error:", err);
+      setStatusMsg(`❌ রিমুভ করতে ত্রুটি: ${err?.message || "ব্যর্থ"}`);
+    }
+  };
+
+  // রেফার করার পারমিশন টগল ও লিমিট সেট করার হ্যান্ডলার
+  const handleToggleReferralPermission = async (userId, currentStatus, currentLimit = 5) => {
+    const cleanId = cleanDocId(userId, "");
+    if (!cleanId) return;
+    try {
+      const newStatus = !currentStatus;
+      const targetUserDoc = safeDoc("users", cleanId);
+      if (targetUserDoc) {
+        await safeSetDoc(targetUserDoc, {
+          canRefer: newStatus,
+          referralLimit: newStatus ? (Number(currentLimit) || 5) : 0,
+          updatedAt: new Date().toISOString()
+        }, { merge: true });
+      }
+
+      setUsers((prev) =>
+        prev.map((u) =>
+          u.id === cleanId || u.uid === cleanId
+            ? { ...u, canRefer: newStatus, referralLimit: newStatus ? (Number(currentLimit) || 5) : 0 }
+            : u
+        )
+      );
+
+      setStatusMsg(
+        newStatus
+          ? `✅ ইউজার "${cleanId}" কে সফলভাবে রেফার করার অনুমতি প্রদান করা হয়েছে (লিমিট: ${currentLimit || 5} জন)!`
+          : `🛑 ইউজার "${cleanId}" এর রেফার করার অনুমতি বাতিল করা হয়েছে!`
+      );
+    } catch (err) {
+      console.error("Referral permission update error:", err);
+      setStatusMsg("⚠️ রেফার পারমিশন পরিবর্তন করতে সমস্যা হয়েছে।");
+    }
+  };
+
+  const handleUpdateReferralLimit = async (userId, newLimit) => {
+    const cleanId = cleanDocId(userId, "");
+    if (!cleanId) return;
+    const numLimit = Math.max(0, parseInt(newLimit, 10) || 0);
+    try {
+      const targetUserDoc = safeDoc("users", cleanId);
+      if (targetUserDoc) {
+        await safeSetDoc(targetUserDoc, {
+          referralLimit: numLimit,
+          canRefer: numLimit > 0,
+          updatedAt: new Date().toISOString()
+        }, { merge: true });
+      }
+
+      setUsers((prev) =>
+        prev.map((u) =>
+          u.id === cleanId || u.uid === cleanId
+            ? { ...u, referralLimit: numLimit, canRefer: numLimit > 0 }
+            : u
+        )
+      );
+
+      setStatusMsg(`✅ ইউজার "${cleanId}" এর রেফার লিমিট ${numLimit} সেট করা হয়েছে!`);
+    } catch (err) {
+      console.error("Referral limit update error:", err);
+      setStatusMsg("⚠️ রেফার লিমিট পরিবর্তন করতে সমস্যা হয়েছে।");
+    }
+  };
+
   // ইউজার ফিল্টার বা সার্চ করার জন্য লজিক
   const filteredUsers = users.filter((u) => {
     const queryStr = userSearchQuery.toLowerCase();
@@ -630,6 +930,7 @@ export default function AdminPanel() {
         <button onClick={() => setActiveTab("support")} style={{ padding: "10px 18px", borderRadius: "6px", border: "none", cursor: "pointer", fontWeight: "bold", background: activeTab === "support" ? "#00d2ff" : "#161d2f", color: activeTab === "support" ? "#000" : "#fff" }}>📢 সাপোর্ট লিংক</button>
         <button onClick={() => setActiveTab("referral")} style={{ padding: "10px 18px", borderRadius: "6px", border: "none", cursor: "pointer", fontWeight: "bold", background: activeTab === "referral" ? "#00d2ff" : "#161d2f", color: activeTab === "referral" ? "#000" : "#fff" }}>🎁 রেফার বোনাস সেটাপ</button>
         <button onClick={() => setActiveTab("users")} style={{ padding: "10px 18px", borderRadius: "6px", border: "none", cursor: "pointer", fontWeight: "bold", background: activeTab === "users" ? "#00d2ff" : "#161d2f", color: activeTab === "users" ? "#000" : "#fff" }}>👥 ইউজার ও নেটওয়ার্ক ({users.length})</button>
+        <button onClick={() => setActiveTab("banners")} style={{ padding: "10px 18px", borderRadius: "6px", border: "none", cursor: "pointer", fontWeight: "bold", background: activeTab === "banners" ? "#00e676" : "#161d2f", color: activeTab === "banners" ? "#000" : "#fff" }}>🖼️ ছবি ও ব্যানার আপলোড ({charityBannersList.length})</button>
       </div>
 
       {/* Tab Content Area */}
@@ -665,12 +966,12 @@ export default function AdminPanel() {
                         <td style={{ padding: "10px", fontFamily: "monospace", color: "#38bdf8" }}>{d.trxId || d.transactionId || "N/A"}</td>
                         <td style={{ padding: "10px", color: "#22c55e", fontWeight: "bold" }}>৳ {d.amount || 0}</td>
                         <td style={{ padding: "10px" }}>
-                          <span style={{ padding: "4px 8px", borderRadius: "4px", fontSize: "12px", background: d.status === "Approved" ? "#14532d" : d.status === "Rejected" ? "#7f1d1d" : "#713f12" }}>
+                          <span style={{ padding: "4px 8px", borderRadius: "4px", fontSize: "12px", background: (d.status === "Approved" || d.status === "completed" || d.status?.toLowerCase() === "approved") ? "#14532d" : (d.status === "Rejected" || d.status === "failed" || d.status?.toLowerCase() === "rejected") ? "#7f1d1d" : "#713f12" }}>
                             {d.status || "Pending"}
                           </span>
                         </td>
                         <td style={{ padding: "10px", textAlign: "center" }}>
-                          {(!d.status || d.status === "Pending") ? (
+                          {(!d.status || d.status === "Pending" || d.status?.toLowerCase() === "pending") ? (
                             <div style={{ display: "flex", gap: "8px", justifyContent: "center" }}>
                               <button onClick={() => handleDepositAction(d.id, d.userId, d.amount, "approve", d.trxId || d.transactionId || d.id)} style={{ background: "#22c55e", color: "#fff", border: "none", padding: "5px 10px", borderRadius: "4px", cursor: "pointer", fontSize: "12px" }}>Approve</button>
                               <button onClick={() => handleDepositAction(d.id, d.userId, d.amount, "reject", d.trxId || d.transactionId || d.id)} style={{ background: "#dc3545", color: "#fff", border: "none", padding: "5px 10px", borderRadius: "4px", cursor: "pointer", fontSize: "12px" }}>Reject</button>
@@ -966,21 +1267,48 @@ export default function AdminPanel() {
                     </div>
 
                     <div>
-                      <label style={{ display: "block", marginBottom: "4px", fontSize: "13px", color: "#cbd5e1" }}>দৈনিক রিটার্ন (% Daily Return):</label>
+                      <label style={{ display: "block", marginBottom: "4px", fontSize: "13px", color: "#cbd5e1" }}>দৈনিক লাভ (টাকায় / Daily Return in ৳):</label>
+                      <input
+                        type="number"
+                        step="1"
+                        value={packageFormData.dailyReturnBdt !== undefined ? packageFormData.dailyReturnBdt : Math.round((Number(packageFormData.minInvestmentBdt || 1200) * Number(packageFormData.dailyReturnPercent || 2.0)) / 100)}
+                        onChange={(e) => {
+                          const dailyBdt = Number(e.target.value);
+                          const bdt = Number(packageFormData.minInvestmentBdt || 1200);
+                          const days = Number(packageFormData.durationDays || 30);
+                          const dailyPercent = bdt > 0 ? Math.round((dailyBdt / bdt) * 1000) / 10 : 2.0;
+                          setPackageFormData({
+                            ...packageFormData,
+                            dailyReturnBdt: dailyBdt,
+                            dailyReturnPercent: dailyPercent,
+                            totalReturnPercent: Math.round((dailyBdt * days / bdt) * 100),
+                          });
+                        }}
+                        placeholder="উদা: 24 (24৳)"
+                        style={{ width: "100%", padding: "9px", borderRadius: "6px", border: "1px solid #22c55e", background: "#020617", color: "#22c55e", fontWeight: "bold", fontSize: "15px", boxSizing: "border-box" }}
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label style={{ display: "block", marginBottom: "4px", fontSize: "13px", color: "#cbd5e1" }}>দৈনিক রিটার্ন শতাংশ (% Daily Return):</label>
                       <input
                         type="number"
                         step="0.05"
                         value={packageFormData.dailyReturnPercent}
                         onChange={(e) => {
                           const daily = Number(e.target.value);
+                          const bdt = Number(packageFormData.minInvestmentBdt || 1200);
                           const days = Number(packageFormData.durationDays || 30);
+                          const dailyBdt = Math.round((bdt * daily) / 100);
                           setPackageFormData({
                             ...packageFormData,
                             dailyReturnPercent: daily,
+                            dailyReturnBdt: dailyBdt,
                             totalReturnPercent: Math.round(daily * days * 10) / 10,
                           });
                         }}
-                        placeholder="উদা: 2.5"
+                        placeholder="উদা: 2.0"
                         style={{ width: "100%", padding: "9px", borderRadius: "6px", border: "1px solid #334155", background: "#020617", color: "#facc15", fontWeight: "bold", boxSizing: "border-box" }}
                         required
                       />
@@ -1160,9 +1488,9 @@ export default function AdminPanel() {
                   {/* লাইভ লাভ ক্যালকুলেশন প্রিভিউ */}
                   <div style={{ marginTop: "15px", padding: "12px", background: "#1e293b", borderRadius: "8px", border: "1px solid #334155", fontSize: "13px" }}>
                     <span style={{ color: "#38bdf8", fontWeight: "bold" }}>💡 প্রফিট প্রিভিউ: </span>
-                    ৳ {packageFormData.minInvestmentBdt} বিনিয়োগে দৈনিক লাভ ৳ {Math.round((Number(packageFormData.minInvestmentBdt) * Number(packageFormData.dailyReturnPercent)) / 100)} টাকা | 
-                    মোট {packageFormData.durationDays} দিনে লাভ ৳ {Math.round((Number(packageFormData.minInvestmentBdt) * Number(packageFormData.totalReturnPercent)) / 100)} টাকা 
-                    (মোট রিটার্ন: ৳ {Math.round(Number(packageFormData.minInvestmentBdt) + (Number(packageFormData.minInvestmentBdt) * Number(packageFormData.totalReturnPercent)) / 100)})
+                    ৳ {packageFormData.minInvestmentBdt} বিনিয়োগে দৈনিক লাভ <strong style={{ color: "#22c55e" }}>{packageFormData.dailyReturnBdt || Math.round((Number(packageFormData.minInvestmentBdt) * Number(packageFormData.dailyReturnPercent || 2.0)) / 100)}৳</strong> টাকা ({packageFormData.dailyReturnPercent}%) | 
+                    মোট {packageFormData.durationDays} দিনে লাভ <strong style={{ color: "#38bdf8" }}>৳ {((Number(packageFormData.dailyReturnBdt) || Math.round((Number(packageFormData.minInvestmentBdt) * Number(packageFormData.dailyReturnPercent || 2.0)) / 100)) * Number(packageFormData.durationDays || 30)).toLocaleString()}</strong> টাকা 
+                    (মোট রিটার্ন: ৳ {(Number(packageFormData.minInvestmentBdt || 1200) + ((Number(packageFormData.dailyReturnBdt) || Math.round((Number(packageFormData.minInvestmentBdt) * Number(packageFormData.dailyReturnPercent || 2.0)) / 100)) * Number(packageFormData.durationDays || 30))).toLocaleString()})
                   </div>
 
                   {/* সাবমিট বাটন */}
@@ -1215,9 +1543,11 @@ export default function AdminPanel() {
                   <tbody>
                     {packages.map((pkg) => {
                       const bdt = Number(pkg.minInvestmentBdt || pkg.minInvestment || 1200);
-                      const daily = Number(pkg.dailyReturnPercent || 1.5);
                       const days = Number(pkg.durationDays || 30);
-                      const total = Number(pkg.totalReturnPercent || Math.round(daily * days));
+                      const dailyBdt = Number(pkg.dailyReturnBdt) || Math.round((bdt * Number(pkg.dailyReturnPercent || 2.0)) / 100);
+                      const daily = Number(pkg.dailyReturnPercent || Math.round((dailyBdt / bdt) * 1000) / 10);
+                      const totalBdt = dailyBdt * days;
+                      const total = Number(pkg.totalReturnPercent || Math.round((totalBdt / bdt) * 100));
                       const isActive = pkg.isActive !== false;
 
                       return (
@@ -1243,12 +1573,12 @@ export default function AdminPanel() {
                             <div style={{ fontSize: "11px", color: "#94a3b8" }}>${pkg.minInvestmentUsd || Math.round(bdt / 120)}</div>
                           </td>
                           <td style={{ padding: "10px" }}>
-                            <div style={{ color: "#facc15", fontWeight: "bold" }}>{daily}% / দিন</div>
-                            <div style={{ fontSize: "12px", color: "#cbd5e1" }}>{days} দিন</div>
+                            <div style={{ color: "#22c55e", fontWeight: "bold", fontSize: "14px" }}>{dailyBdt}৳ / দিন</div>
+                            <div style={{ fontSize: "12px", color: "#cbd5e1" }}>{days} দিন ({daily}%)</div>
                           </td>
                           <td style={{ padding: "10px" }}>
-                            <div style={{ color: "#38bdf8", fontWeight: "bold" }}>{total}%</div>
-                            <div style={{ fontSize: "11px", color: "#94a3b8" }}>৳ {Math.round((bdt * total) / 100)} লাভ</div>
+                            <div style={{ color: "#38bdf8", fontWeight: "bold", fontSize: "14px" }}>৳ {totalBdt.toLocaleString()}</div>
+                            <div style={{ fontSize: "11px", color: "#94a3b8" }}>{total}% লাভ</div>
                           </td>
                           <td style={{ padding: "10px" }}>
                             <div style={{ fontSize: "12px", color: (pkg.requiredVipLevel || 0) > 0 ? "#facc15" : "#a7f3d0" }}>
@@ -1575,11 +1905,31 @@ export default function AdminPanel() {
 
             {/* ইউজার সার্চ ও হেডার বার */}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px", marginBottom: "15px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
                 <h3 style={{ margin: 0 }}>👥 ইউজার তালিকা ও নেটওয়ার্ক</h3>
                 <span style={{ fontSize: "12px", padding: "3px 8px", background: "#1e293b", color: "#38bdf8", borderRadius: "12px", border: "1px solid #334155" }}>
                   মোট: {users.length} জন
                 </span>
+                <button
+                  type="button"
+                  onClick={handlePurgeAllAccounts}
+                  style={{
+                    padding: "5px 12px",
+                    background: "rgba(220, 38, 38, 0.2)",
+                    color: "#fca5a5",
+                    border: "1px solid rgba(239, 68, 68, 0.4)",
+                    borderRadius: "6px",
+                    fontSize: "12px",
+                    fontWeight: "bold",
+                    cursor: "pointer",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "4px"
+                  }}
+                  title="ফায়ারবেস ও ডাটাবেজের সকল অ্যাকাউন্ট এবং রেফারেল কোড রিসেট করুন"
+                >
+                  ⚠️ সকল অ্যাকাউন্ট রিমুভ (Reset All)
+                </button>
               </div>
               <input
                 type="text"
@@ -1597,9 +1947,10 @@ export default function AdminPanel() {
                 <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "14px" }}>
                   <thead>
                     <tr style={{ borderBottom: "1px solid #2e3856", color: "#94a3b8" }}>
-                      <th style={{ padding: "10px" }}>নাম / ফোন</th>
+                      <th style={{ padding: "10px" }}>নাম / ফোন / স্ট্যাটাস</th>
                       <th style={{ padding: "10px" }}>ব্যালেন্স</th>
                       <th style={{ padding: "10px" }}>রেফার / আপলাইনার</th>
+                      <th style={{ padding: "10px" }}>রেফার পারমিশন ও লিমিট</th>
                       <th style={{ padding: "10px" }}>ইউজার আইডি (UID)</th>
                       <th style={{ padding: "10px", textAlign: "center" }}>অ্যাকশন</th>
                     </tr>
@@ -1608,11 +1959,32 @@ export default function AdminPanel() {
                     {filteredUsers.map((u) => {
                       const isBeingDeleted = deletingUserId === u.id;
                       const isIdCopied = copiedId === u.id;
+                      const userCanRefer = !!u.canRefer;
+                      const userLimit = u.referralLimit !== undefined ? Number(u.referralLimit) : (userCanRefer ? 5 : 0);
+                      const isUserActive = (Array.isArray(u.activeInvestments) && u.activeInvestments.length > 0) || Number(u.totalInvested || 0) > 0;
+                      const userReferredCount = users.filter((x) =>
+                        x.referredBy &&
+                        (x.referredBy === u.referralCode ||
+                         x.referredBy === u.memberId ||
+                         x.referredBy === u.id ||
+                         (u.phone && x.referredBy === u.phone))
+                      ).length;
 
                       return (
                         <tr key={u.id} style={{ borderBottom: "1px solid #1e293b", backgroundColor: isBeingDeleted ? "rgba(220, 38, 38, 0.15)" : "transparent" }}>
                           <td style={{ padding: "10px" }}>
-                            <div style={{ fontWeight: "bold", color: "#00d2ff" }}>{u.name || "N/A"}</div>
+                            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                              <span style={{ fontWeight: "bold", color: "#00d2ff" }}>{u.name || "N/A"}</span>
+                              {isUserActive ? (
+                                <span style={{ padding: "1px 6px", borderRadius: "4px", fontSize: "10px", fontWeight: "bold", background: "#052e16", color: "#4ade80", border: "1px solid #166534" }}>
+                                  একটিভ
+                                </span>
+                              ) : (
+                                <span style={{ padding: "1px 6px", borderRadius: "4px", fontSize: "10px", fontWeight: "bold", background: "#3b2204", color: "#facc15", border: "1px solid #854d0e" }}>
+                                  ফ্রি আইডি
+                                </span>
+                              )}
+                            </div>
                             <div style={{ fontSize: "12px", color: "#94a3b8" }}>{u.phone || u.email || "N/A"}</div>
                             {u.memberId && (
                               <div style={{ fontSize: "11px", color: "#64748b" }}>মেম্বার আইডি: {u.memberId}</div>
@@ -1623,6 +1995,81 @@ export default function AdminPanel() {
                           </td>
                           <td style={{ padding: "10px", color: "#facc15", fontSize: "13px" }}>
                             {u.referredBy || u.upliner || u.sponsor || "কেউ না (Direct)"}
+                          </td>
+                          <td style={{ padding: "10px" }}>
+                            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                <span
+                                  style={{
+                                    padding: "2px 8px",
+                                    borderRadius: "12px",
+                                    fontSize: "11px",
+                                    fontWeight: "bold",
+                                    backgroundColor: userCanRefer ? "rgba(34, 197, 94, 0.15)" : "rgba(239, 68, 68, 0.15)",
+                                    color: userCanRefer ? "#4ade80" : "#f87171",
+                                    border: `1px solid ${userCanRefer ? "rgba(34, 197, 94, 0.4)" : "rgba(239, 68, 68, 0.4)"}`,
+                                  }}
+                                >
+                                  {userCanRefer ? "✓ অনুমোদিত" : "✕ অননুমোদিত"}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleReferralPermission(u.id, userCanRefer, userLimit || 5)}
+                                  style={{
+                                    padding: "3px 8px",
+                                    fontSize: "11px",
+                                    borderRadius: "4px",
+                                    border: "none",
+                                    cursor: "pointer",
+                                    fontWeight: "bold",
+                                    backgroundColor: userCanRefer ? "#dc2626" : "#16a34a",
+                                    color: "#fff"
+                                  }}
+                                  title={userCanRefer ? "রেফার পারমিশন বাতিল করুন" : "রেফার পারমিশন অনুমোদন দিন"}
+                                >
+                                  {userCanRefer ? "অনুমতি বাতিল" : "অনুমতি দিন"}
+                                </button>
+                              </div>
+
+                              <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", color: "#cbd5e1" }}>
+                                <span>লিমিট:</span>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max="10000"
+                                  defaultValue={userLimit}
+                                  onBlur={(e) => {
+                                    const val = parseInt(e.target.value, 10);
+                                    if (!isNaN(val) && val !== userLimit) {
+                                      handleUpdateReferralLimit(u.id, val);
+                                    }
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
+                                      const val = parseInt(e.target.value, 10);
+                                      if (!isNaN(val)) {
+                                        handleUpdateReferralLimit(u.id, val);
+                                      }
+                                    }
+                                  }}
+                                  style={{
+                                    width: "55px",
+                                    padding: "2px 6px",
+                                    borderRadius: "4px",
+                                    backgroundColor: "#0b0f19",
+                                    border: "1px solid #3b476c",
+                                    color: "#00d2ff",
+                                    fontSize: "12px",
+                                    fontWeight: "bold",
+                                    textAlign: "center"
+                                  }}
+                                  title="লিমিট টাইপ করে বাইরে ক্লিক করুন বা এন্টার চাপুন"
+                                />
+                                <span style={{ fontSize: "11px", color: "#94a3b8" }}>
+                                  (রেফার: <strong style={{ color: userReferredCount >= userLimit && userLimit > 0 ? "#f87171" : "#4ade80" }}>{userReferredCount}</strong>/{userLimit > 0 ? userLimit : "অসীম"})
+                                </span>
+                              </div>
+                            </div>
                           </td>
                           <td style={{ padding: "10px" }}>
                             <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
@@ -1679,6 +2126,435 @@ export default function AdminPanel() {
                     })}
                   </tbody>
                 </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ৮. ব্যানার ও ছবি আপলোড ট্যাব */}
+        {activeTab === "banners" && (
+          <div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "15px", flexWrap: "wrap", gap: "10px" }}>
+              <div>
+                <h3 style={{ margin: "0 0 4px 0", color: "#00e676", fontSize: "18px" }}>
+                  🖼️ দাতব্য প্রতিষ্ঠান ও হোমপেজ ব্যানার আপলোড (Charity & Site Banners)
+                </h3>
+                <p style={{ margin: 0, fontSize: "13px", color: "#94a3b8" }}>
+                  এখানে ছবি আপলোড করলে তা স্বয়ংক্রিয়ভাবে অ্যাপের হোমপেজে <strong>"দাতব্য প্রতিষ্ঠান"</strong> স্লাইডার ব্যানারে প্রদর্শিত হবে।
+                </p>
+              </div>
+              <div style={{ display: "flex", gap: "8px" }}>
+                <button
+                  type="button"
+                  onClick={fetchCharityBanners}
+                  style={{ padding: "8px 14px", backgroundColor: "#1e293b", color: "#fff", border: "1px solid #334155", borderRadius: "6px", cursor: "pointer", fontWeight: "bold" }}
+                >
+                  🔄 রিফ্রেশ
+                </button>
+                {charityBannersList.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleClearAllCharityBanners}
+                    style={{ padding: "8px 14px", backgroundColor: "#7f1d1d", color: "#fca5a5", border: "1px solid #991b1b", borderRadius: "6px", cursor: "pointer", fontWeight: "bold" }}
+                  >
+                    🗑️ সব ছবি রিমুভ করুন
+                  </button>
+                )}
+                <a
+                  href="/"
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{ padding: "8px 14px", backgroundColor: "#065f46", color: "#a7f3d0", border: "1px solid #059669", borderRadius: "6px", cursor: "pointer", fontWeight: "bold", textDecoration: "none", display: "inline-flex", alignItems: "center" }}
+                >
+                  🔗 হোমপেজে দেখুন
+                </a>
+              </div>
+            </div>
+
+            {/* আপলোড কার্ড */}
+            <div style={{ background: "#0b1329", border: "1px solid #1e293b", borderRadius: "10px", padding: "20px", marginBottom: "25px" }}>
+              <h4 style={{ margin: "0 0 15px 0", color: "#fff", fontSize: "15px" }}>
+                ➕ নতুন ছবি আপলোড করুন
+              </h4>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: "15px" }}>
+                {/* ড্র্যাগ অ্যান্ড ড্রপ ফাইল পিকার */}
+                <div
+                  onDragOver={(e) => { e.preventDefault(); setBannerDragActive(true); }}
+                  onDragLeave={() => setBannerDragActive(false)}
+                  onDrop={async (e) => {
+                    e.preventDefault();
+                    setBannerDragActive(false);
+                    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                      const file = e.dataTransfer.files[0];
+                      setBannerSelectedFile(file);
+                      const preview = URL.createObjectURL(file);
+                      setBannerPreviewSrc(preview);
+                    }
+                  }}
+                  onClick={() => bannerFileInputRef.current && bannerFileInputRef.current.click()}
+                  style={{
+                    border: bannerDragActive ? "2px dashed #00e676" : "2px dashed #334155",
+                    backgroundColor: bannerDragActive ? "rgba(0, 230, 118, 0.08)" : "#0f172a",
+                    borderRadius: "10px",
+                    padding: "30px 20px",
+                    textAlign: "center",
+                    cursor: "pointer",
+                    transition: "all 0.2s ease"
+                  }}
+                >
+                  <input
+                    ref={bannerFileInputRef}
+                    type="file"
+                    accept="image/*"
+                    style={{ display: "none" }}
+                    onChange={(e) => {
+                      if (e.target.files && e.target.files[0]) {
+                        const file = e.target.files[0];
+                        setBannerSelectedFile(file);
+                        const preview = URL.createObjectURL(file);
+                        setBannerPreviewSrc(preview);
+                      }
+                    }}
+                  />
+                  <div style={{ fontSize: "36px", marginBottom: "8px" }}>📁</div>
+                  <p style={{ margin: "0 0 5px 0", fontWeight: "bold", color: "#e2e8f0" }}>
+                    মোবাইল বা কম্পিউটার থেকে ছবি নির্বাচন করতে এখানে ক্লিক করুন
+                  </p>
+                  <p style={{ margin: 0, fontSize: "12px", color: "#64748b" }}>
+                    সাপোর্টেড ফরম্যাট: JPG, PNG, WEBP (সর্বোচ্চ সাইজ স্বয়ংক্রিয়ভাবে অপটিমাইজ হবে)
+                  </p>
+
+                  {/* সিলেক্টেড ফাইল প্রিভিউ */}
+                  {bannerPreviewSrc && (
+                    <div style={{ marginTop: "15px", display: "inline-block", position: "relative" }} onClick={(e) => e.stopPropagation()}>
+                      <img
+                        src={bannerPreviewSrc}
+                        alt="Preview"
+                        style={{ maxHeight: "150px", maxWidth: "100%", borderRadius: "8px", border: "2px solid #00e676" }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setBannerSelectedFile(null);
+                          setBannerPreviewSrc("");
+                          if (bannerFileInputRef.current) bannerFileInputRef.current.value = "";
+                        }}
+                        style={{
+                          position: "absolute",
+                          top: "-8px",
+                          right: "-8px",
+                          background: "#dc2626",
+                          color: "#fff",
+                          border: "none",
+                          borderRadius: "50%",
+                          width: "24px",
+                          height: "24px",
+                          cursor: "pointer",
+                          fontWeight: "bold",
+                          lineHeight: "24px",
+                          padding: 0
+                        }}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* অপশনাল: ছবির শিরোনাম ও সরাসরি অনলাইন URL */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                  <div>
+                    <label style={{ display: "block", fontSize: "12px", color: "#94a3b8", marginBottom: "5px" }}>
+                      ছবির শিরোনাম / বিবরণ (ঐচ্ছিক):
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="যেমন: শীতবস্ত্র বিতরণ ও ত্রাণ সহায়তা"
+                      value={bannerTitleInput}
+                      onChange={(e) => setBannerTitleInput(e.target.value)}
+                      style={{
+                        width: "100%",
+                        padding: "10px",
+                        backgroundColor: "#0f172a",
+                        border: "1px solid #334155",
+                        borderRadius: "6px",
+                        color: "#fff",
+                        boxSizing: "border-box"
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: "12px", color: "#94a3b8", marginBottom: "5px" }}>
+                      অথবা অনলাইন ইমেজ লিংক (URL):
+                    </label>
+                    <input
+                      type="url"
+                      placeholder="https://example.com/photo.jpg"
+                      value={bannerUrlInput}
+                      onChange={(e) => setBannerUrlInput(e.target.value)}
+                      style={{
+                        width: "100%",
+                        padding: "10px",
+                        backgroundColor: "#0f172a",
+                        border: "1px solid #334155",
+                        borderRadius: "6px",
+                        color: "#fff",
+                        boxSizing: "border-box"
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {/* সাবমিট বাটন */}
+                <div>
+                  <button
+                    type="button"
+                    disabled={bannerUploading || (!bannerSelectedFile && !bannerUrlInput.trim())}
+                    onClick={() => {
+                      if (bannerSelectedFile) {
+                        handleUploadCharityBanner(bannerSelectedFile, bannerTitleInput);
+                      } else if (bannerUrlInput.trim()) {
+                        handleUploadCharityBanner(bannerUrlInput.trim(), bannerTitleInput);
+                      }
+                    }}
+                    style={{
+                      width: "100%",
+                      padding: "12px",
+                      backgroundColor: bannerUploading || (!bannerSelectedFile && !bannerUrlInput.trim()) ? "#475569" : "#00c853",
+                      color: "#fff",
+                      border: "none",
+                      borderRadius: "6px",
+                      cursor: bannerUploading || (!bannerSelectedFile && !bannerUrlInput.trim()) ? "not-allowed" : "pointer",
+                      fontWeight: "bold",
+                      fontSize: "14px",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: "8px",
+                      transition: "background 0.2s ease"
+                    }}
+                  >
+                    {bannerUploading ? "⏳ আপলোড হচ্ছে... অনুগ্রহ করে অপেক্ষা করুন" : "📤 ছবি আপলোড ও হোমপেজে প্রকাশ করুন"}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* আপলোড করা ছবিসমূহের গ্যালারি */}
+            <div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+                <h4 style={{ margin: 0, color: "#fff", fontSize: "15px" }}>
+                  🖼️ বর্তমানে হোমপেজে সক্রিয় ছবি সমূহ ({charityBannersList.length}টি)
+                </h4>
+                <span style={{ fontSize: "12px", color: "#64748b" }}>
+                  হোমপেজের "দাতব্য প্রতিষ্ঠান" স্লাইডারে ক্রমানুসারে প্রদর্শিত হবে
+                </span>
+              </div>
+
+              {charityBannersList.length === 0 ? (
+                <div style={{ background: "#0b1329", border: "1px dashed #334155", borderRadius: "10px", padding: "40px 20px", textAlign: "center" }}>
+                  <div style={{ fontSize: "40px", marginBottom: "10px" }}>📷</div>
+                  <h4 style={{ margin: "0 0 6px 0", color: "#e2e8f0" }}>এখনো কোনো ছবি আপলোড করা হয়নি</h4>
+                  <p style={{ margin: 0, fontSize: "13px", color: "#64748b" }}>
+                    উপরের আপলোড বক্স থেকে আপনার ছবি যুক্ত করুন। আপলোড করার সাথে সাথে হোমপেজে স্বয়ংক্রিয়ভাবে স্লাইডার চালু হবে।
+                  </p>
+                </div>
+              ) : (
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "16px" }}>
+                  {charityBannersList.map((banner, index) => {
+                    const isActive = banner.isActive !== false;
+                    return (
+                      <div
+                        key={banner.id || index}
+                        style={{
+                          background: "#0f172a",
+                          border: isActive ? "1px solid #10b981" : "1px solid #334155",
+                          borderRadius: "10px",
+                          overflow: "hidden",
+                          display: "flex",
+                          flexDirection: "column",
+                          boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.3)"
+                        }}
+                      >
+                        {/* ইমেজ প্রিভিউ ফ্রেম */}
+                        <div
+                          style={{
+                            position: "relative",
+                            width: "100%",
+                            height: "170px",
+                            backgroundColor: "#020617",
+                            overflow: "hidden",
+                            cursor: "pointer"
+                          }}
+                          onClick={() => setPreviewingBannerImg(banner.image)}
+                          title="বড় আকারে প্রিভিউ দেখতে ক্লিক করুন"
+                        >
+                          <img
+                            src={banner.image}
+                            alt={banner.title || "Charity Banner"}
+                            style={{
+                              width: "100%",
+                              height: "100%",
+                              objectFit: "cover",
+                              objectPosition: "center",
+                              opacity: isActive ? 1 : 0.4
+                            }}
+                            onError={(e) => {
+                              e.currentTarget.src = "/images/energy-hero.jpg";
+                            }}
+                          />
+                          <div
+                            style={{
+                              position: "absolute",
+                              top: "8px",
+                              left: "8px",
+                              background: "rgba(0,0,0,0.75)",
+                              color: "#00e676",
+                              fontSize: "11px",
+                              fontWeight: "bold",
+                              padding: "2px 8px",
+                              borderRadius: "4px",
+                              fontFamily: "monospace"
+                            }}
+                          >
+                            #{index + 1}
+                          </div>
+                          <div
+                            style={{
+                              position: "absolute",
+                              top: "8px",
+                              right: "8px",
+                              background: isActive ? "rgba(16, 185, 129, 0.9)" : "rgba(100, 116, 139, 0.9)",
+                              color: "#fff",
+                              fontSize: "10px",
+                              fontWeight: "bold",
+                              padding: "2px 6px",
+                              borderRadius: "4px"
+                            }}
+                          >
+                            {isActive ? "✓ সক্রিয়" : "✕ নিষ্ক্রিয়"}
+                          </div>
+                        </div>
+
+                        {/* কার্ড বডি ও কন্ট্রোল */}
+                        <div style={{ padding: "12px", flex: 1, display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+                          <div style={{ marginBottom: "10px" }}>
+                            <div style={{ fontWeight: "bold", fontSize: "14px", color: "#f8fafc", marginBottom: "4px" }}>
+                              {banner.title || "শিরোনামহীন ছবি"}
+                            </div>
+                            <div style={{ fontSize: "11px", color: "#64748b" }}>
+                              আপলোড: {banner.createdAt ? new Date(banner.createdAt).toLocaleDateString('en-GB') : "আজ"}
+                            </div>
+                          </div>
+
+                          <div style={{ display: "flex", gap: "6px" }}>
+                            <button
+                              type="button"
+                              onClick={() => setPreviewingBannerImg(banner.image)}
+                              style={{
+                                flex: 1,
+                                padding: "6px",
+                                backgroundColor: "#1e293b",
+                                color: "#94a3b8",
+                                border: "1px solid #334155",
+                                borderRadius: "4px",
+                                cursor: "pointer",
+                                fontSize: "12px",
+                                fontWeight: "bold"
+                              }}
+                            >
+                              👁️ প্রিভিউ
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleToggleCharityBannerActive(banner.id)}
+                              style={{
+                                flex: 1,
+                                padding: "6px",
+                                backgroundColor: isActive ? "#064e3b" : "#334155",
+                                color: isActive ? "#6ee7b7" : "#cbd5e1",
+                                border: "none",
+                                borderRadius: "4px",
+                                cursor: "pointer",
+                                fontSize: "12px",
+                                fontWeight: "bold"
+                              }}
+                            >
+                              {isActive ? "অন" : "অফ"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteCharityBanner(banner.id)}
+                              style={{
+                                padding: "6px 10px",
+                                backgroundColor: "#dc2626",
+                                color: "#fff",
+                                border: "none",
+                                borderRadius: "4px",
+                                cursor: "pointer",
+                                fontSize: "12px",
+                                fontWeight: "bold"
+                              }}
+                              title="ছবিটি সম্পূর্ণ মুছে ফেলুন"
+                            >
+                              🗑️
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* ফুলস্ক্রিন ইমেজ প্রিভিউ পপআপ */}
+            {previewingBannerImg && (
+              <div
+                style={{
+                  position: "fixed",
+                  inset: 0,
+                  backgroundColor: "rgba(0,0,0,0.85)",
+                  backdropFilter: "blur(4px)",
+                  zIndex: 9999,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  padding: "20px"
+                }}
+                onClick={() => setPreviewingBannerImg(null)}
+              >
+                <div style={{ position: "relative", maxWidth: "90vw", maxHeight: "90vh" }} onClick={(e) => e.stopPropagation()}>
+                  <img
+                    src={previewingBannerImg}
+                    alt="Enlarged Banner"
+                    style={{ maxWidth: "100%", maxHeight: "85vh", borderRadius: "10px", border: "2px solid #00e676" }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setPreviewingBannerImg(null)}
+                    style={{
+                      position: "absolute",
+                      top: "-12px",
+                      right: "-12px",
+                      background: "#ef4444",
+                      color: "#fff",
+                      border: "none",
+                      borderRadius: "50%",
+                      width: "32px",
+                      height: "32px",
+                      cursor: "pointer",
+                      fontWeight: "bold",
+                      fontSize: "16px",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center"
+                    }}
+                  >
+                    ✕
+                  </button>
+                </div>
               </div>
             )}
           </div>

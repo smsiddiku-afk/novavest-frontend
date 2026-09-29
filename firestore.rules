@@ -88,5 +88,13 @@ service cloud.firestore {
     match /deleted_accounts/{accountId} {
       allow read, write: if true;
     }
+
+    match /referrals/{referralId} {
+      allow read, write: if true;
+    }
+
+    match /registered_accounts/{accountId} {
+      allow read, write: if true;
+    }
   }
 }

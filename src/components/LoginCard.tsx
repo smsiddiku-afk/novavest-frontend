@@ -1,16 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
-  Phone,
   Mail,
   Lock,
   Eye,
   EyeOff,
-  ChevronDown,
   Globe,
   AlertCircle,
   CheckCircle2,
   X,
   KeyRound,
+  LogIn,
 } from 'lucide-react';
 import { Language } from '../types';
 import { signInWithFirebase, sendFirebasePasswordReset } from '../utils/authService';
@@ -29,16 +28,12 @@ export const LoginCard: React.FC<LoginCardProps> = ({
   onToggleLang,
 }) => {
   const [lang, setLang] = useState<Language>(currentLang);
-  const [loginMode, setLoginMode] = useState<'phone' | 'email'>('phone');
-  const [countryCode, setCountryCode] = useState('+880');
-  const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [errors, setErrors] = useState<{ phone?: string; email?: string; password?: string }>({});
+  const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
   const [generalError, setGeneralError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [showCountryDropdown, setShowCountryDropdown] = useState(false);
   const [showForgotModal, setShowForgotModal] = useState(false);
   const [resetInput, setResetInput] = useState('');
   const [resetLoading, setResetLoading] = useState(false);
@@ -51,25 +46,26 @@ export const LoginCard: React.FC<LoginCardProps> = ({
   };
 
   const validateForm = (): boolean => {
-    const newErrors: { phone?: string; email?: string; password?: string } = {};
+    const newErrors: { email?: string; password?: string } = {};
+    const cleanEmail = email.trim();
 
-    if (loginMode === 'phone') {
-      if (!phone.trim()) {
-        newErrors.phone = lang === 'bn' ? 'আপনার ফোন নম্বর লিখুন' : 'Enter your phone number';
-      } else if (phone.trim().length < 8) {
-        newErrors.phone = lang === 'bn' ? 'সঠিক ফোন নম্বর দিন' : 'Enter a valid phone number';
-      }
-    } else {
-      if (!email.trim()) {
-        newErrors.email = lang === 'bn' ? 'আপনার ইমেল ঠিকানা লিখুন' : 'Enter your email address';
-      } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
-        newErrors.email = lang === 'bn' ? 'সঠিক ইমেল ঠিকানা লিখুন' : 'Enter a valid email address';
+    if (!cleanEmail) {
+      newErrors.email = lang === 'bn' ? 'আপনার নিবন্ধিত ইমেইল এড্রেস লিখুন' : 'Please enter your registered email address';
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+      if (/^[0-9+() -]{6,}$/.test(cleanEmail)) {
+        newErrors.email =
+          lang === 'bn'
+            ? 'ফোন নম্বর দিয়ে লগইন প্রযোজ্য নয়। রেজিস্ট্রেশনের সময় ব্যবহৃত ইমেইল এড্রেস দিয়ে লগইন করুন।'
+            : 'Phone login is disabled. Please sign in with your registered email address.';
+      } else {
+        newErrors.email =
+          lang === 'bn' ? 'সঠিক ইমেইল এড্রেস লিখুন' : 'Please enter a valid email address';
       }
     }
 
     if (!password) {
       newErrors.password = lang === 'bn' ? 'পাসওয়ার্ড লিখুন' : 'Enter password';
-    } else if (password.length < 6) {
+    } else if (password.trim().length < 6) {
       newErrors.password =
         lang === 'bn'
           ? 'পাসওয়ার্ড অন্তত ৬ অক্ষরের হতে হবে'
@@ -87,36 +83,21 @@ export const LoginCard: React.FC<LoginCardProps> = ({
 
     setIsSubmitting(true);
     try {
-      let identifier = email.trim();
-      if (loginMode === 'phone') {
-        const rawDigits = phone.trim().replace(/\D/g, '');
-        const last10 = rawDigits.slice(-10);
-        if (countryCode === '+880') {
-          identifier = `+880 ${last10}`;
-        } else {
-          identifier = `${countryCode} ${rawDigits.replace(/^0+/, '')}`;
-        }
-      } else {
-        const cleanVal = email.trim();
-        if (!cleanVal.includes('@')) {
-          const rawDigits = cleanVal.replace(/\D/g, '');
-          const last10 = rawDigits.slice(-10);
-          if (last10.length === 10) {
-            identifier = `+880 ${last10}`;
-          }
-        }
-      }
-
-      const result = await signInWithFirebase(identifier, password, lang);
+      const cleanEmail = email.trim().toLowerCase();
+      const cleanPassword = password.trim();
+      const result = await signInWithFirebase(cleanEmail, cleanPassword, lang);
 
       if (result.success && result.user) {
         setGeneralError(null);
         setIsSubmitting(false);
-        onLoginSuccess(identifier);
+        onLoginSuccess(cleanEmail);
       } else {
         setIsSubmitting(false);
         setGeneralError(
-          result.error || (lang === 'bn' ? 'লগইন ব্যর্থ হয়েছে।' : 'Login failed. Please try again.')
+          result.error ||
+            (lang === 'bn'
+              ? 'ইমেইল অথবা পাসওয়ার্ড সঠিক নয়। অনুগ্রহ করে পুনরায় চেষ্টা করুন।'
+              : 'Invalid email or password. Please try again.')
         );
       }
     } catch (err: any) {
@@ -128,18 +109,21 @@ export const LoginCard: React.FC<LoginCardProps> = ({
   };
 
   const handleOpenForgotModal = () => {
-    const defaultVal = loginMode === 'phone' ? phone.trim() : email.trim();
-    setResetInput(defaultVal);
+    setResetInput(email.trim());
     setResetStatus(null);
     setShowForgotModal(true);
   };
 
   const handleSendReset = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!resetInput.trim()) {
+    const cleanEmail = resetInput.trim();
+    if (!cleanEmail || !cleanEmail.includes('@')) {
       setResetStatus({
         type: 'error',
-        message: lang === 'bn' ? 'অনুগ্রহ করে ইমেইল বা ফোন নম্বর দিন।' : 'Please enter email or phone number.',
+        message:
+          lang === 'bn'
+            ? 'পাসওয়ার্ড রিসেট করতে অনুগ্রহ করে সঠিক ইমেইল এড্রেস লিখুন।'
+            : 'Please enter a valid email address to reset password.',
       });
       return;
     }
@@ -147,7 +131,7 @@ export const LoginCard: React.FC<LoginCardProps> = ({
     setResetLoading(true);
     setResetStatus(null);
 
-    const res = await sendFirebasePasswordReset(resetInput.trim(), lang);
+    const res = await sendFirebasePasswordReset(cleanEmail, lang);
     setResetLoading(false);
     if (res.success) {
       setResetStatus({ type: 'success', message: res.message });
@@ -157,14 +141,13 @@ export const LoginCard: React.FC<LoginCardProps> = ({
   };
 
   const t = {
-    signIn: lang === 'bn' ? 'সাইন ইন' : 'Sign In',
+    signIn: lang === 'bn' ? 'ইমেইল লগইন' : 'Email Sign In',
     signUp: lang === 'bn' ? 'সাইন আপ' : 'Sign Up',
     langLabel: lang === 'bn' ? 'English' : 'বাংলা',
-    byPhone: lang === 'bn' ? 'ফোন নম্বর' : 'Phone Number',
-    byEmail: lang === 'bn' ? 'ইমেইল এড্রেস' : 'Email Address',
-    phonePlaceholder: lang === 'bn' ? 'আপনার ফোন নম্বর লিখুন' : 'Enter your phone number',
-    emailPlaceholder: lang === 'bn' ? 'আপনার ইমেল এড্রেস লিখুন' : 'Enter your email address',
-    passwordPlaceholder: lang === 'bn' ? 'পাসওয়ার্ড লিখুন' : 'Enter password',
+    emailLabel: lang === 'bn' ? 'ইমেইল' : 'Email',
+    emailPlaceholder: lang === 'bn' ? 'ইমেইল' : 'Email',
+    passwordLabel: lang === 'bn' ? 'পাসওয়ার্ড' : 'Password',
+    passwordPlaceholder: lang === 'bn' ? 'পাসওয়ার্ড' : 'Password',
     loginBtn: lang === 'bn' ? 'সাইন ইন করুন' : 'Sign In',
     forgotPassword: lang === 'bn' ? 'পাসওয়ার্ড ভুলে গেছেন?' : 'Forgot password?',
   };
@@ -172,18 +155,19 @@ export const LoginCard: React.FC<LoginCardProps> = ({
   return (
     <div
       id="login-card"
-      className="w-full max-w-[460px] mx-auto bg-[#062a1f]/95 backdrop-blur-2xl rounded-[22px] sm:rounded-[26px] p-3.5 sm:p-5 shadow-[0_20px_50px_-12px_rgba(0,0,0,0.7),0_0_30px_rgba(16,185,129,0.14)] border border-emerald-500/30 transition-all duration-300"
+      className="w-full max-w-[440px] mx-auto bg-[#08362b]/95 backdrop-blur-2xl rounded-[22px] sm:rounded-[26px] p-4 sm:p-6 shadow-[0_20px_50px_-12px_rgba(0,0,0,0.6),0_0_30px_rgba(16,185,129,0.12)] border border-emerald-500/25 transition-all duration-300"
     >
       {/* Top Bar: Tabs & Language Pill */}
-      <div className="flex items-center justify-between pb-2 sm:pb-3 mb-1.5 sm:mb-2 border-b border-emerald-500/20">
+      <div className="flex items-center justify-between pb-2 sm:pb-3 mb-3 border-b border-emerald-500/20">
         <div className="flex items-center gap-5 sm:gap-7">
           <button
             type="button"
             id="tab-sign-in"
             onClick={() => setGeneralError(null)}
-            className="relative pb-1 text-base sm:text-lg font-bold text-emerald-400 transition-colors cursor-pointer"
+            className="relative pb-1 text-base sm:text-lg font-black text-emerald-400 transition-colors cursor-pointer flex items-center gap-2"
           >
-            {t.signIn}
+            <LogIn className="w-4 h-4 text-emerald-400 stroke-[2.5]" />
+            <span>{t.signIn}</span>
             <span className="absolute bottom-0 left-0 right-0 h-1 bg-emerald-400 rounded-full shadow-[0_0_12px_rgba(52,211,153,0.8)]" />
           </button>
 
@@ -191,7 +175,7 @@ export const LoginCard: React.FC<LoginCardProps> = ({
             type="button"
             id="tab-sign-up"
             onClick={onSwitchToRegister}
-            className="relative pb-1 text-base sm:text-lg font-medium text-emerald-100/60 hover:text-emerald-200 transition-colors cursor-pointer"
+            className="relative pb-1 text-base sm:text-lg font-bold text-emerald-100/60 hover:text-emerald-200 transition-colors cursor-pointer"
           >
             {t.signUp}
           </button>
@@ -201,202 +185,118 @@ export const LoginCard: React.FC<LoginCardProps> = ({
           type="button"
           id="lang-toggle-btn"
           onClick={handleLangToggle}
-          className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#041c14] hover:bg-[#06241b] text-emerald-300 text-xs font-medium border border-emerald-500/30 transition-all shadow-sm active:scale-95 cursor-pointer"
+          className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/[0.08] hover:bg-white/[0.14] text-emerald-300 text-xs font-bold border border-emerald-500/30 transition-all shadow-sm active:scale-95 cursor-pointer"
         >
           <Globe className="w-3.5 h-3.5 text-emerald-400" />
           <span>{t.langLabel}</span>
         </button>
       </div>
 
-      {/* Login Mode Toggle: Phone vs Email */}
-      <div className="flex items-center p-1 mb-3 rounded-xl bg-[#031812] border border-emerald-500/20">
-        <button
-          type="button"
-          onClick={() => {
-            setLoginMode('phone');
-            setGeneralError(null);
-          }}
-          className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs sm:text-sm font-semibold transition-all cursor-pointer ${
-            loginMode === 'phone'
-              ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-sm shadow-emerald-500/30'
-              : 'text-emerald-100/60 hover:text-emerald-100'
-          }`}
-        >
-          <Phone className="w-3.5 h-3.5" />
-          <span>{t.byPhone}</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            setLoginMode('email');
-            setGeneralError(null);
-          }}
-          className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs sm:text-sm font-semibold transition-all cursor-pointer ${
-            loginMode === 'email'
-              ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-sm shadow-emerald-500/30'
-              : 'text-emerald-100/60 hover:text-emerald-100'
-          }`}
-        >
-          <Mail className="w-3.5 h-3.5" />
-          <span>{t.byEmail}</span>
-        </button>
-      </div>
-
-      {/* Main Login Form */}
-      <form onSubmit={handleSubmit} className="space-y-3 pt-1" noValidate>
+      {/* Main Email Login Form */}
+      <form onSubmit={handleSubmit} className="space-y-3.5 pt-0.5" noValidate>
         {generalError && (
-          <div className="p-3 rounded-xl bg-rose-950/50 border border-rose-500/40 text-rose-300 text-xs sm:text-sm flex items-start gap-2 animate-in fade-in">
+          <div className="p-3 rounded-xl bg-rose-950/60 border border-rose-500/40 text-rose-300 text-xs sm:text-sm font-medium flex items-start gap-2 animate-in fade-in">
             <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
             <span>{generalError}</span>
           </div>
         )}
 
-        {loginMode === 'phone' ? (
-          <div>
-            <div
-              className={`relative flex items-center min-h-[48px] sm:min-h-[54px] px-3.5 sm:px-4 rounded-xl sm:rounded-2xl bg-[#031c15]/90 border transition-all duration-200 ${
-                errors.phone
-                  ? 'border-rose-500 bg-rose-950/20'
-                  : 'border-emerald-500/30 hover:border-emerald-500/50 focus-within:border-emerald-400 focus-within:ring-2 focus-within:ring-emerald-400/20'
-              }`}
-            >
-              <div className="relative flex items-center gap-2 pr-3 shrink-0">
-                <Phone className="w-5 h-5 text-emerald-400" />
-                <button
-                  type="button"
-                  onClick={() => setShowCountryDropdown(!showCountryDropdown)}
-                  className="flex items-center gap-1 text-sm sm:text-base font-semibold text-emerald-200 hover:text-emerald-100 cursor-pointer"
-                >
-                  <span>{countryCode}</span>
-                  <ChevronDown className="w-3.5 h-3.5 text-emerald-400/80" />
-                </button>
-
-                {showCountryDropdown && (
-                  <div className="absolute top-12 left-0 z-30 w-36 bg-[#062a1f] rounded-xl shadow-2xl border border-emerald-500/40 py-1 text-sm font-medium">
-                    {['+880', '+91', '+1', '+44', '+971', '+966', '+60'].map((code) => (
-                      <button
-                        key={code}
-                        type="button"
-                        onClick={() => {
-                          setCountryCode(code);
-                          setShowCountryDropdown(false);
-                        }}
-                        className="w-full text-left px-3 py-2 hover:bg-[#08382a] text-emerald-100 flex items-center justify-between cursor-pointer"
-                      >
-                        <span>{code}</span>
-                        {countryCode === code && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <div className="h-6 w-px bg-emerald-500/20 mr-3 shrink-0" />
-
-              <input
-                id="phone-input"
-                type="tel"
-                value={phone}
-                onChange={(e) => {
-                  setPhone(e.target.value);
-                  if (errors.phone) setErrors((prev) => ({ ...prev, phone: undefined }));
-                }}
-                placeholder={t.phonePlaceholder}
-                className="w-full h-full bg-transparent text-sm sm:text-base text-white placeholder:text-emerald-200/40 font-medium focus:outline-none"
-              />
-            </div>
-            {errors.phone && (
-              <p className="text-xs text-rose-400 mt-1 px-2 flex items-center gap-1">
-                <AlertCircle className="w-3.5 h-3.5" /> {errors.phone}
-              </p>
-            )}
-          </div>
-        ) : (
-          <div>
-            <div
-              className={`relative flex items-center min-h-[48px] sm:min-h-[54px] px-3.5 sm:px-4 rounded-xl sm:rounded-2xl bg-[#031c15]/90 border transition-all duration-200 ${
-                errors.email
-                  ? 'border-rose-500 bg-rose-950/20'
-                  : 'border-emerald-500/30 hover:border-emerald-500/50 focus-within:border-emerald-400 focus-within:ring-2 focus-within:ring-emerald-400/20'
-              }`}
-            >
-              <Mail className="w-5 h-5 text-emerald-400 mr-3 shrink-0" />
-              <input
-                id="email-input"
-                type="email"
-                value={email}
-                onChange={(e) => {
-                  setEmail(e.target.value);
-                  if (errors.email) setErrors((prev) => ({ ...prev, email: undefined }));
-                }}
-                placeholder={t.emailPlaceholder}
-                className="w-full h-full bg-transparent text-sm sm:text-base text-white placeholder:text-emerald-200/40 font-medium focus:outline-none"
-              />
-            </div>
-            {errors.email && (
-              <p className="text-xs text-rose-400 mt-1 px-2 flex items-center gap-1">
-                <AlertCircle className="w-3.5 h-3.5" /> {errors.email}
-              </p>
-            )}
-          </div>
-        )}
-
+        {/* Email Address Input Room (হাল্কা ও পরিচ্ছন্ন) */}
         <div>
+          <label className="block text-xs font-semibold text-emerald-300 mb-1 px-1">
+            {t.emailLabel}
+          </label>
           <div
-            className={`relative flex items-center min-h-[48px] sm:min-h-[54px] px-3.5 sm:px-4 rounded-xl sm:rounded-2xl bg-[#031c15]/90 border transition-all duration-200 ${
-              errors.password
+            className={`relative flex items-center min-h-[46px] sm:min-h-[48px] px-3.5 rounded-xl bg-white/[0.10] hover:bg-white/[0.14] focus-within:bg-white/[0.18] border transition-all duration-200 ${
+              errors.email
                 ? 'border-rose-500 bg-rose-950/20'
-                : 'border-emerald-500/30 hover:border-emerald-500/50 focus-within:border-emerald-400 focus-within:ring-2 focus-within:ring-emerald-400/20'
+                : 'border-white/15 hover:border-emerald-400/40 focus-within:border-emerald-400 focus-within:ring-2 focus-within:ring-emerald-400/25'
             }`}
           >
-            <Lock className="w-5 h-5 text-emerald-400 mr-3 shrink-0" />
+            <Mail className="w-4.5 h-4.5 text-emerald-400/90 mr-2.5 shrink-0" />
+            <input
+              id="email-input"
+              type="email"
+              autoComplete="email"
+              value={email}
+              onChange={(e) => {
+                setEmail(e.target.value);
+                if (errors.email) setErrors((prev) => ({ ...prev, email: undefined }));
+              }}
+              placeholder={t.emailPlaceholder}
+              className="w-full h-full bg-transparent text-sm sm:text-base text-white placeholder:text-emerald-100/50 font-normal focus:outline-none"
+            />
+          </div>
+          {errors.email && (
+            <p className="text-xs text-rose-400 mt-1 px-2 flex items-center gap-1 font-medium">
+              <AlertCircle className="w-3.5 h-3.5 shrink-0" /> {errors.email}
+            </p>
+          )}
+        </div>
+
+        {/* Password Input Room (হাল্কা ও পরিচ্ছন্ন) */}
+        <div>
+          <label className="block text-xs font-semibold text-emerald-300 mb-1 px-1">
+            {t.passwordLabel}
+          </label>
+          <div
+            className={`relative flex items-center min-h-[46px] sm:min-h-[48px] px-3.5 rounded-xl bg-white/[0.10] hover:bg-white/[0.14] focus-within:bg-white/[0.18] border transition-all duration-200 ${
+              errors.password
+                ? 'border-rose-500 bg-rose-950/20'
+                : 'border-white/15 hover:border-emerald-400/40 focus-within:border-emerald-400 focus-within:ring-2 focus-within:ring-emerald-400/25'
+            }`}
+          >
+            <Lock className="w-4.5 h-4.5 text-emerald-400/90 mr-2.5 shrink-0" />
             <input
               id="password-input"
               type={showPassword ? 'text' : 'password'}
+              autoComplete="current-password"
               value={password}
               onChange={(e) => {
                 setPassword(e.target.value);
                 if (errors.password) setErrors((prev) => ({ ...prev, password: undefined }));
               }}
               placeholder={t.passwordPlaceholder}
-              className="w-full h-full bg-transparent text-sm sm:text-base text-white placeholder:text-emerald-200/40 font-medium focus:outline-none pr-8"
+              className="w-full h-full bg-transparent text-sm sm:text-base text-white placeholder:text-emerald-100/50 font-normal focus:outline-none pr-8"
             />
             <button
               type="button"
               onClick={() => setShowPassword(!showPassword)}
-              className="text-emerald-400/80 hover:text-emerald-300 p-1 transition-colors cursor-pointer"
+              className="absolute right-3 text-emerald-400/70 hover:text-emerald-300 p-1 focus:outline-none cursor-pointer transition-colors"
+              aria-label={showPassword ? 'Hide password' : 'Show password'}
             >
-              {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+              {showPassword ? <EyeOff className="w-4.5 h-4.5" /> : <Eye className="w-4.5 h-4.5" />}
             </button>
           </div>
           {errors.password && (
-            <p className="text-xs text-rose-400 mt-1 px-2 flex items-center gap-1">
-              <AlertCircle className="w-3.5 h-3.5" /> {errors.password}
+            <p className="text-xs text-rose-400 mt-1 px-2 flex items-center gap-1 font-medium">
+              <AlertCircle className="w-3.5 h-3.5 shrink-0" /> {errors.password}
             </p>
           )}
         </div>
 
+        {/* Forgot Password Link */}
         <div className="flex justify-end pt-0.5">
           <button
             type="button"
-            id="forgot-password-btn"
             onClick={handleOpenForgotModal}
-            className="text-xs sm:text-sm text-emerald-400 hover:text-emerald-300 font-medium transition-colors cursor-pointer"
+            className="text-xs sm:text-sm font-bold text-emerald-400 hover:text-emerald-300 hover:underline cursor-pointer transition-colors"
           >
             {t.forgotPassword}
           </button>
         </div>
 
-        <div className="pt-1 sm:pt-1.5">
+        {/* Submit Button */}
+        <div className="pt-2">
           <button
-            id="login-submit-btn"
             type="submit"
+            id="login-submit-btn"
             disabled={isSubmitting}
-            className="w-full min-h-[48px] sm:min-h-[52px] flex items-center justify-center rounded-xl sm:rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 active:scale-[0.99] text-slate-950 text-base sm:text-lg font-bold shadow-lg shadow-emerald-500/30 transition-all duration-200 cursor-pointer disabled:opacity-75"
+            className="w-full min-h-[50px] sm:min-h-[54px] rounded-xl sm:rounded-2xl bg-gradient-to-r from-emerald-500 via-[#00e676] to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-base sm:text-lg tracking-wide shadow-lg shadow-emerald-500/30 transition-all duration-200 active:scale-[0.98] disabled:opacity-75 disabled:cursor-not-allowed cursor-pointer flex items-center justify-center"
           >
             {isSubmitting ? (
               <div className="flex items-center gap-2">
-                <span className="w-5 h-5 border-2 border-slate-950/30 border-t-slate-950 rounded-full animate-spin" />
+                <span className="w-4 h-4 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
                 <span>{lang === 'bn' ? 'যাচাই করা হচ্ছে...' : 'Authenticating...'}</span>
               </div>
             ) : (
@@ -406,21 +306,22 @@ export const LoginCard: React.FC<LoginCardProps> = ({
         </div>
 
         {/* Bottom Link: Don't have an account? Sign Up */}
-        <div className="text-center pt-2">
-          <p className="text-xs sm:text-sm text-emerald-200/70">
+        <div className="text-center pt-2 pb-1">
+          <p className="text-xs sm:text-sm text-emerald-200/80 font-medium">
             {lang === 'bn' ? 'অ্যাকাউন্ট নেই? ' : "Don't have an account? "}
             <button
               type="button"
               id="switch-to-register-btn-bottom"
               onClick={onSwitchToRegister}
-              className="font-bold text-emerald-400 hover:text-emerald-300 underline underline-offset-4 cursor-pointer transition-colors"
+              className="font-black text-emerald-400 hover:text-emerald-300 underline underline-offset-4 cursor-pointer transition-colors ml-1"
             >
-              {lang === 'bn' ? 'নতুন অ্যাকাউন্ট খুলুন' : 'Sign Up'}
+              {lang === 'bn' ? 'ইমেইল দিয়ে নিবন্ধন করুন' : 'Register with Email'}
             </button>
           </p>
         </div>
       </form>
 
+      {/* Forgot Password Modal (Sends reset link to email) */}
       {showForgotModal && (
         <div
           id="forgot-password-modal"
@@ -448,8 +349,8 @@ export const LoginCard: React.FC<LoginCardProps> = ({
                 </h3>
                 <p className="text-xs text-emerald-300/70">
                   {lang === 'bn'
-                    ? 'আপনার রেজিস্টার্ড ইমেইল বা ফোন নম্বর দিন'
-                    : 'Enter your registered email or phone'}
+                    ? 'আপনার রেজিস্টার্ড ইমেইল এড্রেস লিখুন'
+                    : 'Enter your registered email address'}
                 </p>
               </div>
             </div>
@@ -474,14 +375,14 @@ export const LoginCard: React.FC<LoginCardProps> = ({
             <form onSubmit={handleSendReset} className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-emerald-300 mb-1.5">
-                  {lang === 'bn' ? 'ইমেইল অথবা ফোন নম্বর' : 'Email or Phone'}
+                  {lang === 'bn' ? 'ইমেইল এড্রেস' : 'Email Address'}
                 </label>
                 <input
-                  type="text"
+                  type="email"
                   value={resetInput}
                   onChange={(e) => setResetInput(e.target.value)}
                   placeholder={
-                    lang === 'bn' ? 'উদাহরণ: 017xxxxxxxx বা user@mail.com' : 'e.g. 017xxxxxxxx or user@mail.com'
+                    lang === 'bn' ? 'উদাহরণ: user@mail.com' : 'e.g. user@mail.com'
                   }
                   className="w-full px-3.5 py-2.5 rounded-xl bg-[#031812] border border-emerald-500/30 text-white placeholder:text-emerald-200/30 text-sm focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400"
                 />
@@ -507,7 +408,7 @@ export const LoginCard: React.FC<LoginCardProps> = ({
                   {resetLoading ? (
                     <span className="w-4 h-4 border-2 border-slate-950/40 border-t-slate-950 rounded-full animate-spin" />
                   ) : (
-                    <span>{lang === 'bn' ? 'রিসেট লিংক পাঠান' : 'Send Link'}</span>
+                    <span>{lang === 'bn' ? 'রিসেট লিংক পাঠান' : 'Send Reset Link'}</span>
                   )}
                 </button>
               </div>

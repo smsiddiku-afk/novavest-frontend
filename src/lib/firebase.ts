@@ -1223,7 +1223,26 @@ export const recordFirestoreDeposit = async (
     if (!cleanUid) {
       return { deposit: depositItem, transaction: transactionItem };
     }
-    const userDocRef = safeDoc('users', cleanUid);
+    let userDocRef = safeDoc('users', cleanUid);
+    let resolvedUserSnap = userDocRef ? await getDoc(userDocRef) : null;
+
+    // Fallback: If not found by direct doc ID, search by memberId or email
+    if (!resolvedUserSnap || !resolvedUserSnap.exists()) {
+      try {
+        const uCol = collection(db, 'users');
+        const qSnap = await getDocs(query(uCol, where('memberId', '==', cleanUid), limit(1)));
+        if (!qSnap.empty) {
+          userDocRef = qSnap.docs[0].ref;
+          resolvedUserSnap = qSnap.docs[0];
+        } else {
+          const qSnap2 = await getDocs(query(uCol, where('email', '==', cleanUid), limit(1)));
+          if (!qSnap2.empty) {
+            userDocRef = qSnap2.docs[0].ref;
+            resolvedUserSnap = qSnap2.docs[0];
+          }
+        }
+      } catch (_) {}
+    }
 
     const safeDepositItem = sanitizeFirestoreData(depositItem);
     const safeTransactionItem = sanitizeFirestoreData(transactionItem);
@@ -1303,9 +1322,27 @@ export const updateFirestoreDepositStatus = async (
     const statusBangla = isCompleted ? 'সফল' : 'বাতিল';
     const depositStatus = isCompleted ? 'completed' : 'failed';
 
-    const userDocRef = safeDoc('users', cleanUid);
+    let userDocRef = safeDoc('users', cleanUid);
     if (!userDocRef) return false;
-    const userSnap = await getDoc(userDocRef);
+    let userSnap = await getDoc(userDocRef);
+
+    // Fallback: If not found by direct doc ID, search by memberId or email
+    if (!userSnap.exists()) {
+      try {
+        const uCol = collection(db, 'users');
+        const qSnap = await getDocs(query(uCol, where('memberId', '==', cleanUid), limit(1)));
+        if (!qSnap.empty) {
+          userDocRef = qSnap.docs[0].ref;
+          userSnap = qSnap.docs[0];
+        } else {
+          const qSnap2 = await getDocs(query(uCol, where('email', '==', cleanUid), limit(1)));
+          if (!qSnap2.empty) {
+            userDocRef = qSnap2.docs[0].ref;
+            userSnap = qSnap2.docs[0];
+          }
+        }
+      } catch (_) {}
+    }
 
     if (userSnap.exists()) {
       const userData = userSnap.data();

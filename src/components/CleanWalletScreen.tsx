@@ -348,15 +348,15 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
                   <span>{currentLang === 'bn' ? '১. পেমেন্ট চ্যানেল নির্বাচন করুন' : '1. Select Payment Channel'}</span>
                 </span>
                 <span className="text-xs sm:text-sm text-emerald-400 font-mono font-bold">
-                  {selectedChannel === 'channel1' && 'NEKpay Auto'}
-                  {selectedChannel === 'channel2' && 'WatchPay'}
+                  {selectedChannel === 'channel1' && 'চ্যানেল ১'}
+                  {selectedChannel === 'channel2' && 'চ্যানেল ২'}
                   {!selectedChannel && (currentLang === 'bn' ? 'চ্যানেল সিলেক্ট করুন' : 'Select channel')}
                 </span>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div
-                  id="payment-channel-1-nekpay"
+                  id="payment-channel-1"
                   onClick={() => setSelectedChannel('channel1')}
                   className={`relative overflow-hidden p-4 sm:p-5 rounded-2xl flex items-center justify-between cursor-pointer transition-all duration-300 border-2 group ${
                     selectedChannel === 'channel1'
@@ -393,11 +393,11 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
 
                     <div className="text-left">
                       <div className="flex items-center gap-1.5">
-                        <span className="text-sm sm:text-base font-black text-white block leading-tight">চ্যানেল ১</span>
+                        <span className="text-base sm:text-lg font-black text-white block leading-tight">চ্যানেল ১</span>
                       </div>
                       <span className="text-xs sm:text-sm text-emerald-400 font-bold flex items-center gap-1.5 mt-1">
                         <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                        NEKpay Auto (সুপারফাস্ট)
+                        {currentLang === 'bn' ? 'অনলাইন রিচার্জ' : 'Online Recharge'}
                       </span>
                     </div>
                   </div>
@@ -418,7 +418,7 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
                 </div>
 
                 <div
-                  id="payment-channel-2-watchpay"
+                  id="payment-channel-2"
                   onClick={() => setSelectedChannel('channel2')}
                   className={`relative overflow-hidden p-4 sm:p-5 rounded-2xl flex items-center justify-between cursor-pointer transition-all duration-300 border-2 group ${
                     selectedChannel === 'channel2'
@@ -455,11 +455,11 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
 
                     <div className="text-left">
                       <div className="flex items-center gap-1.5">
-                        <span className="text-sm sm:text-base font-black text-white block leading-tight">চ্যানেল ২</span>
+                        <span className="text-base sm:text-lg font-black text-white block leading-tight">চ্যানেল ২</span>
                       </div>
                       <span className="text-xs sm:text-sm text-emerald-300 font-bold flex items-center gap-1.5 mt-1">
                         <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                        WatchPay (অটো গেটওয়ে)
+                        {currentLang === 'bn' ? 'বিকল্প রিচার্জ' : 'Alternative Recharge'}
                       </span>
                     </div>
                   </div>
@@ -480,124 +480,6 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
                 </div>
               </div>
             </div>
-
-            {selectedChannel ? (
-              <div className="space-y-3 pt-1 animate-in fade-in slide-in-from-top-2 duration-300">
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-100 text-sm sm:text-base font-extrabold flex items-center gap-2">
-                    <CreditCard className="w-4 h-4 text-emerald-400" />
-                    <span>{currentLang === 'bn' ? '২. পেমেন্ট মেথড নির্বাচন করুন' : '2. Select Payment Method'}</span>
-                  </span>
-                  <span className="text-xs sm:text-sm text-emerald-400 font-mono font-bold">
-                    {selectedChannel === 'channel1' && 'চ্যানেল ১ সক্রিয়'}
-                    {selectedChannel === 'channel2' && 'চ্যানেল ২ সক্রিয়'}
-                  </span>
-                </div>
-                <div className="grid grid-cols-3 gap-2.5 sm:gap-3">
-                  <div
-                    id="payment-method-bkash"
-                    onClick={() => setSelectedMethod('bKash')}
-                    className={`rounded-2xl p-3.5 sm:p-4 flex flex-col justify-between cursor-pointer transition-all border-2 min-h-[110px] ${
-                      selectedMethod === 'bKash'
-                        ? 'bg-[#062c22] border-emerald-400 shadow-[0_0_18px_rgba(16,185,129,0.3)] scale-[1.02]'
-                        : 'bg-[#042018] border-emerald-500/25 hover:border-emerald-500/40'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-[#e2136e] flex items-center justify-center shadow-md shadow-[#e2136e]/30 shrink-0">
-                        <svg viewBox="0 0 100 100" className="w-5 h-5 sm:w-6 sm:h-6" fill="none">
-                          <path d="M54 12L85 30L63 46L54 12Z" fill="white" />
-                          <path d="M54 12L20 54L48 50L54 12Z" fill="white" fillOpacity="0.95" />
-                          <path d="M48 50L18 80L48 64L63 46L48 50Z" fill="white" fillOpacity="0.9" />
-                          <path d="M48 64L42 90L58 72L48 64Z" fill="white" />
-                          <path d="M58 72L78 68L63 46L58 72Z" fill="white" fillOpacity="0.95" />
-                        </svg>
-                      </div>
-                      <div
-                        className={`w-4 h-4 sm:w-5 sm:h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${
-                          selectedMethod === 'bKash' ? 'border-emerald-400 bg-emerald-400' : 'border-slate-600'
-                        }`}
-                      >
-                        {selectedMethod === 'bKash' && <Check className="w-3 h-3 text-slate-950 stroke-[3]" />}
-                      </div>
-                    </div>
-                    <div>
-                      <span className="text-white font-black text-sm sm:text-base block leading-tight">bKash</span>
-                      <span className="text-xs text-emerald-400 font-bold mt-1 block">বিকাশ পে</span>
-                    </div>
-                  </div>
-
-                  <div
-                    id="payment-method-nagad"
-                    onClick={() => setSelectedMethod('Nagad')}
-                    className={`rounded-2xl p-3.5 sm:p-4 flex flex-col justify-between cursor-pointer transition-all border-2 min-h-[110px] ${
-                      selectedMethod === 'Nagad'
-                        ? 'bg-[#062c22] border-emerald-400 shadow-[0_0_18px_rgba(16,185,129,0.3)] scale-[1.02]'
-                        : 'bg-[#042018] border-emerald-500/25 hover:border-emerald-500/40'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-tr from-[#ed1c24] via-[#f7941d] to-[#f9a01b] flex items-center justify-center shadow-md shadow-[#f7941d]/30 shrink-0 p-1">
-                        <svg viewBox="0 0 100 100" className="w-5 h-5 sm:w-6 sm:h-6" fill="none">
-                          <circle cx="58" cy="24" r="7.5" fill="white" />
-                          <path
-                            d="M30 42C34 32 46 28 56 34L50 46C44 42 38 44 36 50C33 57 37 64 44 67C50 69 57 66 61 58L72 64C66 78 50 84 38 78C23 72 18 56 30 42Z"
-                            fill="white"
-                          />
-                        </svg>
-                      </div>
-                      <div
-                        className={`w-4 h-4 sm:w-5 sm:h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${
-                          selectedMethod === 'Nagad' ? 'border-emerald-400 bg-emerald-400' : 'border-slate-600'
-                        }`}
-                      >
-                        {selectedMethod === 'Nagad' && <Check className="w-3 h-3 text-slate-950 stroke-[3]" />}
-                      </div>
-                    </div>
-                    <div>
-                      <span className="text-white font-black text-sm sm:text-base block leading-tight">Nagad</span>
-                      <span className="text-xs text-orange-400 font-bold mt-1 block">নগদ পে</span>
-                    </div>
-                  </div>
-
-                  <div
-                    id="payment-method-rocket"
-                    onClick={() => setSelectedMethod('Rocket')}
-                    className={`rounded-2xl p-3.5 sm:p-4 flex flex-col justify-between cursor-pointer transition-all border-2 min-h-[110px] ${
-                      selectedMethod === 'Rocket'
-                        ? 'bg-[#062c22] border-emerald-400 shadow-[0_0_18px_rgba(16,185,129,0.3)] scale-[1.02]'
-                        : 'bg-[#042018] border-emerald-500/25 hover:border-emerald-500/40'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-[#8c3494] flex items-center justify-center shadow-md shadow-[#8c3494]/30 shrink-0">
-                        <CreditCard className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
-                      </div>
-                      <div
-                        className={`w-4 h-4 sm:w-5 sm:h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${
-                          selectedMethod === 'Rocket' ? 'border-emerald-400 bg-emerald-400' : 'border-slate-600'
-                        }`}
-                      >
-                        {selectedMethod === 'Rocket' && <Check className="w-3 h-3 text-slate-950 stroke-[3]" />}
-                      </div>
-                    </div>
-                    <div>
-                      <span className="text-white font-black text-sm sm:text-base block leading-tight">Rocket</span>
-                      <span className="text-xs text-purple-400 font-bold mt-1 block">রকেট পে</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div className="p-4 sm:p-5 rounded-2xl bg-[#042018] border border-dashed border-emerald-500/30 text-center text-emerald-300/80 text-xs sm:text-sm flex items-center justify-center gap-2.5">
-                <Layers className="w-5 h-5 text-emerald-400 shrink-0" />
-                <span>
-                  {currentLang === 'bn'
-                    ? 'উপরে চ্যানেল ১ অথবা চ্যানেল ২ নির্বাচন করুন।'
-                    : 'Select Channel 1 or Channel 2 above.'}
-                </span>
-              </div>
-            )}
 
             <div className="pt-3 sm:pt-4 pb-2">
               <button
@@ -630,10 +512,8 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
                     <Zap className="w-6 h-6 fill-current animate-pulse" />
                     <span>
                       {selectedChannel === 'channel2'
-                        ? `WatchPay (${selectedMethod}) • ৳${amount || '100'}`
-                        : currentLang === 'bn'
-                        ? `রিচার্জ করুন (${selectedMethod}) • ৳${amount || '১০০'}`
-                        : `Proceed to Pay (${selectedMethod}) • ৳${amount || '100'}`}
+                        ? (currentLang === 'bn' ? `চ্যানেল ২ দিয়ে রিচার্জ • ৳${amount || '১০০'}` : `Recharge with Channel 2 • ৳${amount || '100'}`)
+                        : (currentLang === 'bn' ? `চ্যানেল ১ দিয়ে রিচার্জ • ৳${amount || '১০০'}` : `Recharge with Channel 1 • ৳${amount || '100'}`)}
                     </span>
                   </>
                 )}
@@ -713,6 +593,42 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
                   </span>
                 </div>
               )}
+
+              <div className="space-y-1.5">
+                <span className="text-sm font-bold text-slate-200">
+                  {currentLang === 'bn' ? 'উইথড্র মেথড নির্বাচন করুন:' : 'Select Withdrawal Method:'}
+                </span>
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div
+                    id="withdraw-method-bkash"
+                    onClick={() => setSelectedMethod('bKash')}
+                    className={`p-3 rounded-2xl border-2 flex items-center justify-between cursor-pointer transition-all ${
+                      selectedMethod === 'bKash'
+                        ? 'bg-[#062c22] border-emerald-400 text-white shadow-md shadow-emerald-500/20'
+                        : 'bg-[#042018] border-emerald-500/20 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <span className="font-bold text-sm">bKash (বিকাশ)</span>
+                    <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${selectedMethod === 'bKash' ? 'border-emerald-400 bg-emerald-400' : 'border-slate-600'}`}>
+                      {selectedMethod === 'bKash' && <Check className="w-2.5 h-2.5 text-slate-950 stroke-[3]" />}
+                    </div>
+                  </div>
+                  <div
+                    id="withdraw-method-nagad"
+                    onClick={() => setSelectedMethod('Nagad')}
+                    className={`p-3 rounded-2xl border-2 flex items-center justify-between cursor-pointer transition-all ${
+                      selectedMethod === 'Nagad'
+                        ? 'bg-[#062c22] border-emerald-400 text-white shadow-md shadow-emerald-500/20'
+                        : 'bg-[#042018] border-emerald-500/20 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <span className="font-bold text-sm">Nagad (নগদ)</span>
+                    <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${selectedMethod === 'Nagad' ? 'border-emerald-400 bg-emerald-400' : 'border-slate-600'}`}>
+                      {selectedMethod === 'Nagad' && <Check className="w-2.5 h-2.5 text-slate-950 stroke-[3]" />}
+                    </div>
+                  </div>
+                </div>
+              </div>
 
               <div className="space-y-1.5">
                 <span className="text-sm font-bold text-slate-200">
@@ -822,7 +738,7 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
                 {currentLang === 'bn' ? 'পেমেন্ট গেটওয়ে প্রস্তুত হচ্ছে...' : 'Connecting to Gateway...'}
               </h3>
               <p className="text-xs sm:text-sm text-emerald-300 font-semibold mt-1">
-                {selectedMethod} • ৳{amount || '100'} • {selectedChannel === 'channel2' ? 'WatchPay' : 'NEKpay'}
+                ৳{amount || '100'} • {selectedChannel === 'channel2' ? 'চ্যানেল ২' : 'চ্যানেল ১'}
               </p>
             </div>
 

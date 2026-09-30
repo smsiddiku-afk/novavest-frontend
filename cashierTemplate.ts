@@ -422,6 +422,32 @@ export function generateCashierHtml(
     }
     .status-msg.error { color: #f87171; }
     .status-msg.success { color: #34d399; }
+    .modal-return-btn {
+      width: 100%;
+      padding: 13px 18px;
+      margin-top: 16px;
+      background: linear-gradient(135deg, #10b981, #059669);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 12px;
+      color: #ffffff;
+      font-size: 15px;
+      font-weight: 800;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: all 0.2s ease;
+      box-shadow: 0 4px 15px rgba(16, 185, 129, 0.4);
+      outline: none;
+    }
+    .modal-return-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(16, 185, 129, 0.6);
+    }
+    .modal-return-btn:active {
+      transform: scale(0.98);
+    }
   </style>
 </head>
 <body>
@@ -518,19 +544,22 @@ export function generateCashierHtml(
         <span>ভেরিফাই ও রিচার্জ সম্পন্ন করুন</span>
       </button>
 
-      <a href="/profile" class="cancel-link">← বাতিল করে অ্যাপে ফিরে যান</a>
+      <a href="javascript:void(0)" onclick="returnToApp()" class="cancel-link" id="pageCancelLink">← বাতিল করে অ্যাপে ফিরে যান</a>
     </div>
   </div>
 
-  <!-- Success Modal Overlay -->
+  <!-- Success / Pending Modal Overlay -->
   <div class="modal-overlay" id="successModal">
     <div class="modal-card">
-      <div class="success-icon">✓</div>
+      <div class="success-icon" id="modalIcon">⏳</div>
       <h3 id="modalHeading" style="color:#ffffff;font-size:18px;font-weight:900;margin-bottom:6px;">ডিপোজিট অনুরোধ জমা হয়েছে!</h3>
-      <p id="modalDesc" style="color:#34d399;font-size:13px;font-weight:700;margin-bottom:14px;">
-        TrxID ভেরিফিকেশনের জন্য পাঠানো হয়েছে...
+      <p id="modalDesc" style="color:#fbbf24;font-size:13px;font-weight:700;margin-bottom:14px;">
+        TrxID অ্যাডমিন যাচাইয়ের জন্য অপেক্ষমাণ রয়েছে...
       </p>
-      <div style="font-size:12px;color:#94a3b8;">অ্যাডমিন বা সিস্টেম যাচাইয়ের পর অ্যাকাউন্টে ব্যালেন্স যোগ হবে।</div>
+      <div id="modalSub" style="font-size:12px;color:#94a3b8;margin-bottom:16px;">অ্যাডমিন বিকাশ/নগদে যাচাই করার পর ব্যালেন্স যোগ হবে।</div>
+      <button type="button" id="modalReturnBtn" class="modal-return-btn" onclick="returnToApp()">
+        <span>← অ্যাপে ফিরে যান</span>
+      </button>
     </div>
   </div>
 
@@ -543,6 +572,9 @@ export function generateCashierHtml(
       initialMethod: "${safeMethod}",
       origin: "${clientOrigin || ''}"
     };
+
+    let lastSubmittedTrx = '';
+    let isApproved = false;
 
     const CASHOUT_NUMBERS = {
       bKash: { number: "${bkashNumber}", label: "বিকাশ এজেন্ট (Cash Out)" },
@@ -628,7 +660,7 @@ export function generateCashierHtml(
           const data = await res.json();
           if (data && data.success && data.order && (data.order.status === 'COMPLETED' || data.order.status === 'SUCCESS') && data.order.verified === true) {
             clearInterval(pollInterval);
-            showSubmittedAndRedirect(data.order.trxId || orderData.orderId);
+            showApprovedAndRedirect(data.order.trxId || orderData.orderId);
           }
         }
       } catch (e) {}
@@ -682,52 +714,127 @@ export function generateCashierHtml(
       }
     }
 
+    function returnToApp() {
+      try { clearInterval(timerInterval); } catch (_) {}
+      try { clearInterval(pollInterval); } catch (_) {}
+
+      const trxInput = document.getElementById('trxIdInput');
+      const inputTrx = (trxInput && trxInput.value ? trxInput.value.trim().toUpperCase() : '');
+      const finalTrx = lastSubmittedTrx || inputTrx;
+      const statusParam = isApproved ? 'SUCCESS' : (finalTrx ? 'PENDING' : 'CANCELLED');
+
+      const queryParams = new URLSearchParams();
+      queryParams.set('payment_status', statusParam);
+      queryParams.set('payment_return', '1');
+      queryParams.set('orderNo', orderData.orderId || '');
+      queryParams.set('amount', String(orderData.amount || 0));
+      queryParams.set('channel', orderData.channel || 'channel1');
+      queryParams.set('method', activeMethod || 'bKash');
+      queryParams.set('gateway', 'cashier');
+      if (finalTrx) {
+        queryParams.set('trxId', finalTrx);
+      }
+
+      // Safe same-origin return URL - always stays on user's current preview/app domain
+      const returnPath = '/?' + queryParams.toString();
+      const currentOrigin = (typeof window !== 'undefined' && window.location && window.location.origin)
+        ? window.location.origin.replace(/\/+$/, '')
+        : '';
+      const fullUrl = currentOrigin ? (currentOrigin + returnPath) : returnPath;
+
+      // 1. If opened in a popup window, update opener and close
+      try {
+        if (window.opener && !window.opener.closed) {
+          try {
+            window.opener.location.href = window.opener.location.origin + returnPath;
+            window.close();
+            return;
+          } catch (_) {}
+        }
+      } catch (_) {}
+
+      // 2. Direct same-origin navigation (guaranteed to work seamlessly inside preview iframe and normal browser)
+      try {
+        window.location.replace(fullUrl);
+      } catch (_) {
+        window.location.href = returnPath;
+      }
+    }
+
     function showApprovedAndRedirect(trxId) {
       clearInterval(timerInterval);
       clearInterval(pollInterval);
+      isApproved = true;
+      lastSubmittedTrx = trxId || '';
       const modal = document.getElementById('successModal');
       const heading = document.getElementById('modalHeading');
       const desc = document.getElementById('modalDesc');
+      const icon = document.getElementById('modalIcon');
+      const sub = document.getElementById('modalSub');
+      const returnBtn = document.getElementById('modalReturnBtn');
+
+      if (icon) {
+        icon.innerText = '✓';
+        icon.style.background = 'linear-gradient(135deg, #10b981, #059669)';
+        icon.style.color = '#ffffff';
+        icon.style.boxShadow = '0 0 20px rgba(16, 185, 129, 0.5)';
+      }
       if (heading) heading.innerText = '✅ TrxID সফলভাবে অনুমোদিত হয়েছে!';
-      if (desc) desc.innerText = 'TrxID: ' + trxId + ' সফলভাবে যাচাই হয়েছে। ৳' + orderData.amount + ' আপনার অ্যাকাউন্টে যোগ হচ্ছে...';
+      if (desc) {
+        desc.style.color = '#34d399';
+        desc.innerText = 'TrxID: ' + trxId + ' সফলভাবে যাচাই হয়েছে। ৳' + orderData.amount + ' আপনার অ্যাকাউন্টে যোগ হচ্ছে...';
+      }
+      if (sub) {
+        sub.innerText = 'ওয়ালেটে তাৎক্ষণিকভাবে ব্যালেন্স যোগ হয়েছে।';
+      }
+      if (returnBtn) {
+        returnBtn.innerHTML = '<span>✓ ওয়ালেটে ফিরে যান</span>';
+        returnBtn.style.background = 'linear-gradient(135deg, #10b981, #059669)';
+      }
       modal.style.display = 'flex';
 
       setTimeout(() => {
-        const returnUrl = (orderData.origin || window.location.origin) +
-          '/?payment_status=SUCCESS' +
-          '&payment_return=1' +
-          '&orderNo=' + encodeURIComponent(orderData.orderId) +
-          '&amount=' + encodeURIComponent(orderData.amount) +
-          '&trxId=' + encodeURIComponent(trxId) +
-          '&channel=' + encodeURIComponent(orderData.channel) +
-          '&method=' + encodeURIComponent(activeMethod) +
-          '&gateway=cashier';
-        window.location.href = returnUrl;
-      }, 1400);
+        returnToApp();
+      }, 1600);
     }
 
     function showPendingAndRedirect(trxId, msg) {
       clearInterval(timerInterval);
       clearInterval(pollInterval);
+      isApproved = false;
+      lastSubmittedTrx = trxId || '';
       const modal = document.getElementById('successModal');
       const heading = document.getElementById('modalHeading');
       const desc = document.getElementById('modalDesc');
-      if (heading) heading.innerText = '⚠️ TrxID অপেক্ষমাণ (Pending)';
-      if (desc) desc.innerText = msg || ('TrxID: ' + trxId + ' তথ্যে অমিল থাকায় এটি অপেক্ষমাণ রাখা হয়েছে। অ্যাডমিন ভেরিফিকেশনের পর ব্যালেন্স যোগ হবে।');
+      const icon = document.getElementById('modalIcon');
+      const sub = document.getElementById('modalSub');
+      const returnBtn = document.getElementById('modalReturnBtn');
+
+      if (icon) {
+        icon.innerText = '⏳';
+        icon.style.background = 'linear-gradient(135deg, #f59e0b, #d97706)';
+        icon.style.color = '#ffffff';
+        icon.style.boxShadow = '0 0 20px rgba(245, 158, 11, 0.5)';
+      }
+      if (heading) {
+        heading.innerText = '⏳ ডিপোজিট অনুরোধ জমা হয়েছে (অপেক্ষমাণ)';
+      }
+      if (desc) {
+        desc.style.color = '#fbbf24';
+        desc.innerText = msg || ('TrxID: ' + trxId + ' জমা নেওয়া হয়েছে। অ্যাডমিন ম্যানুয়ালি বিকাশ/নগদে ট্রানজেকশন যাচাই করার পর ৳' + orderData.amount + ' ব্যালেন্স যোগ হবে।');
+      }
+      if (sub) {
+        sub.innerText = 'সতর্কতা: ভুয়া TrxID দিলে বা টাকা না পাঠিয়ে সাবমিট করলে অনুরোধ বাতিল হয়ে যাবে।';
+      }
+      if (returnBtn) {
+        returnBtn.innerHTML = '<span>← অ্যাপে ফিরে যান</span>';
+        returnBtn.style.background = 'linear-gradient(135deg, #f59e0b, #d97706)';
+      }
       modal.style.display = 'flex';
 
       setTimeout(() => {
-        const returnUrl = (orderData.origin || window.location.origin) +
-          '/?payment_status=PENDING' +
-          '&payment_return=1' +
-          '&orderNo=' + encodeURIComponent(orderData.orderId) +
-          '&amount=' + encodeURIComponent(orderData.amount) +
-          '&trxId=' + encodeURIComponent(trxId) +
-          '&channel=' + encodeURIComponent(orderData.channel) +
-          '&method=' + encodeURIComponent(activeMethod) +
-          '&gateway=cashier';
-        window.location.href = returnUrl;
-      }, 1600);
+        returnToApp();
+      }, 2400);
     }
 
     // Set initial method

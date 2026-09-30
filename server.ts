@@ -719,6 +719,9 @@ async function startServer() {
 
   // Extract client domain origin so returnUrl points back to user's real website domain
   const getClientOrigin = (req: express.Request): string => {
+    if (req.query && req.query.origin) {
+      return String(req.query.origin).trim().replace(/\/+$/, '');
+    }
     if (req.body && req.body.clientOrigin) {
       return String(req.body.clientOrigin).trim().replace(/\/+$/, '');
     }
@@ -729,6 +732,23 @@ async function startServer() {
       try {
         return new URL(String(req.headers.referer)).origin.replace(/\/+$/, '');
       } catch (_) {}
+    }
+    // Check x-forwarded-host / host headers from proxy (Cloud Run, preview domain)
+    const host = req.headers['x-forwarded-host'] || req.headers['host'];
+    let proto = (req.headers['x-forwarded-proto'] as string) || (req.secure ? 'https' : 'http');
+    if (host) {
+      const cleanHost = String(Array.isArray(host) ? host[0] : host).trim();
+      // On Cloud Run and public hosting proxies, always use https to prevent mixed content
+      if (
+        cleanHost.includes('run.app') ||
+        cleanHost.includes('nvtenergy.online') ||
+        cleanHost.includes('web.app') ||
+        cleanHost.includes('firebaseapp.com') ||
+        req.headers['x-forwarded-proto'] === 'https'
+      ) {
+        proto = 'https';
+      }
+      return `${proto}://${cleanHost}`.replace(/\/+$/, '');
     }
     return 'https://nvtenergy.online';
   };
@@ -1431,6 +1451,7 @@ async function startServer() {
       const order = ordersDatabase.get(orderNo);
       order.status = isSuccess ? 'COMPLETED' : 'PENDING';
       order.verified = isSuccess;
+      order.webhookConfirmed = isSuccess;
       if (trxId) order.trxId = trxId;
       if (amount > 0) order.amount = amount;
       order.updatedAt = new Date().toISOString();
@@ -1445,6 +1466,7 @@ async function startServer() {
         amount,
         status: isSuccess ? 'COMPLETED' : 'PENDING',
         verified: isSuccess,
+        webhookConfirmed: isSuccess,
         channel: 'channel1',
         channelName: 'চ্যানেল ১ (Nekpay)',
         createdAt: new Date().toISOString(),
@@ -1486,6 +1508,7 @@ async function startServer() {
       const order = ordersDatabase.get(orderNo);
       order.status = isSuccess ? 'COMPLETED' : 'PENDING';
       order.verified = isSuccess;
+      order.webhookConfirmed = isSuccess;
       if (trxId) order.trxId = trxId;
       if (amount > 0) order.amount = amount;
       order.updatedAt = new Date().toISOString();
@@ -1500,6 +1523,7 @@ async function startServer() {
         amount,
         status: isSuccess ? 'COMPLETED' : 'PENDING',
         verified: isSuccess,
+        webhookConfirmed: isSuccess,
         channel: 'channel2',
         channelName: 'চ্যানেল ২ (WatchPay)',
         createdAt: new Date().toISOString(),
@@ -1874,21 +1898,24 @@ async function startServer() {
     const cleanTrxId = validation.cleanId || rawTrx.toUpperCase();
     const isAuthentic = validation.isValid;
 
-    // Check if an existing order was already completed by gateway webhook for this specific orderNo
+    // Check if an existing order was already completed by an authentic gateway webhook for this specific orderNo
     const existingByOrder = req.body?.orderNo ? ordersDatabase.get(req.body.orderNo) : null;
     const isSameOrderCompleted = Boolean(
       existingByOrder &&
       (existingByOrder.status === 'COMPLETED' || existingByOrder.status === 'SUCCESS') &&
-      existingByOrder.verified
+      existingByOrder.verified === true &&
+      existingByOrder.webhookConfirmed === true
     );
 
     // If TrxID has already been claimed/approved, strictly flag as duplicate
     const isDuplicateTrxId = usedApprovedTrxIds.has(cleanTrxId) && (!existingByOrder || existingByOrder.trxId !== cleanTrxId);
 
-    // Rule:
-    // If TrxID is authentic and NOT duplicate -> AUTO-APPROVE (COMPLETED)
-    // If TrxID is wrong, fake, or duplicate -> KEEP PENDING (PENDING)
-    const isAutoApproved = isSameOrderCompleted || (isAuthentic && !isDuplicateTrxId);
+    // Business & Security Rule:
+    // 1. If webhook already confirmed: auto-approved!
+    // 2. If user provides a genuine, authentic TrxID (passes format, length, entropy, diversity checks)
+    //    and it is NOT a duplicate or known fake pattern: Auto-approve instantly so legitimate depositors get credited immediately!
+    // 3. Fake, dummy, repetitive, or duplicate TrxIDs are NEVER auto-approved (marked PENDING for admin review).
+    const isAutoApproved = !isDuplicateTrxId && (isSameOrderCompleted || isAuthentic);
     const orderStatus = isAutoApproved ? 'COMPLETED' : 'PENDING';
     const isVerified = isAutoApproved;
 

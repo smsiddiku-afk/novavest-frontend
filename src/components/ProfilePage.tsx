@@ -91,6 +91,7 @@ import {
   isValidRealTrxId,
   getFirestoreUserTransactions,
   subscribeToUserTransactions,
+  subscribeToFirestoreUserProfile,
   recordInvestmentInFirestore,
   getFirestoreUserInvestments,
   updateFirestoreWalletBalance,
@@ -108,6 +109,7 @@ interface ProfilePageProps {
   onLogout: () => void;
   onGoToHome?: () => void;
   onTabChange?: (tab: 'home' | 'invest' | 'positions' | 'transactions' | 'wallet' | 'referral' | 'profile') => void;
+  onUpdateUser?: (user: UserProfile) => void;
 }
 
 export const ProfilePage: React.FC<ProfilePageProps> = ({
@@ -119,6 +121,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
   onLogout,
   onGoToHome,
   onTabChange,
+  onUpdateUser,
 }) => {
   const t = translations[currentLang];
 
@@ -236,6 +239,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       const next = updater(prev);
       if (!isSameUser(prev, next)) {
         persistAuthUser(next);
+        onUpdateUser?.(next);
       }
       try {
         const activeId = next.uid || next.memberId;
@@ -392,9 +396,14 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
         const data = await res.json();
         const status = String(data?.order?.status || '').toUpperCase();
 
-        if (status === 'COMPLETED' || status === 'SUCCESS') {
+        const isWebhookVerified =
+          (status === 'COMPLETED' || status === 'SUCCESS') &&
+          data?.order?.verified === true &&
+          data?.order?.webhookConfirmed === true;
+
+        if (isWebhookVerified) {
           const depositAmount = Number(pending.amount || data?.order?.amount || 0);
-          const activeUid = user.memberId || user.phone || 'USER1001';
+          const activeUid = auth.currentUser?.uid || user.uid || user.memberId || 'USER1001';
 
           // Update Firestore deposit status
           await updateFirestoreDepositStatus(activeUid, pending.orderNo, 'completed', depositAmount);
@@ -417,7 +426,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                   ? {
                       ...t,
                       status: 'completed',
-                      description: `${pending.channel === 'channel2' ? 'WatchPay' : 'Nekpay'} Deposit (${pending.method || 'Nagad'}) - সফল`,
+                      description: `ডিপোজিট (${pending.channel === 'channel2' ? 'চ্যানেল ২' : 'চ্যানেল ১'}) - সফল`,
                       hash: data?.order?.trxId || pending.orderNo,
                       isCredit: true,
                     }
@@ -716,8 +725,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           const reasonMsg = serverResult?.reason ? ` (${serverResult.reason})` : '';
           showToast(
             currentLang === 'bn'
-              ? `⚠️ TrxID ভেরিফিকেশন পেন্ডিং: ভুয়া বা অমিল${reasonMsg} শনাক্ত হওয়ায় এটি অপেক্ষমাণ (Pending) রাখা হয়েছে। অ্যাডমিন ম্যানুয়ালি যাচাই করার পর ব্যালেন্স যোগ হবে।`
-              : `⚠️ Deposit Pending: Discrepancy detected${reasonMsg}. Placed in Pending awaiting admin manual review.`
+              ? `⏳ TrxID ভেরিফিকেশন পেন্ডিং: ${reasonMsg ? `${reasonMsg}। ` : ''}আপনার ডিপোজিট অনুরোধ অপেক্ষমাণ (Pending) রাখা হয়েছে। অ্যাডমিন বিকাশ/নগদে যাচাই করার পর ওয়ালেটে টাকা যোগ হবে।`
+              : `⏳ Deposit Pending: ${reasonMsg ? `${reasonMsg}. ` : ''}Placed in Pending awaiting admin manual review.`
           );
         }
       } catch (err: any) {
@@ -790,7 +799,12 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               try {
                 const checkRes = await fetch(`/api/payments/order-status/${orderNo}`);
                 const checkData = await checkRes.json();
-                if (checkData.success && checkData.order?.status === 'COMPLETED' && checkData.order?.verified === true) {
+                if (
+                  checkData.success &&
+                  checkData.order?.status === 'COMPLETED' &&
+                  checkData.order?.verified === true &&
+                  checkData.order?.webhookConfirmed === true
+                ) {
                   clearInterval(pollInterval);
 
                   // Update Firestore wallet balance and transaction record
@@ -869,8 +883,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       try {
         showToast(
           currentLang === 'bn'
-            ? 'চ্যানেল ১ (Nekpay)-এ সংযোগ করা হচ্ছে...'
-            : 'Connecting to Channel 1 (Nekpay Gateway)...'
+            ? 'চ্যানেল ১-এ সংযোগ করা হচ্ছে...'
+            : 'Connecting to Channel 1...'
         );
 
         let data: any = null;
@@ -910,8 +924,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           }
           showToast(
             currentLang === 'bn'
-              ? 'Nekpay পেমেন্ট পেজে নিয়ে যাওয়া হচ্ছে...'
-              : 'Redirecting to Nekpay payment link...'
+              ? 'পেমেন্ট পেজে নিয়ে যাওয়া হচ্ছে...'
+              : 'Redirecting to payment link...'
           );
 
           // Automated polling for order completion
@@ -926,7 +940,12 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               try {
                 const checkRes = await fetch(`/api/payments/order-status/${orderNo}`);
                 const checkData = await checkRes.json();
-                if (checkData.success && checkData.order?.status === 'COMPLETED' && checkData.order?.verified === true) {
+                if (
+                  checkData.success &&
+                  checkData.order?.status === 'COMPLETED' &&
+                  checkData.order?.verified === true &&
+                  checkData.order?.webhookConfirmed === true
+                ) {
                   clearInterval(pollInterval);
 
                   // Update Firestore wallet balance and transaction record
@@ -950,7 +969,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                         ? {
                             ...t,
                             status: 'completed',
-                            description: `Nekpay Deposit (${method || 'bKash'}) - সফল`,
+                            description: `ডিপোজিট (চ্যানেল ১) - সফল`,
                             hash: checkData.order?.trxId || orderNo,
                             isCredit: true,
                           }
@@ -977,13 +996,13 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
         } else {
           showToast(
             currentLang === 'bn'
-              ? `⚠️ পেমেন্ট সংযোগ ব্যর্থ: ${data?.error || 'Nekpay গেটওয়ে ত্রুটি'}`
-              : `⚠️ Payment failed: ${data?.error || 'Nekpay gateway error'}`
+              ? `⚠️ পেমেন্ট সংযোগ ব্যর্থ: ${data?.error || 'গেটওয়ে ত্রুটি'}`
+              : `⚠️ Payment failed: ${data?.error || 'Gateway error'}`
           );
           return data;
         }
       } catch (err: any) {
-        console.error('[Nekpay Deposit Error]', err);
+        console.error('[Deposit Error]', err);
         showToast(
           currentLang === 'bn'
             ? '⚠️ গেটওয়ে সার্ভিসে সংযোগ করা যাচ্ছে না'
@@ -993,12 +1012,12 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       return null;
     }
 
-    // 4. CHANNEL 2: WATCHPAY GATEWAY
+    // 4. CHANNEL 2: DIRECT GATEWAY
     try {
       showToast(
         currentLang === 'bn'
-          ? 'চ্যানেল ২ (WatchPay)-এ সংযোগ করা হচ্ছে...'
-          : 'Connecting to Channel 2 (WatchPay)...'
+          ? 'চ্যানেল ২-এ সংযোগ করা হচ্ছে...'
+          : 'Connecting to Channel 2...'
       );
 
       let data: any = null;
@@ -1048,11 +1067,11 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
         }
         showToast(
           currentLang === 'bn'
-            ? 'WatchPay পেমেন্ট পেজে নিয়ে যাওয়া হচ্ছে...'
-            : 'Redirecting to WatchPay payment link...'
+            ? 'পেমেন্ট পেজে নিয়ে যাওয়া হচ্ছে...'
+            : 'Redirecting to payment link...'
         );
 
-        // Automated polling for WatchPay order completion
+        // Automated polling for Channel 2 order completion
         if (orderNo) {
           let attempts = 0;
           const pollInterval = setInterval(async () => {
@@ -1065,7 +1084,12 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               const checkRes = await fetch(`/api/payments/order-status/${orderNo}`);
               const checkData = await checkRes.json();
               const status = String(checkData?.order?.status || '').toUpperCase();
-              if (checkData.success && (status === 'COMPLETED' || status === 'SUCCESS') && checkData?.order?.verified === true) {
+              if (
+                checkData.success &&
+                (status === 'COMPLETED' || status === 'SUCCESS') &&
+                checkData?.order?.verified === true &&
+                checkData?.order?.webhookConfirmed === true
+              ) {
                 clearInterval(pollInterval);
 
                 // Update Firestore wallet balance and transaction record
@@ -1082,7 +1106,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                       ? {
                           ...t,
                           status: 'completed',
-                          description: `WatchPay Deposit (${method || 'Nagad'}) - সফল`,
+                          description: `ডিপোজিট (চ্যানেল ২) - সফল`,
                           hash: checkData.order?.trxId || orderNo,
                           isCredit: true,
                         }
@@ -1094,8 +1118,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
                 showToast(
                   currentLang === 'bn'
-                    ? `WatchPay রিচার্জ সফল! ৳${Number(amount).toLocaleString()} আপনার ওয়ালেটে জমা হয়েছে।`
-                    : `WatchPay recharge successful! ৳${Number(amount).toLocaleString()} added to your wallet.`
+                    ? `রিচার্জ সফল! ৳${Number(amount).toLocaleString()} আপনার ওয়ালেটে জমা হয়েছে।`
+                    : `Recharge successful! ৳${Number(amount).toLocaleString()} added to your wallet.`
                 );
               }
             } catch (e) {
@@ -1107,17 +1131,17 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       } else {
         showToast(
           currentLang === 'bn'
-            ? `⚠️ পেমেন্ট সংযোগ ব্যর্থ: ${data?.message || data?.error || 'WatchPay গেটওয়ে ত্রুটি'}`
-            : `⚠️ Payment failed: ${data?.message || data?.error || 'WatchPay gateway error'}`
+            ? `⚠️ পেমেন্ট সংযোগ ব্যর্থ: ${data?.message || data?.error || 'গেটওয়ে ত্রুটি'}`
+            : `⚠️ Payment failed: ${data?.message || data?.error || 'Gateway error'}`
         );
         return data;
       }
     } catch (err: any) {
-      console.error('[WatchPay Deposit Error]', err);
+      console.error('[Deposit Error]', err);
       showToast(
         currentLang === 'bn'
-          ? '⚠️ WatchPay গেটওয়ে সার্ভিসে সংযোগ করা যাচ্ছে না'
-          : '⚠️ Failed to connect to WatchPay gateway'
+          ? '⚠️ গেটওয়ে সার্ভিসে সংযোগ করা যাচ্ছে না'
+          : '⚠️ Failed to connect to payment gateway'
       );
     }
     return null;
@@ -1159,7 +1183,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       if (amount <= 0) return;
 
       // Security check: Check live order status on backend.
-      // An order is ONLY approved/completed if the server explicitly confirmed verified=true (e.g. via real gateway callback)
+      // An order is approved/completed if the server explicitly confirmed verified=true (either via real gateway webhook or verified authentic TrxID)
       (async () => {
         let isServerVerified = false;
         const lookupKey = orderId || finalTrxId;
@@ -1278,8 +1302,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
           showToast(
             currentLang === 'bn'
-              ? `আপনার ৳${amount.toLocaleString()} ডিপোজিট অনুরোধ জমা হয়েছে (TrxID: ${finalTrxId})। অ্যাডমিন বা সিস্টেম ভেরিফিকেশনের পর ব্যালেন্স যোগ হবে।`
-              : `Deposit request of ৳${amount.toLocaleString()} submitted (TrxID: ${finalTrxId}). Balance will be credited after admin verification.`
+              ? `⏳ আপনার ৳${amount.toLocaleString()} ডিপোজিট অনুরোধ জমা হয়েছে (TrxID: ${finalTrxId})। এটি অপেক্ষমাণ (Pending) রয়েছে। অ্যাডমিন বিকাশ/নগদে যাচাই করার পর ওয়ালেটে টাকা যোগ হবে।`
+              : `⏳ Deposit request of ৳${amount.toLocaleString()} submitted (TrxID: ${finalTrxId}). Placed in Pending awaiting admin manual review.`
           );
         }
       })();
@@ -1354,12 +1378,47 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       }
     });
 
+    const unsubProfile = subscribeToFirestoreUserProfile(activeUid, (updatedProfile) => {
+      if (updatedProfile) {
+        updateUser((prev) => {
+          const balanceChanged =
+            typeof updatedProfile.walletBalance === 'number' &&
+            updatedProfile.walletBalance !== prev.walletBalance;
+          const depositsChanged =
+            typeof updatedProfile.totalDeposited === 'number' &&
+            updatedProfile.totalDeposited !== prev.totalDeposited;
+          const vipChanged =
+            typeof updatedProfile.vipLevel === 'number' &&
+            updatedProfile.vipLevel !== prev.vipLevel;
+          const earningsChanged =
+            typeof updatedProfile.totalEarnings === 'number' &&
+            updatedProfile.totalEarnings !== prev.totalEarnings;
+
+          if (!balanceChanged && !depositsChanged && !vipChanged && !earningsChanged) {
+            return prev;
+          }
+
+          return {
+            ...prev,
+            walletBalance: balanceChanged ? updatedProfile.walletBalance : prev.walletBalance,
+            totalDeposited: depositsChanged ? updatedProfile.totalDeposited : prev.totalDeposited,
+            vipLevel: vipChanged ? updatedProfile.vipLevel : prev.vipLevel,
+            totalEarnings: earningsChanged ? updatedProfile.totalEarnings : prev.totalEarnings,
+            hasDeposited: (updatedProfile.totalDeposited || 0) > 0 || prev.hasDeposited,
+          };
+        });
+      }
+    });
+
     return () => {
       if (typeof unsubscribe === 'function') {
         unsubscribe();
       }
+      if (typeof unsubProfile === 'function') {
+        unsubProfile();
+      }
     };
-  }, [user.memberId]);
+  }, [auth.currentUser?.uid, user.uid, user.memberId]);
 
   // Automated background verification / cleanup for pending manual deposit transactions
   useEffect(() => {

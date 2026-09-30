@@ -46,6 +46,12 @@ export default function App() {
     const initial = getCleanPath();
     if (initial === '/admin') return '/admin'; // Admin পাথ সরাসরি চেক
 
+    const search = typeof window !== 'undefined' ? window.location.search : '';
+    const isPaymentReturn = search.includes('payment_status') || search.includes('orderNo') || search.includes('trade_no') || search.includes('trx_id');
+    if (isPaymentReturn) {
+      return '/profile';
+    }
+
     const isStoredAuth = !!getPersistedAuthUser();
 
     if (!isStoredAuth) {
@@ -55,11 +61,6 @@ export default function App() {
       if (pendingCode) return '/register';
       return '/login';
     } else {
-      const search = typeof window !== 'undefined' ? window.location.search : '';
-      const isPaymentReturn = search.includes('payment_status') || search.includes('orderNo') || search.includes('trade_no') || search.includes('trx_id');
-      if (isPaymentReturn) {
-        return '/profile';
-      }
       if (initial === '/login' || initial === '/register' || initial === '/') {
         return '/home';
       }
@@ -156,6 +157,15 @@ export default function App() {
     if (currentPath === '/admin') return;
 
     if (!authUser) {
+      const search = typeof window !== 'undefined' ? window.location.search : '';
+      const isPaymentReturn = search.includes('payment_status') || search.includes('orderNo') || search.includes('trade_no') || search.includes('trx_id');
+      if (isPaymentReturn) {
+        const stored = getPersistedAuthUser();
+        if (stored) {
+          setAuthUser(stored);
+          return;
+        }
+      }
       // If user is accessing /login or /register, let them stay on their chosen page
       if (currentPath !== '/login' && currentPath !== '/register') {
         const pendingRef = extractPendingReferralCode();
@@ -340,6 +350,7 @@ export default function App() {
           currentLang={currentLang}
           onToggleLang={handleToggleLang}
           initialUser={authUser}
+          onUpdateUser={(updated) => setAuthUser(updated)}
           onNavigateBack={() => navigate('/home')}
           onLogout={handleLogout}
           onGoToHome={() => navigate('/home')}

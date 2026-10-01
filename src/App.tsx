@@ -350,7 +350,12 @@ export default function App() {
           currentLang={currentLang}
           onToggleLang={handleToggleLang}
           initialUser={authUser}
-          onUpdateUser={(updated) => setAuthUser(updated)}
+          onUpdateUser={(updated) => {
+            setAuthUser((prev) => {
+              if (prev && isSameUser(prev, updated)) return prev;
+              return updated;
+            });
+          }}
           onNavigateBack={() => navigate('/home')}
           onLogout={handleLogout}
           onGoToHome={() => navigate('/home')}

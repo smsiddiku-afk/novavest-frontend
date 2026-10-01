@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { collection, getDocs, doc, setDoc, getDoc, query, orderBy, increment, deleteDoc } from "firebase/firestore";
-import { db, updateFirestoreDepositStatus, sanitizeFirestoreData, cleanDocId, safeDoc, safeSetDoc, safeDeleteDoc, deleteFirestoreUserProfile } from "./lib/firebase";
+import { db, updateFirestoreDepositStatus, updateFirestoreWithdrawalStatus, updateFirestoreReferralPermission, sanitizeFirestoreData, cleanDocId, safeDoc, safeSetDoc, safeDeleteDoc, deleteFirestoreUserProfile } from "./lib/firebase";
 import {
   loadCommissionRatesFromFirestore,
   saveCommissionRatesToFirestore,
@@ -527,38 +527,45 @@ export default function AdminPanel() {
     const cleanWId = cleanDocId(withdrawId, '');
     if (!cleanWId) return;
     try {
-      const withdrawRef = safeDoc("withdrawals", cleanWId);
-      const cleanUId = cleanDocId(userId, '');
-      const numAmount = Number(amount) || 0;
+      const isApprove = action === "approve";
+      const targetUser = users.find(
+        (u) =>
+          u.id === userId ||
+          u.uid === userId ||
+          u.memberId === userId ||
+          (u.phone && String(u.phone).slice(-10) === String(userId).slice(-10))
+      );
+      const targetUserId = targetUser?.id || targetUser?.uid || userId;
 
-      if (action === "approve") {
-        if (withdrawRef) await safeSetDoc(withdrawRef, { status: "Approved", updatedAt: new Date().toISOString() }, { merge: true });
-        if (cleanUId) {
-          const userWRef = safeDoc("users", cleanUId, "withdrawals", cleanWId);
-          if (userWRef) await safeSetDoc(userWRef, { status: "Approved", updatedAt: new Date().toISOString() }, { merge: true });
-        }
-        setStatusMsg("✅ উইথড্র সফলভাবে অ্যাপ্রুভ করা হয়েছে!");
-      } else {
-        if (withdrawRef) await safeSetDoc(withdrawRef, { status: "Rejected", updatedAt: new Date().toISOString() }, { merge: true });
-        // When rejected, refund the deducted amount back to user's wallet balance
-        if (cleanUId && numAmount > 0) {
-          const userRef = safeDoc("users", cleanUId);
-          if (userRef) {
-            await safeSetDoc(userRef, {
-              walletBalance: increment(numAmount),
-              balance: increment(numAmount),
-              updatedAt: new Date().toISOString(),
-            }, { merge: true });
-          }
-          const userWRef = safeDoc("users", cleanUId, "withdrawals", cleanWId);
-          if (userWRef) await safeSetDoc(userWRef, { status: "Rejected", updatedAt: new Date().toISOString() }, { merge: true });
-        }
-        setStatusMsg("❌ উইথড্র রিজেক্ট করা হয়েছে এবং ব্যালেন্স ব্যবহারকারীর ওয়ালেটে ফেরত দেওয়া হয়েছে।");
-      }
+      await updateFirestoreWithdrawalStatus(
+        targetUserId,
+        cleanWId,
+        isApprove ? "Approved" : "Rejected",
+        Number(amount) || 0
+      );
+
+      // Immediately update local state for responsive UI
+      setWithdrawals((prev) =>
+        prev.map((w) =>
+          w.id === cleanWId
+            ? {
+                ...w,
+                status: isApprove ? "Approved" : "Rejected",
+                statusBangla: isApprove ? "এপ্রুভ" : "বাতিল",
+              }
+            : w
+        )
+      );
+
+      setStatusMsg(
+        isApprove
+          ? "✅ উইথড্র সফলভাবে এপ্রুভ করা হয়েছে! ইউজার হিস্ট্রিতে এটি 'এপ্রুভ' হিসেবে দেখাবে।"
+          : "❌ উইথড্র রিজেক্ট করা হয়েছে এবং ব্যালেন্স ব্যবহারকারীর ওয়ালেটে ফেরত দেওয়া হয়েছে।"
+      );
       fetchAllData();
     } catch (error) {
       console.error("উইথড্র আপডেট এরর:", error);
-      setStatusMsg("উইথড্র স্ট্যাটাস পরিবর্তন করা যায়নি।");
+      setStatusMsg("উইথড্র স্ট্যাটাস পরিবর্তন করা যায়নি: " + error.message);
     }
   };
 
@@ -822,28 +829,36 @@ export default function AdminPanel() {
     if (!cleanId) return;
     try {
       const newStatus = !currentStatus;
-      const targetUserDoc = safeDoc("users", cleanId);
-      if (targetUserDoc) {
-        await safeSetDoc(targetUserDoc, {
-          canRefer: newStatus,
-          referralLimit: newStatus ? (Number(currentLimit) || 5) : 0,
-          updatedAt: new Date().toISOString()
-        }, { merge: true });
-      }
+      const targetUser = users.find(
+        (u) =>
+          u.id === cleanId ||
+          u.uid === cleanId ||
+          u.memberId === cleanId ||
+          (u.phone && String(u.phone).slice(-10) === String(cleanId).slice(-10))
+      );
+      const effectiveLimit = newStatus ? (Number(currentLimit) || 5) : 0;
+
+      await updateFirestoreReferralPermission(
+        cleanId,
+        targetUser,
+        newStatus,
+        effectiveLimit
+      );
 
       setUsers((prev) =>
         prev.map((u) =>
-          u.id === cleanId || u.uid === cleanId
-            ? { ...u, canRefer: newStatus, referralLimit: newStatus ? (Number(currentLimit) || 5) : 0 }
+          u.id === cleanId || u.uid === cleanId || u.memberId === cleanId || (targetUser && (u.id === targetUser.id || u.uid === targetUser.uid || u.memberId === targetUser.memberId))
+            ? { ...u, canRefer: newStatus, referralLimit: effectiveLimit }
             : u
         )
       );
 
       setStatusMsg(
         newStatus
-          ? `✅ ইউজার "${cleanId}" কে সফলভাবে রেফার করার অনুমতি প্রদান করা হয়েছে (লিমিট: ${currentLimit || 5} জন)!`
+          ? `✅ ইউজার "${cleanId}" কে সফলভাবে রেফার করার অনুমতি প্রদান করা হয়েছে (লিমিট: ${effectiveLimit} জন)!`
           : `🛑 ইউজার "${cleanId}" এর রেফার করার অনুমতি বাতিল করা হয়েছে!`
       );
+      fetchAllData();
     } catch (err) {
       console.error("Referral permission update error:", err);
       setStatusMsg("⚠️ রেফার পারমিশন পরিবর্তন করতে সমস্যা হয়েছে।");
@@ -855,24 +870,31 @@ export default function AdminPanel() {
     if (!cleanId) return;
     const numLimit = Math.max(0, parseInt(newLimit, 10) || 0);
     try {
-      const targetUserDoc = safeDoc("users", cleanId);
-      if (targetUserDoc) {
-        await safeSetDoc(targetUserDoc, {
-          referralLimit: numLimit,
-          canRefer: numLimit > 0,
-          updatedAt: new Date().toISOString()
-        }, { merge: true });
-      }
+      const targetUser = users.find(
+        (u) =>
+          u.id === cleanId ||
+          u.uid === cleanId ||
+          u.memberId === cleanId ||
+          (u.phone && String(u.phone).slice(-10) === String(cleanId).slice(-10))
+      );
+
+      await updateFirestoreReferralPermission(
+        cleanId,
+        targetUser,
+        numLimit > 0,
+        numLimit
+      );
 
       setUsers((prev) =>
         prev.map((u) =>
-          u.id === cleanId || u.uid === cleanId
+          u.id === cleanId || u.uid === cleanId || u.memberId === cleanId || (targetUser && (u.id === targetUser.id || u.uid === targetUser.uid || u.memberId === targetUser.memberId))
             ? { ...u, referralLimit: numLimit, canRefer: numLimit > 0 }
             : u
         )
       );
 
       setStatusMsg(`✅ ইউজার "${cleanId}" এর রেফার লিমিট ${numLimit} সেট করা হয়েছে!`);
+      fetchAllData();
     } catch (err) {
       console.error("Referral limit update error:", err);
       setStatusMsg("⚠️ রেফার লিমিট পরিবর্তন করতে সমস্যা হয়েছে।");
@@ -1033,8 +1055,15 @@ export default function AdminPanel() {
                           </span>
                         </td>
                         <td style={{ padding: "10px" }}>
-                          <span style={{ padding: "4px 8px", borderRadius: "4px", fontSize: "12px", background: w.status === "Approved" ? "#14532d" : w.status === "Rejected" ? "#7f1d1d" : "#713f12" }}>
-                            {w.status || "Pending"}
+                          <span style={{
+                            padding: "4px 8px",
+                            borderRadius: "4px",
+                            fontSize: "12px",
+                            fontWeight: "bold",
+                            background: w.status === "Approved" ? "#14532d" : w.status === "Rejected" ? "#7f1d1d" : "#713f12",
+                            color: w.status === "Approved" ? "#4ade80" : w.status === "Rejected" ? "#f87171" : "#facc15"
+                          }}>
+                            {w.status === "Approved" ? "এপ্রুভ (Approved)" : w.status === "Rejected" ? "বাতিল (Rejected)" : "অপেক্ষমাণ (Pending)"}
                           </span>
                         </td>
                         <td style={{ padding: "10px", textAlign: "center" }}>
@@ -1637,7 +1666,7 @@ export default function AdminPanel() {
               <select value={selectedUser} onChange={(e) => setSelectedUser(e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px", borderRadius: "6px", border: "1px solid #3b476c", backgroundColor: "#0b0f19", color: "#fff" }} required>
                 <option value="">-- ইউজার বেছে নিন --</option>
                 {users.map((u) => (
-                  <option key={u.id} value={u.id}>{u.name || u.email || u.phone || u.id} (ব্যালেন্স: {u.walletBalance ?? u.balance ?? 0})</option>
+                  <option key={u.id} value={u.id}>{u.name || u.email || u.phone || u.id} (ব্যালেন্স: {Math.max(0, Number(u.walletBalance ?? u.balance ?? 0))})</option>
                 ))}
               </select>
 
@@ -1991,7 +2020,7 @@ export default function AdminPanel() {
                             )}
                           </td>
                           <td style={{ padding: "10px", color: "#22c55e", fontWeight: "bold" }}>
-                            ৳ {u.walletBalance ?? u.balance ?? 0}
+                            ৳ {Math.max(0, Number(u.walletBalance ?? u.balance ?? 0))}
                           </td>
                           <td style={{ padding: "10px", color: "#facc15", fontSize: "13px" }}>
                             {u.referredBy || u.upliner || u.sponsor || "কেউ না (Direct)"}

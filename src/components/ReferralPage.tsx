@@ -27,10 +27,12 @@ import {
   Headphones,
   FileText,
   Lock,
+  Crown,
 } from 'lucide-react';
 import { Language } from '../types';
 import { getReferralTreeForUser } from '../utils/referralService';
 import { subscribeToReferralNetwork, syncReferralAccountsFromFirestore } from '../lib/firebase';
+import { PromoBonusScreen } from './PromoBonusScreen';
 
 export interface ReferralMember {
   id: string;
@@ -50,6 +52,7 @@ interface ReferralPageProps {
   userMemberId?: string;
   onBack: () => void;
   onClaimReward?: (amount: number) => void;
+  onClaimPromoReward?: (amount: number, level: string) => void;
   showToast?: (msg: string) => void;
   userBalance?: number;
   canRefer?: boolean;
@@ -64,14 +67,15 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
   userMemberId,
   onBack,
   onClaimReward,
+  onClaimPromoReward,
   showToast = (_msg: string) => {},
   userBalance = 0,
   canRefer = true,
   referralLimit = 0,
   onContactManager,
 }) => {
-  // Main Tabs: 'invite' | 'details' (exactly matches user screenshot)
-  const [activeTab, setActiveTab] = useState<'invite' | 'details'>('invite');
+  // Main Tabs: 'invite' | 'details' | 'promo' (রেফার অপশনের পাশাপাশি প্রমো বোনাস)
+  const [activeTab, setActiveTab] = useState<'invite' | 'details' | 'promo'>('invite');
 
   // Details sub-filter: all | 1 | 2 | 3
   const [tierFilter, setTierFilter] = useState<'all' | '1' | '2' | '3'>('all');
@@ -277,13 +281,13 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
         themeMode === 'day' ? 'bg-[#f4f6fb] text-slate-800' : 'bg-[#06483A] text-slate-100'
       }`}
     >
-      {/* 1. Top Header Bar (Golden Amber title & Close button matching user screenshot) */}
+      {/* 1. Top Header Bar (Golden Amber title & Emerald background matching website) */}
       <header
         id="referral-page-header"
         className={`sticky top-0 z-30 w-full backdrop-blur-md shadow-md transition-colors ${
           themeMode === 'day'
             ? 'bg-white/95 border-b border-slate-200 text-slate-900'
-            : 'bg-[#091122]/95 border-b border-slate-800/80'
+            : 'bg-[#043228]/95 border-b border-[#0d614f]'
         }`}
       >
         <div className="w-full px-4 h-14 flex items-center justify-between">
@@ -294,7 +298,7 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
             className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors cursor-pointer active:scale-95 ${
               themeMode === 'day'
                 ? 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                : 'bg-slate-800/60 hover:bg-slate-700/60 text-slate-300 hover:text-white'
+                : 'bg-emerald-950/60 border border-emerald-500/30 text-emerald-300 hover:text-white'
             }`}
             aria-label="Go Back"
           >
@@ -319,7 +323,7 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
               className={`w-9 h-9 rounded-full flex items-center justify-center transition-all cursor-pointer active:scale-95 ${
                 themeMode === 'day'
                   ? 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                  : 'bg-slate-800/60 hover:bg-slate-700/60 text-amber-300 hover:text-amber-200'
+                  : 'bg-emerald-950/60 border border-emerald-500/30 text-amber-300 hover:text-amber-200'
               }`}
               title={currentLang === 'bn' ? 'ডাটা সিঙ্ক ও রিফ্রেশ' : 'Sync & Refresh'}
               aria-label="Refresh"
@@ -334,7 +338,7 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
               className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors cursor-pointer active:scale-95 ${
                 themeMode === 'day'
                   ? 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                  : 'bg-slate-800/60 hover:bg-slate-700/60 text-amber-300/90 hover:text-amber-200'
+                  : 'bg-emerald-950/60 border border-emerald-500/30 text-amber-300/90 hover:text-amber-200'
               }`}
               aria-label="Close"
             >
@@ -343,9 +347,9 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
           </div>
         </div>
 
-        {/* 2. Dual Tabs: Invite | Details (Golden underline active state matching Screenshot) */}
-        <div className={`w-full grid grid-cols-2 text-center text-sm font-bold border-t ${
-          themeMode === 'day' ? 'border-slate-200' : 'border-slate-800/50'
+        {/* 2. Navigation Tabs: Invite | Details | Promo Bonus (রেফার অপশনের পাশাপাশি প্রমো বোনাস) */}
+        <div className={`w-full grid grid-cols-3 text-center text-xs sm:text-sm font-bold border-t ${
+          themeMode === 'day' ? 'border-slate-200' : 'border-[#0d614f]'
         }`}>
           <button
             id="referral-tab-invite"
@@ -358,7 +362,7 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
                   : 'text-amber-300 font-extrabold'
                 : themeMode === 'day'
                 ? 'text-slate-500 hover:text-slate-800 font-medium'
-                : 'text-slate-400 hover:text-slate-200 font-medium'
+                : 'text-emerald-200/70 hover:text-white font-medium'
             }`}
           >
             <span>{currentLang === 'bn' ? 'আমন্ত্রণ (Invite)' : 'Invite'}</span>
@@ -378,11 +382,32 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
                   : 'text-amber-300 font-extrabold'
                 : themeMode === 'day'
                 ? 'text-slate-500 hover:text-slate-800 font-medium'
-                : 'text-slate-400 hover:text-slate-200 font-medium'
+                : 'text-emerald-200/70 hover:text-white font-medium'
             }`}
           >
             <span>{currentLang === 'bn' ? 'বিস্তারিত (Details)' : 'Details'}</span>
             {activeTab === 'details' && (
+              <span className="absolute bottom-0 left-1/4 right-1/4 h-[3px] bg-gradient-to-r from-amber-400 to-yellow-500 rounded-full shadow-[0_0_8px_#f59e0b]" />
+            )}
+          </button>
+
+          <button
+            id="referral-tab-promo"
+            type="button"
+            onClick={() => setActiveTab('promo')}
+            className={`py-3 relative transition-all cursor-pointer flex items-center justify-center gap-1 ${
+              activeTab === 'promo'
+                ? themeMode === 'day'
+                  ? 'text-amber-600 font-extrabold'
+                  : 'text-amber-300 font-extrabold'
+                : themeMode === 'day'
+                ? 'text-slate-500 hover:text-slate-800 font-medium'
+                : 'text-emerald-200/70 hover:text-white font-medium'
+            }`}
+          >
+            <Crown className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+            <span>{currentLang === 'bn' ? 'প্রমো বোনাস' : 'Promo'}</span>
+            {activeTab === 'promo' && (
               <span className="absolute bottom-0 left-1/4 right-1/4 h-[3px] bg-gradient-to-r from-amber-400 to-yellow-500 rounded-full shadow-[0_0_8px_#f59e0b]" />
             )}
           </button>
@@ -391,12 +416,12 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
 
       {/* Main Tab Content */}
       <main className="w-full px-3.5 sm:px-4 pt-4 space-y-4 max-w-md mx-auto">
-        {activeTab === 'invite' ? (
+        {activeTab === 'invite' && (
           <>
             {/* CARD 1: Refer Your Friends and Earn */}
             <section
               id="referral-invite-card"
-              className="rounded-2xl bg-[#0b1426] border border-slate-800/90 p-4 shadow-xl space-y-3.5 relative overflow-hidden"
+              className="rounded-2xl bg-[#043228] border border-[#0d614f] p-4 shadow-xl shadow-emerald-950/40 space-y-3.5 relative overflow-hidden"
             >
               {/* Section Header with vertical bar indicator */}
               <div className="flex items-center gap-2">
@@ -409,11 +434,11 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
               </div>
 
               {/* Premium High-Tech Energy Partner Banner */}
-              <div className="relative rounded-2xl overflow-hidden bg-gradient-to-br from-[#08152c] via-[#0c1f40] to-[#08111e] border border-amber-500/40 p-3.5 sm:p-4 shadow-xl shadow-amber-950/25 relative group">
+              <div className="relative rounded-2xl overflow-hidden bg-gradient-to-br from-[#06483A] via-[#085a49] to-[#03261f] border border-amber-500/40 p-3.5 sm:p-4 shadow-xl shadow-emerald-950/50 group">
                 {/* Background Ambient Lighting & Cyber Circuit Grid */}
                 <div className="absolute -top-14 -right-14 w-40 h-40 bg-amber-500/20 rounded-full blur-2xl pointer-events-none" />
-                <div className="absolute -bottom-10 -left-10 w-36 h-36 bg-cyan-500/20 rounded-full blur-2xl pointer-events-none" />
-                <div className="absolute inset-0 bg-[linear-gradient(to_right,#1e293b15_1px,transparent_1px),linear-gradient(to_bottom,#1e293b15_1px,transparent_1px)] bg-[size:16px_16px] pointer-events-none opacity-40" />
+                <div className="absolute -bottom-10 -left-10 w-36 h-36 bg-emerald-500/25 rounded-full blur-2xl pointer-events-none" />
+                <div className="absolute inset-0 bg-[linear-gradient(to_right,#10b98110_1px,transparent_1px),linear-gradient(to_bottom,#10b98110_1px,transparent_1px)] bg-[size:16px_16px] pointer-events-none opacity-40" />
 
                 {/* Top Status & Tier Badge Bar */}
                 <div className="relative z-10 flex items-center justify-between gap-2 mb-2.5">
@@ -422,7 +447,7 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
                     <span>{currentLang === 'bn' ? 'ভিআইপি পার্টনার প্রোগ্রাম' : 'VIP Partner Program'}</span>
                   </div>
 
-                  <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-[9px] font-bold text-emerald-300">
+                  <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-[9px] font-bold text-emerald-300">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                     <span>{currentLang === 'bn' ? 'তাৎক্ষণিক অটো পে-আউট' : 'Real-time Payout'}</span>
                   </div>
@@ -440,10 +465,10 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
                         {currentLang === 'bn' ? 'ইনভাইট করুন ও আয় করুন' : 'INVITE & EARN TOGETHER'}
                       </span>
                     </h2>
-                    <p className="text-[10px] text-slate-300 leading-snug font-medium">
+                    <p className="text-[10px] text-emerald-100/90 leading-snug font-medium">
                       {currentLang === 'bn'
-                        ? 'বন্ধুদের যুক্ত করুন এবং তাদের প্রতিটি প্যাকেজ ক্রয়ে সরাসরি ৩-স্তরে সর্বোচ্চ ১১% নগদ কমিশন বুঝে নিন।'
-                        : 'Invite partners & earn up to 11% instant multi-tier commissions on every package purchase.'}
+                        ? 'বন্ধুদের যুক্ত করুন এবং তাদের প্রতিটি প্যাকেজ ক্রয়ে সরাসরি ৩-স্তরে (৬%, ৩%, ১%) নগদ কমিশন বুঝে নিন।'
+                        : 'Invite partners & earn instant 3-tier commissions (6%, 3%, 1%) on every package purchase.'}
                     </p>
                   </div>
 
@@ -456,13 +481,13 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
                           <stop offset="50%" stopColor="#f59e0b" />
                           <stop offset="100%" stopColor="#b45309" />
                         </linearGradient>
-                        <linearGradient id="cyanGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                          <stop offset="0%" stopColor="#67e8f9" />
-                          <stop offset="100%" stopColor="#0284c7" />
+                        <linearGradient id="emeraldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                          <stop offset="0%" stopColor="#6ee7b7" />
+                          <stop offset="100%" stopColor="#059669" />
                         </linearGradient>
                         <linearGradient id="hubGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                          <stop offset="0%" stopColor="#1e293b" />
-                          <stop offset="100%" stopColor="#0f172a" />
+                          <stop offset="0%" stopColor="#064e3b" />
+                          <stop offset="100%" stopColor="#022c22" />
                         </linearGradient>
                         <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
                           <feGaussianBlur stdDeviation="3" result="blur" />
@@ -471,63 +496,63 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
                       </defs>
 
                       {/* Holographic orbital pulse rings */}
-                      <circle cx="60" cy="60" r="50" fill="none" stroke="#38bdf8" strokeWidth="1" strokeDasharray="3,3" opacity="0.4" />
-                      <circle cx="60" cy="60" r="38" fill="none" stroke="#fbbf24" strokeWidth="1.2" opacity="0.5" />
+                      <circle cx="60" cy="60" r="50" fill="none" stroke="#10b981" strokeWidth="1" strokeDasharray="3,3" opacity="0.45" />
+                      <circle cx="60" cy="60" r="38" fill="none" stroke="#fbbf24" strokeWidth="1.2" opacity="0.6" />
 
                       {/* Central Energy Grid Power Generator Base */}
-                      <polygon points="60,26 92,44 92,78 60,96 28,78 28,44" fill="url(#hubGrad)" stroke="url(#cyanGrad)" strokeWidth="2" />
-                      <polygon points="60,32 86,47 86,74 60,89 34,74 34,47" fill="#091428" stroke="#0ea5e9" strokeWidth="1" opacity="0.8" />
+                      <polygon points="60,26 92,44 92,78 60,96 28,78 28,44" fill="url(#hubGrad)" stroke="url(#emeraldGrad)" strokeWidth="2" />
+                      <polygon points="60,32 86,47 86,74 60,89 34,74 34,47" fill="#03261f" stroke="#059669" strokeWidth="1" opacity="0.85" />
 
                       {/* Power grid nodes and glowing core */}
-                      <circle cx="60" cy="60" r="14" fill="#0284c7" opacity="0.3" filter="url(#glow)" />
-                      <circle cx="60" cy="60" r="8" fill="#38bdf8" />
+                      <circle cx="60" cy="60" r="14" fill="#059669" opacity="0.3" filter="url(#glow)" />
+                      <circle cx="60" cy="60" r="8" fill="#10b981" />
                       <polygon points="60,54 65,60 61,60 62,66 56,60 59,60" fill="#ffffff" />
 
-                      {/* Floating Golden Coin 1 (Level 1: 7%) */}
+                      {/* Floating Golden Coin 1 (Level 1: 6%) */}
                       <g transform="translate(18, 16)">
                         <circle cx="12" cy="12" r="11" fill="url(#goldGrad)" stroke="#fef08a" strokeWidth="1" />
                         <circle cx="12" cy="12" r="8.5" fill="none" stroke="#78350f" strokeWidth="0.8" opacity="0.6" />
-                        <text x="12" y="15.5" fontSize="10" fontWeight="900" textAnchor="middle" fill="#451a03" fontFamily="sans-serif">৳</text>
+                        <text x="12" y="15.5" fontSize="8.5" fontWeight="900" textAnchor="middle" fill="#451a03" fontFamily="sans-serif">6%</text>
                       </g>
 
                       {/* Floating Golden Coin 2 (Level 2: 3%) */}
                       <g transform="translate(86, 68)">
                         <circle cx="10" cy="10" r="9" fill="url(#goldGrad)" stroke="#fef08a" strokeWidth="1" />
-                        <text x="10" y="13" fontSize="8" fontWeight="900" textAnchor="middle" fill="#451a03" fontFamily="sans-serif">৳</text>
+                        <text x="10" y="13" fontSize="8" fontWeight="900" textAnchor="middle" fill="#451a03" fontFamily="sans-serif">3%</text>
                       </g>
 
                       {/* Floating Golden Coin 3 (Level 3: 1%) */}
                       <g transform="translate(14, 78)">
                         <circle cx="8" cy="8" r="7" fill="url(#goldGrad)" stroke="#fef08a" strokeWidth="0.8" />
-                        <text x="8" y="10.5" fontSize="7" fontWeight="900" textAnchor="middle" fill="#451a03" fontFamily="sans-serif">★</text>
+                        <text x="8" y="10.5" fontSize="7" fontWeight="900" textAnchor="middle" fill="#451a03" fontFamily="sans-serif">1%</text>
                       </g>
 
                       {/* Laser connection arcs */}
                       <line x1="30" y1="28" x2="52" y2="52" stroke="#f59e0b" strokeWidth="1.2" strokeDasharray="2,2" opacity="0.7" />
                       <line x1="86" y1="74" x2="68" y2="64" stroke="#f59e0b" strokeWidth="1.2" strokeDasharray="2,2" opacity="0.7" />
-                      <line x1="28" y1="82" x2="52" y2="68" stroke="#38bdf8" strokeWidth="1.2" strokeDasharray="2,2" opacity="0.7" />
+                      <line x1="28" y1="82" x2="52" y2="68" stroke="#10b981" strokeWidth="1.2" strokeDasharray="2,2" opacity="0.7" />
                     </svg>
                   </div>
                 </div>
 
-                {/* Bottom 3-Tier Commission Badges Pill Strip */}
-                <div className="relative z-10 mt-3 pt-2.5 border-t border-slate-800/80 grid grid-cols-3 gap-1.5 sm:gap-2">
-                  <div className="bg-[#050c18]/80 border border-amber-500/30 rounded-xl py-1 px-1.5 text-center flex flex-col items-center">
+                {/* Bottom 3-Tier Commission Badges Pill Strip (6% / 3% / 1%) */}
+                <div className="relative z-10 mt-3 pt-2.5 border-t border-emerald-700/50 grid grid-cols-3 gap-1.5 sm:gap-2">
+                  <div className="bg-[#03261f]/90 border border-amber-500/40 rounded-xl py-1 px-1.5 text-center flex flex-col items-center">
                     <span className="text-[9px] text-amber-300 font-bold uppercase">{currentLang === 'bn' ? '১ম স্তর' : 'Level 1'}</span>
-                    <span className="text-xs sm:text-sm font-black text-white font-mono">7%</span>
-                    <span className="text-[8px] text-slate-400">{currentLang === 'bn' ? 'সরাসরি' : 'Direct'}</span>
+                    <span className="text-xs sm:text-sm font-black text-amber-300 font-mono">6%</span>
+                    <span className="text-[8px] text-emerald-200/70">{currentLang === 'bn' ? 'সরাসরি' : 'Direct'}</span>
                   </div>
 
-                  <div className="bg-[#050c18]/80 border border-blue-500/30 rounded-xl py-1 px-1.5 text-center flex flex-col items-center">
-                    <span className="text-[9px] text-blue-300 font-bold uppercase">{currentLang === 'bn' ? '২য় স্তর' : 'Level 2'}</span>
-                    <span className="text-xs sm:text-sm font-black text-white font-mono">3%</span>
-                    <span className="text-[8px] text-slate-400">{currentLang === 'bn' ? 'সাব-টিম' : 'Sub-Team'}</span>
+                  <div className="bg-[#03261f]/90 border border-emerald-500/40 rounded-xl py-1 px-1.5 text-center flex flex-col items-center">
+                    <span className="text-[9px] text-emerald-300 font-bold uppercase">{currentLang === 'bn' ? '২য় স্তর' : 'Level 2'}</span>
+                    <span className="text-xs sm:text-sm font-black text-emerald-300 font-mono">3%</span>
+                    <span className="text-[8px] text-emerald-200/70">{currentLang === 'bn' ? 'সাব-টিম' : 'Sub-Team'}</span>
                   </div>
 
-                  <div className="bg-[#050c18]/80 border border-indigo-500/30 rounded-xl py-1 px-1.5 text-center flex flex-col items-center">
-                    <span className="text-[9px] text-indigo-300 font-bold uppercase">{currentLang === 'bn' ? '৩য় স্তর' : 'Level 3'}</span>
-                    <span className="text-xs sm:text-sm font-black text-white font-mono">1%</span>
-                    <span className="text-[8px] text-slate-400">{currentLang === 'bn' ? 'নেটওয়ার্ক' : 'Network'}</span>
+                  <div className="bg-[#03261f]/90 border border-teal-500/40 rounded-xl py-1 px-1.5 text-center flex flex-col items-center">
+                    <span className="text-[9px] text-teal-300 font-bold uppercase">{currentLang === 'bn' ? '৩য় স্তর' : 'Level 3'}</span>
+                    <span className="text-xs sm:text-sm font-black text-teal-300 font-mono">1%</span>
+                    <span className="text-[8px] text-emerald-200/70">{currentLang === 'bn' ? 'নেটওয়ার্ক' : 'Network'}</span>
                   </div>
                 </div>
               </div>
@@ -535,8 +560,8 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
               {/* QR Code and Sharing Actions (2 Columns matching user screenshot) */}
               <div className="grid grid-cols-12 gap-3 pt-1">
                 {/* Left Column (5 cols): Invitation QR Code */}
-                <div className="col-span-5 flex flex-col items-center justify-between bg-[#080e1a] border border-slate-800 rounded-xl p-2.5">
-                  <span className="text-[11px] font-semibold text-slate-300 mb-1.5 text-center leading-tight">
+                <div className="col-span-5 flex flex-col items-center justify-between bg-[#03261f] border border-[#0d614f] rounded-xl p-2.5 shadow-inner">
+                  <span className="text-[11px] font-semibold text-emerald-200 mb-1.5 text-center leading-tight">
                     {currentLang === 'bn' ? 'আমন্ত্রণ কিউআর কোড' : 'Invitation QR Code'}
                   </span>
 
@@ -585,7 +610,7 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
 
                       <rect x="8" y="48" width="6" height="6" fill="#000" />
                       <rect x="24" y="48" width="6" height="6" fill="#000" />
-                      <rect x="44" y="48" width="12" height="12" fill="#2563eb" rx="2" />
+                      <rect x="44" y="48" width="12" height="12" fill="#059669" rx="2" />
                       <rect x="68" y="48" width="6" height="6" fill="#000" />
                       <rect x="84" y="48" width="6" height="6" fill="#000" />
 
@@ -612,12 +637,12 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
                     </svg>
 
                     {/* Center badge */}
-                    <div className="absolute inset-0 m-auto w-5 h-5 rounded-full bg-blue-600 border border-white flex items-center justify-center text-white">
+                    <div className="absolute inset-0 m-auto w-5 h-5 rounded-full bg-[#06483A] border border-amber-400 flex items-center justify-center text-amber-300 shadow-sm">
                       <Zap className="w-3 h-3 fill-current" />
                     </div>
                   </div>
 
-                  <span className="text-[9px] text-slate-400 mt-1">
+                  <span className="text-[9px] text-emerald-300/80 mt-1">
                     {currentLang === 'bn' ? 'স্ক্যান করুন' : 'Scan to Join'}
                   </span>
                 </div>
@@ -626,7 +651,7 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
                 <div className="col-span-7 flex flex-col justify-between space-y-2.5">
                   {/* Invitation Link Section */}
                   <div>
-                    <span className="block text-[11px] font-semibold text-slate-300 mb-1">
+                    <span className="block text-[11px] font-semibold text-emerald-200 mb-1">
                       {currentLang === 'bn' ? 'আমন্ত্রণ লিংক' : 'Invitation Link'}
                     </span>
                     <button
@@ -651,11 +676,11 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
 
                   {/* Invitation Code Section (matching Screenshot box + right golden copy button) */}
                   <div>
-                    <span className="block text-[11px] font-semibold text-slate-300 mb-1">
+                    <span className="block text-[11px] font-semibold text-emerald-200 mb-1">
                       {currentLang === 'bn' ? 'আমন্ত্রণ কোড' : 'Invitation Code'}
                     </span>
 
-                    <div className="flex items-center rounded-xl bg-[#080e1a] border border-slate-700/80 overflow-hidden shadow-inner">
+                    <div className="flex items-center rounded-xl bg-[#03261f] border border-[#0d614f] overflow-hidden shadow-inner">
                       <div className="flex-1 px-3 py-2 text-sm sm:text-base font-mono font-bold text-white tracking-wider truncate">
                         {userCode}
                       </div>
@@ -682,24 +707,24 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
             {/* CARD 2: Referral Count, Today's Rewards, Yesterday's Rewards (3 Columns matching Screenshot) */}
             <section
               id="referral-stats-summary"
-              className="rounded-2xl bg-[#0b1426] border border-slate-800/90 p-4 shadow-xl grid grid-cols-3 divide-x divide-slate-800/80 text-center"
+              className="rounded-2xl bg-[#043228] border border-[#0d614f] p-4 shadow-xl shadow-emerald-950/30 grid grid-cols-3 divide-x divide-[#0d614f] text-center"
             >
               {/* Col 1: Referral Count */}
               <div className="px-1.5 flex flex-col justify-center">
-                <span className="text-[11px] font-medium text-slate-400 block mb-1">
+                <span className="text-[11px] font-medium text-emerald-200/80 block mb-1">
                   {currentLang === 'bn' ? 'রেফারেল সংখ্যা' : 'Referral Count'}
                 </span>
-                <span className="text-xl sm:text-2xl font-black text-emerald-400 font-mono tracking-tight">
+                <span className="text-xl sm:text-2xl font-black text-emerald-300 font-mono tracking-tight">
                   {teamTree.totalTeamCount}
                 </span>
-                <span className="text-[10px] text-emerald-400/90 font-medium">
+                <span className="text-[10px] text-emerald-400 font-medium">
                   {currentLang === 'bn' ? `সক্রিয়: ${teamTree.totalActiveCount}` : `Active: ${teamTree.totalActiveCount}`}
                 </span>
               </div>
 
               {/* Col 2: Today's Rewards */}
               <div className="px-1.5 flex flex-col justify-center">
-                <span className="text-[11px] font-medium text-slate-400 block mb-1">
+                <span className="text-[11px] font-medium text-emerald-200/80 block mb-1">
                   {currentLang === 'bn' ? 'আজকের রিওয়ার্ড' : "Today's Rewards"}
                 </span>
                 <span className="text-xl sm:text-2xl font-black text-amber-400 font-mono tracking-tight flex items-center justify-center gap-0.5">
@@ -710,7 +735,7 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
 
               {/* Col 3: Yesterday's Rewards */}
               <div className="px-1.5 flex flex-col justify-center">
-                <span className="text-[11px] font-medium text-slate-400 block mb-1">
+                <span className="text-[11px] font-medium text-emerald-200/80 block mb-1">
                   {currentLang === 'bn' ? 'গতকালের রিওয়ার্ড' : "Yesterday's Rewards"}
                 </span>
                 <span className="text-xl sm:text-2xl font-black text-amber-400 font-mono tracking-tight flex items-center justify-center gap-0.5">
@@ -720,10 +745,109 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
               </div>
             </section>
 
+            {/* CARD 2.5: Promo Bonus & 3-Level Active Members (রেফার অপশনের পাশাপাশি প্রমো বোনাস) */}
+            <section
+              id="referral-promo-bonus-overview-card"
+              className="rounded-2xl bg-gradient-to-b from-[#043b2f] to-[#03261f] border border-amber-400/40 p-4 shadow-xl shadow-emerald-950/40 space-y-3 relative overflow-hidden"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-amber-400/20 border border-amber-400/40 flex items-center justify-center text-amber-300">
+                    <Crown className="w-4.5 h-4.5 fill-amber-400 text-amber-400 animate-pulse" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-white leading-tight flex items-center gap-1.5">
+                      <span>{currentLang === 'bn' ? 'প্রমো বোনাস (VIP রিওয়ার্ডস)' : 'Promo Bonus & VIP Rewards'}</span>
+                      <span className="px-1.5 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-[9px] font-bold text-emerald-300">
+                        {currentLang === 'bn' ? '৩-স্তর' : '3-Tier'}
+                      </span>
+                    </h3>
+                    <p className="text-[10px] text-emerald-200/80">
+                      {currentLang === 'bn'
+                        ? '৩ লেভেলের সক্রিয় সদস্য বাড়িয়ে VIP বোনাস আনলক করুন'
+                        : 'Grow active members in 3 levels to unlock VIP rewards'}
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('promo')}
+                  className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 font-extrabold text-xs flex items-center gap-1 transition-all shadow-sm active:scale-95 cursor-pointer"
+                >
+                  <span>{currentLang === 'bn' ? 'প্রমো বোনাস' : 'Promo'}</span>
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              {/* 3-Level Breakdown Grid: Level 1, Level 2, Level 3 */}
+              <div className="grid grid-cols-3 gap-2 pt-1 text-center">
+                {/* Level 1 */}
+                <div className="p-2 rounded-xl bg-[#03261f] border border-amber-500/30 flex flex-col items-center">
+                  <span className="text-[10px] font-bold text-amber-300">
+                    {currentLang === 'bn' ? '১ম লেভেল' : 'Level 1'}
+                  </span>
+                  <span className="text-base sm:text-lg font-black text-amber-400 font-mono my-0.5">
+                    {teamTree.level1Count}
+                  </span>
+                  <span className="text-[9px] text-emerald-300 font-bold">
+                    {currentLang === 'bn' ? `সক্রিয়: ${teamTree.activeLevel1Count}` : `Active: ${teamTree.activeLevel1Count}`}
+                  </span>
+                  <span className="text-[8px] text-amber-300/80 mt-0.5 font-mono">৬% কমিশন</span>
+                </div>
+
+                {/* Level 2 */}
+                <div className="p-2 rounded-xl bg-[#03261f] border border-emerald-500/30 flex flex-col items-center">
+                  <span className="text-[10px] font-bold text-emerald-300">
+                    {currentLang === 'bn' ? '২য় লেভেল' : 'Level 2'}
+                  </span>
+                  <span className="text-base sm:text-lg font-black text-emerald-400 font-mono my-0.5">
+                    {teamTree.level2Count}
+                  </span>
+                  <span className="text-[9px] text-emerald-300 font-bold">
+                    {currentLang === 'bn' ? `সক্রিয়: ${teamTree.activeLevel2Count}` : `Active: ${teamTree.activeLevel2Count}`}
+                  </span>
+                  <span className="text-[8px] text-emerald-300/80 mt-0.5 font-mono">৩% কমিশন</span>
+                </div>
+
+                {/* Level 3 */}
+                <div className="p-2 rounded-xl bg-[#03261f] border border-teal-500/30 flex flex-col items-center">
+                  <span className="text-[10px] font-bold text-teal-300">
+                    {currentLang === 'bn' ? '৩য় লেভেল' : 'Level 3'}
+                  </span>
+                  <span className="text-base sm:text-lg font-black text-teal-400 font-mono my-0.5">
+                    {teamTree.level3Count}
+                  </span>
+                  <span className="text-[9px] text-emerald-300 font-bold">
+                    {currentLang === 'bn' ? `সক্রিয়: ${teamTree.activeLevel3Count}` : `Active: ${teamTree.activeLevel3Count}`}
+                  </span>
+                  <span className="text-[8px] text-teal-300/80 mt-0.5 font-mono">১% কমিশন</span>
+                </div>
+              </div>
+
+              {/* Total Active Across 3 Levels Badge Banner */}
+              <div className="p-2.5 rounded-xl bg-[#021f18] border border-[#0d614f] flex items-center justify-between text-xs">
+                <div className="flex items-center gap-2">
+                  <Users className="w-4 h-4 text-emerald-400" />
+                  <span className="text-emerald-200 font-medium text-[11px]">
+                    {currentLang === 'bn' ? '৩ লেভেলে মোট সক্রিয় সদস্য:' : 'Total Active in 3 Levels:'}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="font-mono font-black text-emerald-400 text-sm">
+                    {teamTree.totalActiveCount} {currentLang === 'bn' ? 'জন' : ''}
+                  </span>
+                  <span className="text-[10px] text-emerald-200/70 font-mono">
+                    ({teamTree.totalTeamCount} {currentLang === 'bn' ? 'মোট' : 'total'})
+                  </span>
+                </div>
+              </div>
+            </section>
+
             {/* CARD 3: Available Cash Rewards + Claim Button (matching Screenshot) */}
             <section
               id="referral-cash-rewards-card"
-              className="rounded-2xl bg-[#0b1426] border border-slate-800/90 p-4 shadow-xl space-y-3"
+              className="rounded-2xl bg-[#043228] border border-[#0d614f] p-4 shadow-xl shadow-emerald-950/30 space-y-3"
             >
               {/* Section Header with vertical bar indicator */}
               <div className="flex items-center gap-2">
@@ -743,13 +867,13 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
                     <span>{availableRewards.toFixed(2)}</span>
                   </div>
                   <div className="flex flex-col gap-0.5">
-                    <span className="text-[10px] sm:text-[11px] text-slate-400">
+                    <span className="text-[10px] sm:text-[11px] text-emerald-200/80">
                       {currentLang === 'bn'
                         ? 'সরাসরি ওয়ালেট ব্যালেন্সে নেওয়ার যোগ্য'
                         : 'Transferable directly to main wallet'}
                     </span>
                     <span className={`text-[10px] font-semibold ${
-                      availableRewards >= 200 ? 'text-emerald-400' : 'text-amber-400/90'
+                      availableRewards >= 200 ? 'text-emerald-300' : 'text-amber-400'
                     }`}>
                       {currentLang === 'bn'
                         ? (availableRewards >= 200
@@ -771,7 +895,7 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
                   className={`px-5 sm:px-6 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all shadow-md active:scale-95 ${
                     availableRewards >= 200
                       ? 'bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 shadow-amber-500/25 ring-2 ring-amber-400/50 cursor-pointer animate-pulse'
-                      : 'bg-slate-800/80 text-slate-500 border border-slate-700/60 cursor-not-allowed opacity-75'
+                      : 'bg-[#03261f] text-emerald-400/50 border border-[#0d614f] cursor-not-allowed opacity-75'
                   }`}
                   title={
                     availableRewards >= 200
@@ -784,10 +908,10 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
               </div>
             </section>
 
-            {/* CARD 4: How to earn more rewards (3-Tier commission breakdown matching screenshot) */}
+            {/* CARD 4: How to earn more rewards (6%, 3%, 1% Tier breakdown matching emerald theme) */}
             <section
               id="referral-how-it-works-card"
-              className="rounded-2xl bg-[#0b1426] border border-slate-800/90 p-4 shadow-xl space-y-3.5"
+              className="rounded-2xl bg-[#043228] border border-[#0d614f] p-4 shadow-xl shadow-emerald-950/30 space-y-3.5"
             >
               {/* Section Header with vertical bar indicator */}
               <div className="flex items-center gap-2">
@@ -799,49 +923,49 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
                 </h3>
               </div>
 
-              {/* 3 Tier Commission Overview Cards */}
+              {/* 3 Tier Commission Overview Cards (6% / 3% / 1%) */}
               <div className="grid grid-cols-3 gap-2">
-                {/* Tier 1: 7% */}
-                <div className="rounded-xl bg-[#070e1a] border border-cyan-500/30 p-2.5 text-center flex flex-col items-center justify-between">
-                  <span className="text-[10px] font-bold text-cyan-400 uppercase">
+                {/* Tier 1: 6% */}
+                <div className="rounded-xl bg-[#03261f] border border-amber-500/40 p-2.5 text-center flex flex-col items-center justify-between shadow-inner">
+                  <span className="text-[10px] font-bold text-amber-300 uppercase">
                     {currentLang === 'bn' ? '১ম লেভেল' : 'Level 1'}
                   </span>
                   <div className="my-1">
-                    <span className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 to-blue-400 font-mono">
-                      7%
+                    <span className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-300 via-amber-200 to-yellow-400 font-mono">
+                      6%
                     </span>
                   </div>
-                  <span className="text-[9px] text-slate-300 leading-tight">
+                  <span className="text-[9px] text-emerald-200/80 leading-tight">
                     {currentLang === 'bn' ? 'সরাসরি মেম্বার' : 'Direct Members'}
                   </span>
                 </div>
 
                 {/* Tier 2: 3% */}
-                <div className="rounded-xl bg-[#070e1a] border border-blue-500/30 p-2.5 text-center flex flex-col items-center justify-between">
-                  <span className="text-[10px] font-bold text-blue-400 uppercase">
+                <div className="rounded-xl bg-[#03261f] border border-emerald-500/40 p-2.5 text-center flex flex-col items-center justify-between shadow-inner">
+                  <span className="text-[10px] font-bold text-emerald-300 uppercase">
                     {currentLang === 'bn' ? '২য় লেভেল' : 'Level 2'}
                   </span>
                   <div className="my-1">
-                    <span className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-300 to-indigo-400 font-mono">
+                    <span className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-emerald-300 to-teal-400 font-mono">
                       3%
                     </span>
                   </div>
-                  <span className="text-[9px] text-slate-300 leading-tight">
+                  <span className="text-[9px] text-emerald-200/80 leading-tight">
                     {currentLang === 'bn' ? 'সাব টিম সদস্য' : 'Sub-team Team'}
                   </span>
                 </div>
 
                 {/* Tier 3: 1% */}
-                <div className="rounded-xl bg-[#070e1a] border border-indigo-500/30 p-2.5 text-center flex flex-col items-center justify-between">
-                  <span className="text-[10px] font-bold text-indigo-400 uppercase">
+                <div className="rounded-xl bg-[#03261f] border border-teal-500/40 p-2.5 text-center flex flex-col items-center justify-between shadow-inner">
+                  <span className="text-[10px] font-bold text-teal-300 uppercase">
                     {currentLang === 'bn' ? '৩য় লেভেল' : 'Level 3'}
                   </span>
                   <div className="my-1">
-                    <span className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-indigo-300 to-purple-400 font-mono">
+                    <span className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-teal-300 to-cyan-400 font-mono">
                       1%
                     </span>
                   </div>
-                  <span className="text-[9px] text-slate-300 leading-tight">
+                  <span className="text-[9px] text-emerald-200/80 leading-tight">
                     {currentLang === 'bn' ? 'নেটওয়ার্ক সদস্য' : 'Network Depth'}
                   </span>
                 </div>
@@ -849,33 +973,33 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
 
               {/* Step by Step Flow */}
               <div className="space-y-2 pt-1 text-xs">
-                <div className="flex items-start gap-2.5 p-2 rounded-xl bg-slate-900/60 border border-slate-800">
+                <div className="flex items-start gap-2.5 p-2 rounded-xl bg-[#03261f] border border-[#0d614f]">
                   <div className="w-5 h-5 rounded-full bg-amber-500/20 text-amber-400 font-bold flex items-center justify-center text-[11px] shrink-0 mt-0.5">
                     1
                   </div>
-                  <p className="text-slate-300 leading-relaxed">
+                  <p className="text-emerald-100 leading-relaxed">
                     {currentLang === 'bn'
                       ? 'আপনার বিশেষ রেফারেল লিংক বা কিউআর কোড বন্ধুদের সাথে শেয়ার করুন।'
                       : 'Share your exclusive invitation link or QR code with friends.'}
                   </p>
                 </div>
 
-                <div className="flex items-start gap-2.5 p-2 rounded-xl bg-slate-900/60 border border-slate-800">
-                  <div className="w-5 h-5 rounded-full bg-cyan-500/20 text-cyan-400 font-bold flex items-center justify-center text-[11px] shrink-0 mt-0.5">
+                <div className="flex items-start gap-2.5 p-2 rounded-xl bg-[#03261f] border border-[#0d614f]">
+                  <div className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold flex items-center justify-center text-[11px] shrink-0 mt-0.5">
                     2
                   </div>
-                  <p className="text-slate-300 leading-relaxed">
+                  <p className="text-emerald-100 leading-relaxed">
                     {currentLang === 'bn'
                       ? 'বন্ধুরা রেজিস্ট্রেশন করে যেকোনো এনার্জি প্রজেক্টে অংশগ্রহণ করবে।'
                       : 'Friends register and invest in an energy project.'}
                   </p>
                 </div>
 
-                <div className="flex items-start gap-2.5 p-2 rounded-xl bg-slate-900/60 border border-slate-800">
-                  <div className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold flex items-center justify-center text-[11px] shrink-0 mt-0.5">
+                <div className="flex items-start gap-2.5 p-2 rounded-xl bg-[#03261f] border border-[#0d614f]">
+                  <div className="w-5 h-5 rounded-full bg-teal-500/20 text-teal-400 font-bold flex items-center justify-center text-[11px] shrink-0 mt-0.5">
                     3
                   </div>
-                  <p className="text-slate-300 leading-relaxed">
+                  <p className="text-emerald-100 leading-relaxed">
                     {currentLang === 'bn'
                       ? 'সঙ্গে সঙ্গে আপনার ক্যাশ রিওয়ার্ডসে কমিশন যুক্ত হবে যা যেকোনো সময় উত্তোলনযোগ্য।'
                       : 'Instant commission is credited to cash rewards, withdrawable anytime.'}
@@ -887,7 +1011,7 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
             {/* CARD 5: 📜 REFERRAL PROGRAM RULES & COMMISSION POLICY (পেশাদার নিয়মাবলি ও শর্তসমূহ) */}
             <section
               id="referral-policy-card"
-              className="rounded-2xl bg-[#0b1426] border border-slate-800/90 p-4 shadow-xl space-y-3.5"
+              className="rounded-2xl bg-[#043228] border border-[#0d614f] p-4 shadow-xl shadow-emerald-950/30 space-y-3.5"
             >
               {/* Section Header with vertical bar indicator */}
               <div className="flex items-center gap-2">
@@ -902,7 +1026,7 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
               {/* Policy Features List */}
               <div className="space-y-2.5 text-xs">
                 {/* Rule 1 */}
-                <div className="p-3 rounded-xl bg-[#070e1c] border border-slate-800/90 flex items-start gap-3">
+                <div className="p-3 rounded-xl bg-[#03261f] border border-[#0d614f] flex items-start gap-3">
                   <div className="w-8 h-8 rounded-lg bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0 mt-0.5">
                     <Zap className="w-4 h-4" />
                   </div>
@@ -910,7 +1034,7 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
                     <h5 className="font-bold text-white text-xs">
                       {currentLang === 'bn' ? '১. তাৎক্ষণিক স্বয়ংক্রিয় পে-আউট' : '1. Real-Time Instant Payout'}
                     </h5>
-                    <p className="text-slate-300 text-[11px] leading-relaxed">
+                    <p className="text-emerald-100/90 text-[11px] leading-relaxed">
                       {currentLang === 'bn'
                         ? 'আপনার আমন্ত্রিত সদস্য যেকোনো এনার্জি প্যাকেজে বিনিয়োগ/ক্রয় করার সাথে সাথে ক্রয়মূল্যের অনুপাতে কমিশন স্বয়ংক্রিয়ভাবে ক্রেডিট হয়।'
                         : 'Commissions are credited automatically in proportion to the package value whenever an invited partner purchases an energy package.'}
@@ -919,24 +1043,24 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
                 </div>
 
                 {/* Rule 2 */}
-                <div className="p-3 rounded-xl bg-[#070e1c] border border-slate-800/90 flex items-start gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-blue-500/15 border border-blue-500/30 flex items-center justify-center text-blue-400 shrink-0 mt-0.5">
+                <div className="p-3 rounded-xl bg-[#03261f] border border-[#0d614f] flex items-start gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0 mt-0.5">
                     <Users className="w-4 h-4" />
                   </div>
                   <div className="space-y-0.5">
                     <h5 className="font-bold text-white text-xs">
-                      {currentLang === 'bn' ? '২. আজীবন ৩-স্তর প্যাসিভ ইনকাম' : '2. 3-Tier Lifetime Yield'}
+                      {currentLang === 'bn' ? '২. আজীবন ৩-স্তর প্যাসিভ ইনকাম (৬% / ৩% / ১%)' : '2. 3-Tier Lifetime Yield (6% / 3% / 1%)'}
                     </h5>
-                    <p className="text-slate-300 text-[11px] leading-relaxed">
+                    <p className="text-emerald-100/90 text-[11px] leading-relaxed">
                       {currentLang === 'bn'
-                        ? 'সরাসরি রেফারে ৭%, ২য় স্তরে ৩% এবং ৩য় স্তরে ১% কমিশন প্রযোজ্য। সদস্য যতবার প্যাকেজ কিনবেন, প্যাকেজ মূল্যের অনুপাতে ততবারই আপনি নিয়মিত কমিশন পাবেন (শুধু রিচার্জে কোনো কমিশন প্রযোজ্য নয়)।'
-                        : 'Earn 7% on Level 1, 3% on Level 2, and 1% on Level 3 proportional to the purchased package price (recharging alone yields no commission).'}
+                        ? 'সরাসরি রেফারে ৬%, ২য় স্তরে ৩% এবং ৩য় স্তরে ১% কমিশন প্রযোজ্য। সদস্য যতবার প্যাকেজ কিনবেন, প্যাকেজ মূল্যের অনুপাতে ততবারই আপনি নিয়মিত কমিশন পাবেন (শুধু রিচার্জে কোনো কমিশন প্রযোজ্য নয়)।'
+                        : 'Earn 6% on Level 1, 3% on Level 2, and 1% on Level 3 proportional to the purchased package price (recharging alone yields no commission).'}
                     </p>
                   </div>
                 </div>
 
                 {/* Rule 3 */}
-                <div className="p-3 rounded-xl bg-[#070e1c] border border-slate-800/90 flex items-start gap-3">
+                <div className="p-3 rounded-xl bg-[#03261f] border border-[#0d614f] flex items-start gap-3">
                   <div className="w-8 h-8 rounded-lg bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0 mt-0.5">
                     <Wallet className="w-4 h-4" />
                   </div>
@@ -944,7 +1068,7 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
                     <h5 className="font-bold text-white text-xs">
                       {currentLang === 'bn' ? '৩. শর্তহীন ও ফি-মুক্ত ক্যাশআউট' : '3. Zero Fee Direct Cashout'}
                     </h5>
-                    <p className="text-slate-300 text-[11px] leading-relaxed">
+                    <p className="text-emerald-100/90 text-[11px] leading-relaxed">
                       {currentLang === 'bn'
                         ? 'অর্জিত রেফারেল রিওয়ার্ড সম্পূর্ণ লক-মুক্ত। এক ক্লিকে মূল ব্যালেন্সে স্থানান্তর করে বিকাশ বা নগদে টাকায় তুলতে পারবেন।'
                         : 'Claimed commission transfers seamlessly to your main wallet with 0% hidden deductions, ready for instant mobile banking payout.'}
@@ -953,15 +1077,15 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
                 </div>
 
                 {/* Rule 4 */}
-                <div className="p-3 rounded-xl bg-[#070e1c] border border-slate-800/90 flex items-start gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-purple-500/15 border border-purple-500/30 flex items-center justify-center text-purple-400 shrink-0 mt-0.5">
+                <div className="p-3 rounded-xl bg-[#03261f] border border-[#0d614f] flex items-start gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0 mt-0.5">
                     <Award className="w-4 h-4" />
                   </div>
                   <div className="space-y-0.5">
                     <h5 className="font-bold text-white text-xs">
                       {currentLang === 'bn' ? '৪. ভিআইপি টিম লিডারশিপ ও বোনাস' : '4. VIP Leadership & Monthly Salary'}
                     </h5>
-                    <p className="text-slate-300 text-[11px] leading-relaxed">
+                    <p className="text-emerald-100/90 text-[11px] leading-relaxed">
                       {currentLang === 'bn'
                         ? 'আপনার টিমে ২০ জনের বেশি সক্রিয় বিনিয়োগকারী তৈরি হলে অতিরিক্ত মাসিক ফিক্সড পার্টনারশিপ স্যালারি ও বিশেষ গ্রিড রিওয়ার্ডস প্রদান করা হয়।'
                         : 'Team leaders with 20+ active investors qualify for monthly fixed salaries and exclusive platform booster bonuses.'}
@@ -974,7 +1098,7 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
             {/* CARD 6: ❓ FREQUENTLY ASKED QUESTIONS (সচরাচর জিজ্ঞাসিত প্রশ্নাবলি) */}
             <section
               id="referral-faq-card"
-              className="rounded-2xl bg-[#0b1426] border border-slate-800/90 p-4 shadow-xl space-y-3"
+              className="rounded-2xl bg-[#043228] border border-[#0d614f] p-4 shadow-xl shadow-emerald-950/30 space-y-3"
             >
               <div className="flex items-center gap-2">
                 <span className="w-1 h-4.5 bg-gradient-to-b from-amber-400 to-yellow-500 rounded-full shadow-[0_0_8px_rgba(245,158,11,0.5)]" />
@@ -985,7 +1109,7 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
 
               <div className="space-y-2 text-xs">
                 {/* FAQ 1 */}
-                <div className="rounded-xl bg-[#070e1c] border border-slate-800/80 overflow-hidden">
+                <div className="rounded-xl bg-[#03261f] border border-[#0d614f] overflow-hidden">
                   <button
                     type="button"
                     onClick={() => setExpandedFaq(expandedFaq === 1 ? null : 1)}
@@ -997,13 +1121,13 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
                         : 'Do I need an active investment to earn commissions?'}
                     </span>
                     <ChevronDown
-                      className={`w-4 h-4 text-slate-400 transition-transform ${
+                      className={`w-4 h-4 text-emerald-400 transition-transform ${
                         expandedFaq === 1 ? 'rotate-180 text-amber-400' : ''
                       }`}
                     />
                   </button>
                   {expandedFaq === 1 && (
-                    <div className="px-3 pb-3 pt-0 text-[11px] text-slate-300 border-t border-slate-800/60 leading-relaxed mt-1">
+                    <div className="px-3 pb-3 pt-0 text-[11px] text-emerald-100/90 border-t border-[#0d614f]/70 leading-relaxed mt-1">
                       {currentLang === 'bn'
                         ? 'না, কোনো বাধ্যতামূলক ইনভেস্টমেন্টের প্রয়োজন নেই। যেকোনো নিবন্ধিত অ্যাকাউন্ট থেকেই রেফারেল লিংক শেয়ার করে বন্ধুদের যুক্ত করে তাৎক্ষণিক কমিশন আয় করা যায়।'
                         : 'No mandatory investment required. Any registered member can immediately share their link, invite partners, and start accumulating commission.'}
@@ -1012,7 +1136,7 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
                 </div>
 
                 {/* FAQ 2 */}
-                <div className="rounded-xl bg-[#070e1c] border border-slate-800/80 overflow-hidden">
+                <div className="rounded-xl bg-[#03261f] border border-[#0d614f] overflow-hidden">
                   <button
                     type="button"
                     onClick={() => setExpandedFaq(expandedFaq === 2 ? null : 2)}
@@ -1024,13 +1148,13 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
                         : 'Is there a limit on how many friends I can invite?'}
                     </span>
                     <ChevronDown
-                      className={`w-4 h-4 text-slate-400 transition-transform ${
+                      className={`w-4 h-4 text-emerald-400 transition-transform ${
                         expandedFaq === 2 ? 'rotate-180 text-amber-400' : ''
                       }`}
                     />
                   </button>
                   {expandedFaq === 2 && (
-                    <div className="px-3 pb-3 pt-0 text-[11px] text-slate-300 border-t border-slate-800/60 leading-relaxed mt-1">
+                    <div className="px-3 pb-3 pt-0 text-[11px] text-emerald-100/90 border-t border-[#0d614f]/70 leading-relaxed mt-1">
                       {currentLang === 'bn'
                         ? 'রেফারেলের কোনো সর্বোচ্চ লিমিট বা সীমা নেই! আপনি যত বেশি সদস্যকে আমন্ত্রণ করবেন, আপনার ৩-স্তর বিশিষ্ট দৈনিক ক্যাশ কমিশন আয় তত বেশি বৃদ্ধি পাবে।'
                         : 'There is zero limit! You can invite as many partners as you wish, creating an expanding 3-tier passive cash flow stream.'}
@@ -1039,7 +1163,7 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
                 </div>
 
                 {/* FAQ 3 */}
-                <div className="rounded-xl bg-[#070e1c] border border-slate-800/80 overflow-hidden">
+                <div className="rounded-xl bg-[#03261f] border border-[#0d614f] overflow-hidden">
                   <button
                     type="button"
                     onClick={() => setExpandedFaq(expandedFaq === 3 ? null : 3)}
@@ -1051,13 +1175,13 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
                         : 'How do I withdraw my earned referral rewards?'}
                     </span>
                     <ChevronDown
-                      className={`w-4 h-4 text-slate-400 transition-transform ${
+                      className={`w-4 h-4 text-emerald-400 transition-transform ${
                         expandedFaq === 3 ? 'rotate-180 text-amber-400' : ''
                       }`}
                     />
                   </button>
                   {expandedFaq === 3 && (
-                    <div className="px-3 pb-3 pt-0 text-[11px] text-slate-300 border-t border-slate-800/60 leading-relaxed mt-1">
+                    <div className="px-3 pb-3 pt-0 text-[11px] text-emerald-100/90 border-t border-[#0d614f]/70 leading-relaxed mt-1">
                       {currentLang === 'bn'
                         ? 'উপরে "উত্তোলনযোগ্য ক্যাশ রিওয়ার্ড"-এ ন্যূনতম ২০০.০০ টাকা হলে "ট্রান্সফার করুন" বাটনে চাপ দিলে ব্যালেন্স সাথে সাথে মূল ওয়ালেটে চলে যাবে। এরপর বিকাশ বা নগদ দিয়ে যেকোনো সময় টাকা তুলে নিন।'
                         : 'Once you accumulate a minimum of ৳200.00, click "Transfer" in the Available Cash Rewards section above to move rewards into your main wallet, then initiate a standard withdrawal to bKash or Nagad.'}
@@ -1070,17 +1194,17 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
             {/* CARD 7: 🛡️ OFFICIAL TEAM LEADER & PARTNER SUPPORT */}
             <section
               id="referral-support-card"
-              className="rounded-2xl bg-gradient-to-br from-[#0a162b] to-[#08111e] border border-cyan-500/30 p-4 shadow-xl flex items-center justify-between gap-3 mb-6"
+              className="rounded-2xl bg-gradient-to-br from-[#043228] via-[#053d31] to-[#03261f] border border-[#0d614f] p-4 shadow-xl shadow-emerald-950/30 flex items-center justify-between gap-3 mb-6"
             >
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-cyan-500/20 border border-cyan-500/40 flex items-center justify-center text-cyan-300 shrink-0">
-                  <ShieldCheck className="w-5 h-5 text-cyan-400" />
+                <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-300 shrink-0">
+                  <ShieldCheck className="w-5 h-5 text-emerald-400" />
                 </div>
                 <div>
                   <h4 className="text-xs sm:text-sm font-bold text-white">
                     {currentLang === 'bn' ? 'অফিসিয়াল পার্টনার সাপোর্ট' : 'Official Partner Desk'}
                   </h4>
-                  <p className="text-[10px] text-slate-400 mt-0.5">
+                  <p className="text-[10px] text-emerald-200/80 mt-0.5">
                     {currentLang === 'bn'
                       ? 'টিম লিডারদের জন্য ২৪/৭ বিশেষ টেলিগ্রাম সহযোগিতা ও সাপোর্ট চ্যানেল'
                       : 'Dedicated 24/7 team leader Telegram support channel'}
@@ -1092,22 +1216,24 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
                 href="https://t.me"
                 target="_blank"
                 rel="noreferrer"
-                className="px-3 py-1.5 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-400/40 text-[11px] font-bold flex items-center gap-1 transition-all shrink-0 active:scale-95"
+                className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-[11px] font-bold flex items-center gap-1 transition-all shrink-0 active:scale-95 shadow-md shadow-emerald-950/30"
               >
                 <span>{currentLang === 'bn' ? 'যুক্ত হোন' : 'Join'}</span>
                 <ChevronRight className="w-3.5 h-3.5" />
               </a>
             </section>
           </>
-        ) : (
-          /* ========================================================================= */
-          /* DETAILS TAB: Team Members List, Tier Breakdown & Earning Records          */
-          /* ========================================================================= */
+        )}
+
+        {/* ========================================================================= */}
+        {/* DETAILS TAB: Team Members List, Tier Breakdown & Earning Records          */}
+        {/* ========================================================================= */}
+        {activeTab === 'details' && (
           <div className="space-y-4">
             {/* Total Team Earnings Card */}
-            <div className="rounded-2xl bg-[#0b1426] border border-cyan-500/30 p-4 shadow-xl flex items-center justify-between">
+            <div className="rounded-2xl bg-[#043228] border border-[#0d614f] p-4 shadow-xl shadow-emerald-950/30 flex items-center justify-between">
               <div>
-                <span className="text-xs text-slate-400 block mb-0.5">
+                <span className="text-xs text-emerald-200/80 block mb-0.5">
                   {currentLang === 'bn' ? 'মোট অর্জিত কমিশন' : 'Total Commission Earned'}
                 </span>
                 <span className="text-2xl sm:text-3xl font-black text-amber-400 font-mono">
@@ -1116,34 +1242,57 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
               </div>
 
               <div className="text-right">
-                <span className="text-xs text-slate-400 block mb-0.5">
+                <span className="text-xs text-emerald-200/80 block mb-0.5">
                   {currentLang === 'bn' ? 'মোট সদস্য' : 'Total Members'}
                 </span>
-                <span className="text-xl sm:text-2xl font-black text-cyan-300 font-mono">
+                <span className="text-xl sm:text-2xl font-black text-emerald-300 font-mono">
                   {realMembers.length} {currentLang === 'bn' ? 'জন' : ''}
                 </span>
-                <span className="text-[11px] text-emerald-400 block font-medium">
-                  {currentLang === 'bn' ? 'একটিভ:' : 'Active:'} {teamTree.totalActiveCount} জন •{' '}
-                  <span className="text-amber-400">
-                    {currentLang === 'bn' ? 'ফ্রি আইডি:' : 'Free ID:'}{' '}
-                    {Math.max(0, realMembers.length - teamTree.totalActiveCount)} জন
-                  </span>
+                <span className="text-[11px] text-emerald-300 block font-medium">
+                  {currentLang === 'bn' ? 'একটিভ মেম্বার:' : 'Active Members:'} {teamTree.totalActiveCount} {currentLang === 'bn' ? 'জন' : ''}
                 </span>
               </div>
             </div>
 
-            {/* Tier Filter Chips */}
+            {/* Promo Bonus Quick Link Card in Details */}
+            <div className="p-3 rounded-2xl bg-gradient-to-r from-[#043228] to-[#03261f] border border-amber-400/40 flex items-center justify-between gap-3 shadow-md">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-amber-400/20 border border-amber-400/40 flex items-center justify-center text-amber-300 shrink-0">
+                  <Crown className="w-4.5 h-4.5 fill-amber-400 text-amber-400" />
+                </div>
+                <div>
+                  <h4 className="text-xs sm:text-sm font-bold text-white">
+                    {currentLang === 'bn' ? 'প্রমো বোনাস ও ভিআইপি রিওয়ার্ডস' : 'Promo Bonus & VIP Rewards'}
+                  </h4>
+                  <p className="text-[10px] text-emerald-200/80">
+                    {currentLang === 'bn'
+                      ? `৩ লেভেলে সক্রিয়: ${teamTree.totalActiveCount} জন (VIP বোনাস আনলক করুন)`
+                      : `Active in 3 levels: ${teamTree.totalActiveCount} (Unlock VIP bonuses)`}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveTab('promo')}
+                className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 font-bold text-xs flex items-center gap-1 transition-all shrink-0 cursor-pointer active:scale-95 shadow-xs"
+              >
+                <span>{currentLang === 'bn' ? 'প্রমো বোনাস' : 'Promo'}</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            {/* Tier Filter Chips with Active Counts */}
             <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
               <button
                 type="button"
                 onClick={() => setTierFilter('all')}
                 className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
                   tierFilter === 'all'
-                    ? 'bg-amber-400 text-slate-950 shadow-md shadow-amber-500/20'
-                    : 'bg-slate-900 text-slate-400 border border-slate-800 hover:text-white'
+                    ? 'bg-gradient-to-r from-amber-400 to-yellow-500 text-slate-950 shadow-md shadow-amber-500/20 font-bold'
+                    : 'bg-[#03261f] text-emerald-200/80 border border-[#0d614f] hover:text-white hover:bg-[#06483A]'
                 }`}
               >
-                {currentLang === 'bn' ? 'সব সদস্য' : 'All Tiers'} ({realMembers.length})
+                {currentLang === 'bn' ? 'সব সদস্য' : 'All'} ({realMembers.length}) • {currentLang === 'bn' ? 'একটিভ' : 'Active'}: {teamTree.totalActiveCount}
               </button>
 
               <button
@@ -1151,11 +1300,11 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
                 onClick={() => setTierFilter('1')}
                 className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
                   tierFilter === '1'
-                    ? 'bg-cyan-500 text-slate-950 shadow-md shadow-cyan-500/20'
-                    : 'bg-slate-900 text-slate-400 border border-slate-800 hover:text-white'
+                    ? 'bg-gradient-to-r from-amber-500 to-yellow-500 text-slate-950 shadow-md shadow-amber-500/20 font-bold'
+                    : 'bg-[#03261f] text-emerald-200/80 border border-[#0d614f] hover:text-white hover:bg-[#06483A]'
                 }`}
               >
-                {currentLang === 'bn' ? '১ম লেভেল (৭%)' : 'Level 1 (7%)'} ({teamTree.level1Count})
+                {currentLang === 'bn' ? '১ম লেভেল (৬%)' : 'Level 1 (6%)'} ({teamTree.level1Count}) • {currentLang === 'bn' ? 'একটিভ' : 'Active'}: {teamTree.activeLevel1Count}
               </button>
 
               <button
@@ -1163,11 +1312,11 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
                 onClick={() => setTierFilter('2')}
                 className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
                   tierFilter === '2'
-                    ? 'bg-blue-500 text-white shadow-md shadow-blue-500/20'
-                    : 'bg-slate-900 text-slate-400 border border-slate-800 hover:text-white'
+                    ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 shadow-md shadow-emerald-500/20 font-bold'
+                    : 'bg-[#03261f] text-emerald-200/80 border border-[#0d614f] hover:text-white hover:bg-[#06483A]'
                 }`}
               >
-                {currentLang === 'bn' ? '২য় লেভেল (৩%)' : 'Level 2 (3%)'} ({teamTree.level2Count})
+                {currentLang === 'bn' ? '২য় লেভেল (৩%)' : 'Level 2 (3%)'} ({teamTree.level2Count}) • {currentLang === 'bn' ? 'একটিভ' : 'Active'}: {teamTree.activeLevel2Count}
               </button>
 
               <button
@@ -1175,11 +1324,11 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
                 onClick={() => setTierFilter('3')}
                 className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
                   tierFilter === '3'
-                    ? 'bg-indigo-500 text-white shadow-md shadow-indigo-500/20'
-                    : 'bg-slate-900 text-slate-400 border border-slate-800 hover:text-white'
+                    ? 'bg-gradient-to-r from-teal-500 to-cyan-500 text-slate-950 shadow-md shadow-teal-500/20 font-bold'
+                    : 'bg-[#03261f] text-emerald-200/80 border border-[#0d614f] hover:text-white hover:bg-[#06483A]'
                 }`}
               >
-                {currentLang === 'bn' ? '৩য় লেভেল (১%)' : 'Level 3 (1%)'} ({teamTree.level3Count})
+                {currentLang === 'bn' ? '৩য় লেভেল (১%)' : 'Level 3 (1%)'} ({teamTree.level3Count}) • {currentLang === 'bn' ? 'একটিভ' : 'Active'}: {teamTree.activeLevel3Count}
               </button>
             </div>
 
@@ -1189,16 +1338,16 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
                 filteredMembers.map((member) => (
                   <div
                     key={member.id}
-                    className="p-3.5 rounded-2xl bg-[#0b1426] border border-slate-800/90 flex items-center justify-between gap-3 shadow-md hover:border-slate-700 transition-colors"
+                    className="p-3.5 rounded-2xl bg-[#043228] border border-[#0d614f] flex items-center justify-between gap-3 shadow-md hover:border-emerald-500/40 transition-colors"
                   >
                     <div className="flex items-center gap-3">
                       <div
                         className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-xs ${
                           member.level === 1
-                            ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
+                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
                             : member.level === 2
-                            ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
-                            : 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
+                            ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                            : 'bg-teal-500/20 text-teal-300 border border-teal-500/40'
                         }`}
                       >
                         L{member.level}
@@ -1209,17 +1358,13 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
                           <span className="font-mono font-bold text-white text-xs sm:text-sm">
                             {member.phone}
                           </span>
-                          {member.status === 'active' ? (
-                            <span className="px-1.5 py-0.5 rounded-md bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[9px] font-semibold">
+                          {member.status === 'active' && (
+                            <span className="px-1.5 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-[9px] font-semibold">
                               {currentLang === 'bn' ? 'একটিভ' : 'Active'}
-                            </span>
-                          ) : (
-                            <span className="px-1.5 py-0.5 rounded-md bg-amber-500/15 text-amber-400 border border-amber-500/30 text-[9px] font-semibold">
-                              {currentLang === 'bn' ? 'ফ্রি আইডি' : 'Free ID'}
                             </span>
                           )}
                         </div>
-                        <span className="text-[10px] text-slate-400 block mt-0.5">
+                        <span className="text-[10px] text-emerald-200/70 block mt-0.5">
                           {member.date} • {currentLang === 'bn' ? 'বিনিয়োগ:' : 'Invest:'} ৳
                           {member.investAmount.toLocaleString()}
                         </span>
@@ -1232,25 +1377,49 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
                           +৳{member.commissionEarned.toFixed(2)}
                         </span>
                       ) : (
-                        <span className="text-xs sm:text-sm font-bold text-slate-500 font-mono block">
+                        <span className="text-xs sm:text-sm font-bold text-emerald-200/50 font-mono block">
                           ৳0.00
                         </span>
                       )}
-                      <span className="text-[10px] text-slate-400">
-                        {member.level === 1 ? '7% ' : member.level === 2 ? '3% ' : '1% '}
+                      <span className="text-[10px] text-emerald-200/80">
+                        {member.level === 1 ? '6% ' : member.level === 2 ? '3% ' : '1% '}
                         {currentLang === 'bn' ? 'কমিশন' : 'Bonus'}
                       </span>
                     </div>
                   </div>
                 ))
               ) : (
-                <div className="text-center py-10 bg-[#0b1426] rounded-2xl border border-slate-800 text-slate-400 text-xs">
+                <div className="text-center py-10 bg-[#043228] rounded-2xl border border-[#0d614f] text-emerald-200/80 text-xs">
                   {currentLang === 'bn'
                     ? 'এই লেভেলে কোনো সদস্য এখনো যুক্ত হয়নি।'
                     : 'No members found in this tier yet.'}
                 </div>
               )}
             </div>
+          </div>
+        )}
+
+        {/* ========================================================================= */}
+        {/* PROMO BONUS TAB: Integrated directly alongside Referral Option             */}
+        {/* ========================================================================= */}
+        {activeTab === 'promo' && (
+          <div className="w-full pb-8">
+            <PromoBonusScreen
+              currentLang={currentLang}
+              themeMode={themeMode}
+              userCode={userCode}
+              userMemberId={userMemberId}
+              onBack={() => setActiveTab('invite')}
+              onNavigateToReferral={() => setActiveTab('invite')}
+              onClaimReward={(amt, lvl) => {
+                if (onClaimPromoReward) {
+                  onClaimPromoReward(amt, lvl);
+                } else if (onClaimReward) {
+                  onClaimReward(amt);
+                }
+              }}
+              showToast={showToast}
+            />
           </div>
         )}
       </main>

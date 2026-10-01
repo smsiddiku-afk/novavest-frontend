@@ -99,6 +99,8 @@ const normalizeUser = (data: any): UserProfile | null => {
   const authenticatorSecret = data.authenticatorSecret || undefined;
   const avatarUrl = data.avatarUrl || undefined;
   const fullName = data.fullName || undefined;
+  const canRefer = Boolean(data.canRefer);
+  const referralLimit = typeof data.referralLimit === 'number' ? data.referralLimit : 0;
 
   return {
     uid,
@@ -123,6 +125,8 @@ const normalizeUser = (data: any): UserProfile | null => {
     authenticatorSecret,
     avatarUrl,
     fullName,
+    canRefer,
+    referralLimit,
   };
 };
 
@@ -147,6 +151,8 @@ export const isSameUser = (
     a.totalEarnings === b.totalEarnings &&
     a.activeUnits === b.activeUnits &&
     a.dailyRewards === b.dailyRewards &&
+    Boolean(a.canRefer) === Boolean(b.canRefer) &&
+    (a.referralLimit || 0) === (b.referralLimit || 0) &&
     (a.activeInvestments?.length || 0) === (b.activeInvestments?.length || 0) &&
     (a.transactions?.length || 0) === (b.transactions?.length || 0)
   );

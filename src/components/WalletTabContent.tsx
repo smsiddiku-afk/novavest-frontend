@@ -21,6 +21,7 @@ interface WalletTabContentProps {
   ) => void;
   onOpenHistory?: () => void;
   onBack?: () => void;
+  onNavigateToReferral?: () => void;
   onWithdrawSubmit?: (amount: number, method: PaymentMethodType, account: string) => void;
   onClaimPromoReward?: (amount: number, level: string) => void;
   showToast?: (msg: string) => void;
@@ -37,6 +38,7 @@ export const WalletTabContent: React.FC<WalletTabContentProps> = ({
   onOpenGateway,
   onOpenHistory,
   onBack,
+  onNavigateToReferral,
   onWithdrawSubmit,
   onClaimPromoReward,
   showToast,
@@ -54,6 +56,7 @@ export const WalletTabContent: React.FC<WalletTabContentProps> = ({
           userCode={userCode}
           userMemberId={userMemberId}
           onBack={onBack}
+          onNavigateToReferral={onNavigateToReferral}
           onClaimReward={(amount, level) => {
             if (onClaimPromoReward) {
               onClaimPromoReward(amount, level);

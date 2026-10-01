@@ -702,19 +702,89 @@ export const createFirestoreUserProfile = async (
 };
 
 /**
- * Fetch a user profile by UID
+ * Fetch a user profile by UID (with comprehensive multi-field fallback)
  */
 export const getFirestoreUserProfile = async (uid: string): Promise<UserProfile | null> => {
   const cleanUid = cleanDocId(uid, '');
   if (!cleanUid) return null;
-  const userDocRef = safeDoc('users', cleanUid);
-  if (!userDocRef) return null;
   try {
-    const snap = await getDoc(userDocRef);
-    if (!snap.exists()) return null;
+    let userDocRef = safeDoc('users', cleanUid);
+    let snap = userDocRef ? await getDoc(userDocRef) : null;
+
+    // Fallback: If not found directly by doc id, query by memberId, uid, phone, or email
+    if (!snap || !snap.exists()) {
+      try {
+        const uCol = collection(db, 'users');
+        const qMember = await getDocs(query(uCol, where('memberId', '==', cleanUid), limit(1)));
+        if (!qMember.empty) {
+          snap = qMember.docs[0];
+          userDocRef = snap.ref;
+        } else {
+          const qUid = await getDocs(query(uCol, where('uid', '==', cleanUid), limit(1)));
+          if (!qUid.empty) {
+            snap = qUid.docs[0];
+            userDocRef = snap.ref;
+          } else {
+            const qPhone = await getDocs(query(uCol, where('phone', '==', cleanUid), limit(1)));
+            if (!qPhone.empty) {
+              snap = qPhone.docs[0];
+              userDocRef = snap.ref;
+            } else {
+              const qEmail = await getDocs(query(uCol, where('email', '==', cleanUid), limit(1)));
+              if (!qEmail.empty) {
+                snap = qEmail.docs[0];
+                userDocRef = snap.ref;
+              }
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
+    if (!snap || !snap.exists()) {
+      // Local client storage cache fallback
+      try {
+        const raw = localStorage.getItem('novavest_registered_accounts');
+        if (raw) {
+          const accs = JSON.parse(raw);
+          const found = Object.values(accs).find((a: any) =>
+            a && (a.id === cleanUid || a.uid === cleanUid || a.memberId === cleanUid || a.phone === cleanUid)
+          ) as any;
+          if (found) {
+            return {
+              uid: found.uid || found.id || cleanUid,
+              name: found.name || 'NVT Member',
+              phone: found.phone || '',
+              email: found.email || '',
+              memberId: found.memberId || cleanUid,
+              referralCode: found.referralCode || found.memberId || 'NV8829',
+              walletBalance: Number(found.walletBalance || 0),
+              totalEarnings: Number(found.totalEarnings || 0),
+              activeUnits: Array.isArray(found.activeInvestments) ? found.activeInvestments.length : 0,
+              dailyRewards: Number(found.dailyRewards || 0),
+              vipLevel: Number(found.vipLevel || 0),
+              activeInvestments: Array.isArray(found.activeInvestments) ? found.activeInvestments : [],
+              totalInvested: Number(found.totalInvested || 0),
+              totalReferralEarnings: Number(found.totalReferralEarnings || 0),
+              memberSince: found.memberSince || 'May 2024',
+              isVerified: found.isVerified ?? true,
+              avatarUrl: found.avatarUrl,
+              fullName: found.fullName,
+              transactions: Array.isArray(found.transactions) ? found.transactions : [],
+              isAuthenticatorSet: Boolean(found.isAuthenticatorSet),
+              authenticatorSecret: found.authenticatorSecret || '',
+              canRefer: Boolean(found.canRefer),
+              referralLimit: typeof found.referralLimit === 'number' ? found.referralLimit : 0,
+            };
+          }
+        }
+      } catch (_) {}
+      return null;
+    }
+
     const data = snap.data();
     return {
-      uid: cleanUid,
+      uid: snap.id || cleanUid,
       name: data.name || 'NVT Member',
       phone: data.phone || '',
       email: data.email || '',
@@ -1071,50 +1141,208 @@ export const subscribeToFirestoreUserProfile = (
 ): (() => void) => {
   const cleanUid = cleanDocId(uid, '');
   if (!cleanUid) return () => {};
-  const userDocRef = safeDoc('users', cleanUid);
-  if (!userDocRef) return () => {};
-  return onSnapshot(
-    userDocRef,
-    (snap) => {
-      if (snap.exists()) {
-        const data = snap.data();
-        const profile: UserProfile = {
-          uid: cleanUid,
-          name: data.name || 'NVT Member',
-          phone: data.phone || '',
-          email: data.email || '',
-          memberId: data.memberId || `NVT${Math.floor(100000 + Math.random() * 900000)}`,
-          referralCode: data.referralCode || data.memberId?.replace(/[^A-Z0-9]/gi, '').slice(-6).toUpperCase() || 'NV8829',
-          referredBy: data.referredBy || undefined,
-          walletBalance:
-            typeof data.walletBalance === 'number' && !Number.isNaN(data.walletBalance) && data.walletBalance !== 12450.0
-              ? data.walletBalance
-              : 0.0,
-          totalEarnings: typeof data.totalEarnings === 'number' ? data.totalEarnings : 0.0,
-          activeUnits: typeof data.activeUnits === 'number' ? data.activeUnits : (Array.isArray(data.activeInvestments) ? data.activeInvestments.length : 0),
-          dailyRewards: typeof data.dailyRewards === 'number' ? data.dailyRewards : 0.0,
-          vipLevel: typeof data.vipLevel === 'number' ? data.vipLevel : 0,
-          activeInvestments: Array.isArray(data.activeInvestments) ? data.activeInvestments : [],
-          totalInvested: typeof data.totalInvested === 'number' ? data.totalInvested : 0.0,
-          totalReferralEarnings: typeof data.totalReferralEarnings === 'number' ? data.totalReferralEarnings : 0.0,
-          memberSince: data.memberSince || 'May 2024',
-          isVerified: data.isVerified ?? true,
-          avatarUrl: data.avatarUrl,
-          fullName: data.fullName,
-          transactions: data.transactions || [],
-          isAuthenticatorSet: Boolean(data.isAuthenticatorSet),
-          authenticatorSecret: data.authenticatorSecret || '',
-          canRefer: Boolean(data.canRefer),
-          referralLimit: typeof data.referralLimit === 'number' ? data.referralLimit : 0,
-        };
-        onUpdate(profile);
-      }
-    },
-    (err) => {
-      console.warn('[Firebase] Firestore onSnapshot warning:', err);
-      if (onError) onError(err);
+
+  let isSubscribed = true;
+  const unsubs: (() => void)[] = [];
+
+  const handleDocSnap = (snap: any) => {
+    if (snap && snap.exists()) {
+      const data = snap.data();
+      const profile: UserProfile = {
+        uid: snap.id || cleanUid,
+        name: data.name || 'NVT Member',
+        phone: data.phone || '',
+        email: data.email || '',
+        memberId: data.memberId || cleanUid,
+        referralCode: data.referralCode || data.memberId?.replace(/[^A-Z0-9]/gi, '').slice(-6).toUpperCase() || 'NV8829',
+        referredBy: data.referredBy || undefined,
+        walletBalance:
+          typeof data.walletBalance === 'number' && !Number.isNaN(data.walletBalance) && data.walletBalance !== 12450.0
+            ? data.walletBalance
+            : 0.0,
+        totalEarnings: typeof data.totalEarnings === 'number' ? data.totalEarnings : 0.0,
+        activeUnits: typeof data.activeUnits === 'number' ? data.activeUnits : (Array.isArray(data.activeInvestments) ? data.activeInvestments.length : 0),
+        dailyRewards: typeof data.dailyRewards === 'number' ? data.dailyRewards : 0.0,
+        vipLevel: typeof data.vipLevel === 'number' ? data.vipLevel : 0,
+        activeInvestments: Array.isArray(data.activeInvestments) ? data.activeInvestments : [],
+        totalInvested: typeof data.totalInvested === 'number' ? data.totalInvested : 0.0,
+        totalReferralEarnings: typeof data.totalReferralEarnings === 'number' ? data.totalReferralEarnings : 0.0,
+        memberSince: data.memberSince || 'May 2024',
+        isVerified: data.isVerified ?? true,
+        avatarUrl: data.avatarUrl,
+        fullName: data.fullName,
+        transactions: Array.isArray(data.transactions) ? data.transactions : [],
+        isAuthenticatorSet: Boolean(data.isAuthenticatorSet),
+        authenticatorSecret: data.authenticatorSecret || '',
+        canRefer: Boolean(data.canRefer),
+        referralLimit: typeof data.referralLimit === 'number' ? data.referralLimit : 0,
+      };
+      onUpdate(profile);
     }
+  };
+
+  // 1. Direct doc listener
+  const directRef = safeDoc('users', cleanUid);
+  if (directRef) {
+    try {
+      const u1 = onSnapshot(directRef, handleDocSnap, (err) => {
+        if (onError) onError(err);
+      });
+      unsubs.push(u1);
+    } catch (_) {}
+  }
+
+  // 2. Query listener by memberId if cleanUid doesn't match direct doc ID
+  (async () => {
+    try {
+      const uCol = collection(db, 'users');
+      const qSnap = await getDocs(query(uCol, where('memberId', '==', cleanUid), limit(1)));
+      if (isSubscribed && !qSnap.empty) {
+        const foundDoc = qSnap.docs[0];
+        if (foundDoc.id !== cleanUid) {
+          const u2 = onSnapshot(foundDoc.ref, handleDocSnap);
+          unsubs.push(u2);
+        }
+      }
+    } catch (_) {}
+  })();
+
+  return () => {
+    isSubscribed = false;
+    unsubs.forEach((u) => {
+      try {
+        u();
+      } catch (_) {}
+    });
+  };
+};
+
+/**
+ * Update user referral permission and limit across Firestore, referral_nodes, and local storage
+ */
+export const updateFirestoreReferralPermission = async (
+  userIdOrCode: string,
+  targetUserInfo: any,
+  canRefer: boolean,
+  referralLimit: number
+): Promise<boolean> => {
+  const cleanId = cleanDocId(userIdOrCode, '');
+  if (!cleanId) return false;
+
+  const targetMemberId = targetUserInfo?.memberId ? cleanDocId(targetUserInfo.memberId, '') : '';
+  const targetUid = targetUserInfo?.uid ? cleanDocId(targetUserInfo.uid, '') : '';
+  const targetCode = targetUserInfo?.referralCode ? cleanDocId(targetUserInfo.referralCode, '') : '';
+  const targetPhone = targetUserInfo?.phone || '';
+
+  const docIds = Array.from(
+    new Set([cleanId, targetMemberId, targetUid, targetCode].filter(Boolean))
   );
+
+  const effectiveLimit = Number(referralLimit) >= 0 ? Number(referralLimit) : (canRefer ? 5 : 0);
+  const payload = {
+    canRefer: Boolean(canRefer),
+    referralLimit: effectiveLimit,
+    updatedAt: new Date().toISOString(),
+  };
+
+  // 1. Direct safeSetDoc for known IDs in 'users'
+  for (const docId of docIds) {
+    try {
+      const dRef = safeDoc('users', docId);
+      if (dRef) {
+        await safeSetDoc(dRef, payload, { merge: true });
+      }
+    } catch (_) {}
+  }
+
+  // 2. Query Firestore 'users' by memberId, uid, phone to update any remaining docs
+  try {
+    const uCol = collection(db, 'users');
+    const queries = [];
+    if (targetMemberId || cleanId) {
+      queries.push(query(uCol, where('memberId', '==', targetMemberId || cleanId), limit(5)));
+    }
+    if (targetUid) {
+      queries.push(query(uCol, where('uid', '==', targetUid), limit(5)));
+    }
+    if (targetPhone) {
+      queries.push(query(uCol, where('phone', '==', targetPhone), limit(5)));
+    }
+
+    for (const q of queries) {
+      try {
+        const snap = await getDocs(q);
+        for (const d of snap.docs) {
+          await safeSetDoc(d.ref, payload, { merge: true });
+        }
+      } catch (_) {}
+    }
+  } catch (_) {}
+
+  // 3. Update 'referral_nodes' collection
+  const codeKeys = Array.from(new Set([targetCode, targetMemberId, cleanId].filter(Boolean)));
+  for (const c of codeKeys) {
+    try {
+      const nRef = safeDoc('referral_nodes', c.toUpperCase());
+      if (nRef) {
+        await safeSetDoc(nRef, payload, { merge: true });
+      }
+    } catch (_) {}
+  }
+
+  // 4. Update localStorage and broadcast event
+  if (typeof window !== 'undefined' && window.localStorage) {
+    try {
+      const raw = localStorage.getItem('novavest_registered_accounts');
+      if (raw) {
+        const accs = JSON.parse(raw);
+        let updated = false;
+        for (const k of Object.keys(accs)) {
+          const item = accs[k];
+          if (
+            item &&
+            (item.id === cleanId ||
+              item.uid === cleanId ||
+              item.memberId === cleanId ||
+              item.referralCode === cleanId ||
+              (targetMemberId && item.memberId === targetMemberId) ||
+              (targetUid && (item.uid === targetUid || item.id === targetUid)) ||
+              (targetCode && item.referralCode === targetCode))
+          ) {
+            item.canRefer = Boolean(canRefer);
+            item.referralLimit = effectiveLimit;
+            updated = true;
+          }
+        }
+        if (updated) {
+          localStorage.setItem('novavest_registered_accounts', JSON.stringify(accs));
+        }
+      }
+    } catch (_) {}
+
+    try {
+      const authRaw = localStorage.getItem('nvt_auth_user') || localStorage.getItem('auth_user');
+      if (authRaw) {
+        const authObj = JSON.parse(authRaw);
+        if (
+          authObj &&
+          (authObj.id === cleanId ||
+            authObj.uid === cleanId ||
+            authObj.memberId === cleanId ||
+            (targetMemberId && authObj.memberId === targetMemberId) ||
+            (targetUid && (authObj.uid === targetUid || authObj.id === targetUid)))
+        ) {
+          authObj.canRefer = Boolean(canRefer);
+          authObj.referralLimit = effectiveLimit;
+          localStorage.setItem('nvt_auth_user', JSON.stringify(authObj));
+          localStorage.setItem('auth_user', JSON.stringify(authObj));
+          window.dispatchEvent(new CustomEvent('nvt-auth-state-changed', { detail: authObj }));
+        }
+      }
+    } catch (_) {}
+  }
+
+  return true;
 };
 
 export interface DepositRecord {
@@ -1136,18 +1364,26 @@ export interface DepositRecord {
 export interface TransactionRecord {
   id: string;
   userId: string;
-  type: 'recharge' | 'withdraw' | 'yield' | 'bonus';
-  title: string;
-  desc: string;
-  amount: string;
-  rawAmount: number;
-  time: string;
-  date: string;
+  type: 'recharge' | 'withdraw' | 'withdrawal' | 'yield' | 'bonus' | string;
+  title?: string;
+  desc?: string;
+  description?: string;
+  amount: string | number;
+  rawAmount?: number;
+  time?: string;
+  date?: string;
   status: string;
-  channel: string;
+  statusBangla?: string;
+  channel?: string;
   isCredit: boolean;
   hash?: string;
   createdAt?: any;
+  timestamp?: string;
+  accountNumber?: string;
+  accountName?: string;
+  method?: string;
+  walletMethod?: string;
+  [key: string]: any;
 }
 
 /**
@@ -1469,31 +1705,84 @@ export const getFirestoreUserTransactions = async (uid: string): Promise<Transac
   const cleanUid = cleanDocId(uid, '');
   if (!cleanUid) return [];
   try {
-    // Try user subcollection first
-    const subColRef = collection(db, 'users', cleanUid, 'transactions');
-    const snap = await getDocs(subColRef);
-    if (!snap.empty) {
-      return snap.docs.map((d) => d.data() as TransactionRecord);
-    }
+    const combinedMap = new Map<string, TransactionRecord>();
 
-    // Fallback to querying top-level transactions collection
-    const txRef = collection(db, 'transactions');
-    const q = query(txRef, where('userId', '==', cleanUid));
-    const topSnap = await getDocs(q);
-    if (!topSnap.empty) {
-      return topSnap.docs.map((d) => d.data() as TransactionRecord);
-    }
+    // 1. Fetch user transactions subcollection
+    try {
+      const subColRef = collection(db, 'users', cleanUid, 'transactions');
+      const snap = await getDocs(subColRef);
+      snap.forEach((d) => {
+        const item = d.data() as TransactionRecord;
+        const key = item.id || (item as any).hash || d.id;
+        if (key) combinedMap.set(key, item);
+      });
+    } catch (_) {}
 
-    // Fallback to transactions in user document
-    const userDocRef = safeDoc('users', cleanUid);
-    if (userDocRef) {
-      const uSnap = await getDoc(userDocRef);
-      if (uSnap.exists()) {
-        return uSnap.data().transactions || [];
+    // 2. Fetch user withdrawals subcollection
+    try {
+      const wColRef = collection(db, 'users', cleanUid, 'withdrawals');
+      const wSnap = await getDocs(wColRef);
+      wSnap.forEach((d) => {
+        const data = d.data();
+        const key = data.id || d.id;
+        const rawStatus = String(data.status || 'Pending');
+        const isApproved = rawStatus.toLowerCase() === 'approved';
+        const isRejected = rawStatus.toLowerCase() === 'rejected';
+        const statusBangla = isApproved ? 'এপ্রুভ' : isRejected ? 'বাতিল' : 'অপেক্ষমাণ';
+        const wItem: TransactionRecord = {
+          id: key,
+          userId: cleanUid,
+          type: 'withdrawal',
+          amount: -(Math.abs(Number(data.amount) || 0)),
+          status: isApproved ? 'Approved' : isRejected ? 'Rejected' : 'Pending',
+          timestamp: `${data.dateStr || ''} ${data.timeStr || ''}`.trim() || data.createdAt || 'Recent',
+          date: data.dateStr || (data.createdAt ? new Date(data.createdAt).toLocaleDateString('en-GB') : undefined),
+          time: data.timeStr || undefined,
+          channel: data.method || data.walletMethod || 'bKash',
+          description: `উইথড্র: ${data.method || data.walletMethod || 'bKash'} (${String(data.accountNumber || '').slice(-4)}) - ${statusBangla}`,
+          hash: key,
+          isCredit: false,
+          ...data,
+        };
+        const existing = combinedMap.get(key);
+        combinedMap.set(key, { ...(existing || {}), ...wItem });
+      });
+    } catch (_) {}
+
+    // 3. Check transactions array in user document
+    try {
+      const userDocRef = safeDoc('users', cleanUid);
+      if (userDocRef) {
+        const uSnap = await getDoc(userDocRef);
+        if (uSnap.exists()) {
+          const arr = uSnap.data().transactions || [];
+          if (Array.isArray(arr)) {
+            arr.forEach((t: any) => {
+              const key = t.id || t.hash;
+              if (key && !combinedMap.has(key)) {
+                combinedMap.set(key, t);
+              }
+            });
+          }
+        }
       }
+    } catch (_) {}
+
+    // Fallback: top-level transactions collection if empty
+    if (combinedMap.size === 0) {
+      try {
+        const txRef = collection(db, 'transactions');
+        const q = query(txRef, where('userId', '==', cleanUid));
+        const topSnap = await getDocs(q);
+        topSnap.forEach((d) => {
+          const item = d.data() as TransactionRecord;
+          const key = item.id || (item as any).hash || d.id;
+          if (key) combinedMap.set(key, item);
+        });
+      } catch (_) {}
     }
 
-    return [];
+    return Array.from(combinedMap.values());
   } catch (err) {
     console.warn('[Firebase] getFirestoreUserTransactions error:', err);
     return [];
@@ -1501,7 +1790,7 @@ export const getFirestoreUserTransactions = async (uid: string): Promise<Transac
 };
 
 /**
- * Real-time listener for user transactions
+ * Real-time listener for user transactions and withdrawals
  */
 export const subscribeToUserTransactions = (
   uid: string,
@@ -1509,19 +1798,107 @@ export const subscribeToUserTransactions = (
 ): (() => void) => {
   const cleanUid = cleanDocId(uid, '');
   if (!cleanUid) return () => {};
-  const subColRef = collection(db, 'users', cleanUid, 'transactions');
-  return onSnapshot(
-    subColRef,
-    (snap) => {
-      if (!snap.empty) {
-        const list = snap.docs.map((d) => d.data() as TransactionRecord);
-        onUpdate(list);
+
+  let latestTxns: TransactionRecord[] = [];
+  let latestWithdrawals: TransactionRecord[] = [];
+  let latestUserDocTxns: TransactionRecord[] = [];
+
+  const mergeAndEmit = () => {
+    const map = new Map<string, TransactionRecord>();
+
+    // 1. Transactions from user subcollection
+    latestTxns.forEach((t) => {
+      const k = t.id || (t as any).hash;
+      if (k) map.set(k, t);
+    });
+
+    // 2. Withdrawals from user withdrawals subcollection (syncs real-time admin approvals)
+    latestWithdrawals.forEach((w) => {
+      const k = w.id || (w as any).hash;
+      if (k) {
+        const existing = map.get(k);
+        map.set(k, { ...(existing || {}), ...w });
       }
+    });
+
+    // 3. Transactions from user document array
+    latestUserDocTxns.forEach((t) => {
+      const k = t.id || (t as any).hash;
+      if (k) {
+        const existing = map.get(k);
+        if (!existing) {
+          map.set(k, t);
+        } else if ((t.status === 'Approved' || t.status === 'এপ্রুভ') && existing.status !== 'Approved') {
+          map.set(k, { ...existing, status: 'Approved', statusBangla: 'এপ্রুভ' });
+        }
+      }
+    });
+
+    onUpdate(Array.from(map.values()));
+  };
+
+  const unsubTxns = onSnapshot(
+    collection(db, 'users', cleanUid, 'transactions'),
+    (snap) => {
+      latestTxns = snap.docs.map((d) => d.data() as TransactionRecord);
+      mergeAndEmit();
     },
     (err) => {
       console.warn('[Firebase] Transactions listener notice:', err);
     }
   );
+
+  const unsubWithdrawals = onSnapshot(
+    collection(db, 'users', cleanUid, 'withdrawals'),
+    (snap) => {
+      latestWithdrawals = snap.docs.map((d) => {
+        const data = d.data();
+        const rawStatus = String(data.status || 'Pending');
+        const isApproved = rawStatus.toLowerCase() === 'approved';
+        const isRejected = rawStatus.toLowerCase() === 'rejected';
+        const statusBangla = isApproved ? 'এপ্রুভ' : isRejected ? 'বাতিল' : 'অপেক্ষমাণ';
+        return {
+          id: d.id,
+          userId: cleanUid,
+          type: 'withdrawal',
+          amount: -(Math.abs(Number(data.amount) || 0)),
+          status: isApproved ? 'Approved' : isRejected ? 'Rejected' : 'Pending',
+          timestamp: `${data.dateStr || ''} ${data.timeStr || ''}`.trim() || data.createdAt || 'Recent',
+          date: data.dateStr || undefined,
+          time: data.timeStr || undefined,
+          channel: data.method || data.walletMethod || 'bKash',
+          description: `উইথড্র: ${data.method || data.walletMethod || 'bKash'} (${String(data.accountNumber || '').slice(-4)}) - ${statusBangla}`,
+          hash: d.id,
+          isCredit: false,
+          ...data,
+        } as TransactionRecord;
+      });
+      mergeAndEmit();
+    },
+    (err) => {
+      console.warn('[Firebase] Withdrawals listener notice:', err);
+    }
+  );
+
+  const unsubUserDoc = onSnapshot(
+    safeDoc('users', cleanUid),
+    (snap) => {
+      if (snap && snap.exists()) {
+        const data = snap.data();
+        if (Array.isArray(data.transactions)) {
+          latestUserDocTxns = data.transactions;
+          mergeAndEmit();
+        }
+      }
+    },
+    () => {}
+  );
+
+  return () => {
+    try { unsubTxns(); } catch (_) {}
+    try { unsubWithdrawals(); } catch (_) {}
+    try { unsubUserDoc(); } catch (_) {}
+  };
 };
 
 /**
@@ -2081,7 +2458,7 @@ export const creditUserCommissionInFirestore = async (
       now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
 
     const lvl = details?.level || 1;
-    const rateText = details?.ratePercent ? `${details.ratePercent}%` : lvl === 1 ? '7%' : lvl === 2 ? '3%' : '1%';
+    const rateText = details?.ratePercent ? `${details.ratePercent}%` : lvl === 1 ? '6%' : lvl === 2 ? '3%' : '1%';
     const sourceText = details?.sourceUserCode ? ` (${details.sourceUserCode})` : '';
 
     const newTxn = {
@@ -2272,52 +2649,347 @@ export const recordFirestoreWithdrawal = async (params: WithdrawalRecordParams):
     const cleanWId = cleanDocId(params.trxId, `WD-${Date.now()}`);
     if (!cleanUid || !cleanWId) return false;
 
+    // 1. Resolve target user document by ID, memberId, email, or phone
+    let realUid = cleanUid;
+    let userDocRef = safeDoc('users', cleanUid);
+    let userSnap = userDocRef ? await getDoc(userDocRef) : null;
+
+    if (!userSnap || !userSnap.exists()) {
+      try {
+        const uCol = collection(db, 'users');
+        const q1 = await getDocs(query(uCol, where('memberId', '==', cleanUid), limit(1)));
+        if (!q1.empty) {
+          userDocRef = q1.docs[0].ref;
+          userSnap = q1.docs[0];
+          realUid = q1.docs[0].id;
+        } else {
+          const q2 = await getDocs(query(uCol, where('email', '==', cleanUid), limit(1)));
+          if (!q2.empty) {
+            userDocRef = q2.docs[0].ref;
+            userSnap = q2.docs[0];
+            realUid = q2.docs[0].id;
+          } else {
+            const q3 = await getDocs(query(uCol, where('phone', '==', cleanUid), limit(1)));
+            if (!q3.empty) {
+              userDocRef = q3.docs[0].ref;
+              userSnap = q3.docs[0];
+              realUid = q3.docs[0].id;
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
     const now = new Date();
+    const withdrawAmt = Math.abs(Number(params.amount) || 0);
+
     const payload = {
       id: cleanWId,
-      userId: cleanUid,
-      amount: Number(params.amount) || 0,
+      userId: realUid,
+      memberId: params.uid,
+      amount: withdrawAmt,
       method: params.walletMethod || 'bKash',
+      walletMethod: params.walletMethod || 'bKash',
       accountNumber: params.accountNumber || '',
       accountName: params.accountName || '',
       authCode: params.authCode || '2FA_VERIFIED',
       status: params.status || 'Pending',
+      statusBangla: 'অপেক্ষমাণ',
       createdAt: now.toISOString(),
-      dateStr: params.dateStr || now.toLocaleDateString(),
-      timeStr: params.timeStr || now.toLocaleTimeString(),
+      dateStr: params.dateStr || now.toLocaleDateString('en-GB'),
+      timeStr: params.timeStr || now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       serverCreatedAt: serverTimestamp(),
     };
 
-    // Save in global withdrawals collection for Admin Panel
+    const transactionItem = {
+      id: cleanWId,
+      userId: realUid,
+      type: 'withdrawal',
+      amount: -withdrawAmt,
+      rawAmount: withdrawAmt,
+      status: 'Pending',
+      statusBangla: 'অপেক্ষমাণ',
+      timestamp: `${payload.dateStr} ${payload.timeStr}`,
+      date: payload.dateStr,
+      time: payload.timeStr,
+      channel: payload.method,
+      accountNumber: payload.accountNumber,
+      accountName: payload.accountName,
+      description: `উইথড্র: ${payload.method} (${payload.accountNumber.slice(-4)}) - অপেক্ষমাণ`,
+      hash: cleanWId,
+      isCredit: false,
+      serverCreatedAt: serverTimestamp(),
+    };
+
+    // 2. Save in global withdrawals collection for Admin Panel
     const wDocRef = safeDoc('withdrawals', cleanWId);
     if (wDocRef) {
       await safeSetDoc(wDocRef, payload, { merge: true });
     }
 
-    // Save in user subcollection
-    const userWRef = safeDoc('users', cleanUid, 'withdrawals', cleanWId);
-    if (userWRef) {
-      await safeSetDoc(userWRef, payload, { merge: true });
+    // 3. Save in user withdrawals subcollection
+    const uidsToSync = Array.from(new Set([cleanUid, realUid].filter(Boolean)));
+    for (const u of uidsToSync) {
+      try {
+        const uWRef = safeDoc('users', u, 'withdrawals', cleanWId);
+        if (uWRef) await safeSetDoc(uWRef, payload, { merge: true });
+      } catch (_) {}
+
+      try {
+        const uTRef = safeDoc('users', u, 'transactions', cleanWId);
+        if (uTRef) await safeSetDoc(uTRef, transactionItem, { merge: true });
+      } catch (_) {}
     }
 
-    // Atomically deduct wallet balance from user profile document in Firestore
-    const userDocRef = safeDoc('users', cleanUid);
+    // 4. Save in top-level transactions collection
+    try {
+      const topTRef = safeDoc('transactions', cleanWId);
+      if (topTRef) await safeSetDoc(topTRef, transactionItem, { merge: true });
+    } catch (_) {}
+
+    // 5. Safely deduct wallet balance (NEVER negative: Math.max(0, currentBalance - amt))
     if (userDocRef) {
-      const deduction = -Math.abs(Number(params.amount) || 0);
+      const currentBalance = userSnap && userSnap.exists()
+        ? Number(userSnap.data().walletBalance ?? userSnap.data().balance ?? 0)
+        : 0;
+      const newBalance = Math.max(0, currentBalance - withdrawAmt);
+
       await safeSetDoc(
         userDocRef,
         {
-          walletBalance: increment(deduction),
-          balance: increment(deduction),
+          walletBalance: newBalance,
+          balance: newBalance,
+          transactions: arrayUnion(sanitizeFirestoreData(transactionItem)),
           updatedAt: serverTimestamp(),
         },
         { merge: true }
       );
     }
 
+    console.log(`[Firebase] Successfully recorded withdrawal [${cleanWId}]:`, payload);
     return true;
   } catch (err) {
     console.warn('[Firebase] Error recording withdrawal in Firestore:', err);
+    return false;
+  }
+};
+
+/**
+ * -------------------------------------------------------------
+ * 6. ADMIN WITHDRAWAL APPROVAL & SYNC
+ * When Admin approves: updates status to "Approved" / "এপ্রুভ" across all collections
+ * and in user profile transactions array.
+ * When Admin rejects: updates status to "Rejected" / "বাতিল" and refunds balance.
+ * -------------------------------------------------------------
+ */
+export const updateFirestoreWithdrawalStatus = async (
+  uid: string,
+  withdrawId: string,
+  newStatus: 'Approved' | 'Rejected',
+  amount?: number
+): Promise<boolean> => {
+  try {
+    const cleanWId = cleanDocId(withdrawId, '');
+    const cleanUid = cleanDocId(uid, '');
+    if (!cleanWId) return false;
+
+    const isApprove = newStatus === 'Approved';
+    const statusText = isApprove ? 'Approved' : 'Rejected';
+    const statusBangla = isApprove ? 'এপ্রুভ' : 'বাতিল';
+    const nowIso = new Date().toISOString();
+    const nowBanglaTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const nowBanglaDate = new Date().toLocaleDateString('en-GB');
+
+    // 1. Update top-level withdrawals collection
+    const wDocRef = safeDoc('withdrawals', cleanWId);
+    if (wDocRef) {
+      await safeSetDoc(
+        wDocRef,
+        {
+          status: statusText,
+          statusBangla,
+          updatedAt: nowIso,
+          approvedAt: isApprove ? nowIso : null,
+          rejectedAt: !isApprove ? nowIso : null,
+        },
+        { merge: true }
+      );
+    }
+
+    // 2. Resolve user document by direct ID or fallback
+    let realUid = cleanUid;
+    let userDocRef = cleanUid ? safeDoc('users', cleanUid) : null;
+    let userSnap = userDocRef ? await getDoc(userDocRef) : null;
+
+    if (!userSnap || !userSnap.exists()) {
+      try {
+        const uCol = collection(db, 'users');
+        if (cleanUid) {
+          const q1 = await getDocs(query(uCol, where('memberId', '==', cleanUid), limit(1)));
+          if (!q1.empty) {
+            userDocRef = q1.docs[0].ref;
+            userSnap = q1.docs[0];
+            realUid = q1.docs[0].id;
+          } else {
+            const q2 = await getDocs(query(uCol, where('email', '==', cleanUid), limit(1)));
+            if (!q2.empty) {
+              userDocRef = q2.docs[0].ref;
+              userSnap = q2.docs[0];
+              realUid = q2.docs[0].id;
+            } else {
+              const q3 = await getDocs(query(uCol, where('phone', '==', cleanUid), limit(1)));
+              if (!q3.empty) {
+                userDocRef = q3.docs[0].ref;
+                userSnap = q3.docs[0];
+                realUid = q3.docs[0].id;
+              }
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
+    // Check withdrawal doc for userId if still unresolved
+    if ((!userSnap || !userSnap.exists()) && wDocRef) {
+      try {
+        const wSnap = await getDoc(wDocRef);
+        if (wSnap.exists()) {
+          const wData = wSnap.data();
+          const candidateUid = wData.userId || wData.uid || wData.memberId;
+          if (candidateUid && candidateUid !== cleanUid) {
+            const fbRef = safeDoc('users', candidateUid);
+            if (fbRef) {
+              const fSnap = await getDoc(fbRef);
+              if (fSnap.exists()) {
+                userDocRef = fbRef;
+                userSnap = fSnap;
+                realUid = candidateUid;
+              }
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
+    // 3. Update subcollections: users/{u}/withdrawals & users/{u}/transactions
+    const uidsToSync = Array.from(new Set([cleanUid, realUid].filter(Boolean)));
+    for (const u of uidsToSync) {
+      try {
+        const uWRef = safeDoc('users', u, 'withdrawals', cleanWId);
+        if (uWRef) {
+          await safeSetDoc(
+            uWRef,
+            {
+              status: statusText,
+              statusBangla,
+              updatedAt: nowIso,
+            },
+            { merge: true }
+          );
+        }
+      } catch (_) {}
+
+      try {
+        const uTRef = safeDoc('users', u, 'transactions', cleanWId);
+        if (uTRef) {
+          await safeSetDoc(
+            uTRef,
+            {
+              status: statusText,
+              statusBangla,
+              updatedAt: nowIso,
+            },
+            { merge: true }
+          );
+        }
+      } catch (_) {}
+    }
+
+    // 4. Update top-level transactions collection
+    try {
+      const topTRef = safeDoc('transactions', cleanWId);
+      if (topTRef) {
+        await safeSetDoc(
+          topTRef,
+          {
+            status: statusText,
+            statusBangla,
+            updatedAt: nowIso,
+          },
+          { merge: true }
+        );
+      }
+    } catch (_) {}
+
+    // 5. Update user document's transactions array and wallet balance
+    if (userDocRef && userSnap && userSnap.exists()) {
+      const userData = userSnap.data();
+      const txns: any[] = userData.transactions || [];
+      const numAmount = Math.abs(Number(amount) || 0);
+
+      let matched = false;
+      const updatedTxns = txns.map((t: any) => {
+        if (t.id === cleanWId || t.hash === cleanWId) {
+          matched = true;
+          const currentDesc = String(t.description || t.desc || '');
+          const cleanDesc = currentDesc
+            .replace('অপেক্ষমাণ', statusBangla)
+            .replace('Pending', statusText)
+            .replace('pending', statusText);
+          return {
+            ...t,
+            status: statusText,
+            statusBangla,
+            description: cleanDesc.includes(statusBangla) ? cleanDesc : `${cleanDesc} - ${statusBangla}`,
+          };
+        }
+        return t;
+      });
+
+      if (!matched) {
+        updatedTxns.unshift({
+          id: cleanWId,
+          type: 'withdrawal',
+          amount: -numAmount,
+          rawAmount: numAmount,
+          status: statusText,
+          statusBangla,
+          timestamp: `${nowBanglaDate} ${nowBanglaTime}`,
+          description: `উইথড্র (${cleanWId.slice(-4)}) - ${statusBangla}`,
+          hash: cleanWId,
+          isCredit: false,
+        });
+      }
+
+      const userUpdate: any = {
+        transactions: updatedTxns,
+        updatedAt: serverTimestamp(),
+      };
+
+      const currentBal = Number(userData.walletBalance ?? userData.balance ?? 0);
+
+      if (!isApprove) {
+        // If rejected, refund the deducted amount back to user's wallet
+        if (numAmount > 0) {
+          const refundedBal = Math.max(0, currentBal + numAmount);
+          userUpdate.walletBalance = refundedBal;
+          userUpdate.balance = refundedBal;
+        }
+      } else {
+        // If approved, ensure balance is never negative
+        if (currentBal < 0) {
+          userUpdate.walletBalance = 0;
+          userUpdate.balance = 0;
+        }
+      }
+
+      await safeSetDoc(userDocRef, userUpdate, { merge: true });
+    }
+
+    console.log(`[Firebase] Successfully updated withdrawal [${cleanWId} -> ${statusText}]`);
+    return true;
+  } catch (err) {
+    console.error('[Firebase] updateFirestoreWithdrawalStatus error:', err);
     return false;
   }
 };

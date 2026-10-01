@@ -2160,7 +2160,7 @@ async function startServer() {
       orderId: cleanKey || `NVT-${Date.now()}`,
       amount: Number(req.query.amount) || 500,
       channel: (req.query.channel as string) || 'channel1',
-      channelName: 'চ্যানেল ১ (Nekpay)',
+      channelName: (req.query.channel as string) === 'channel2' ? 'চ্যানেল ২' : 'চ্যানেল ১',
       method: (req.query.method as string) || 'bKash',
       userId: (req.query.userId as string) || 'USER1001',
       status: 'PENDING',

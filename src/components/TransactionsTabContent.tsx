@@ -67,33 +67,12 @@ export const TransactionsTabContent: React.FC<TransactionsTabContentProps> = ({
       return true;
     })
     .map((tx: any) => {
-    const rawStatus = String(tx.status || '').toLowerCase();
-    const isPending = rawStatus === 'pending' || rawStatus === 'অপেক্ষমাণ' || rawStatus === 'processing';
-    const isCancelled = rawStatus === 'cancelled' || rawStatus === 'rejected' || rawStatus === 'failed' || rawStatus === 'বাতিল' || rawStatus === 'ব্যর্থ';
-    const isCompleted = !isPending && !isCancelled;
-
-    const displayStatus = isPending
-      ? (isBn ? 'অপেক্ষমাণ' : 'Pending')
-      : isCancelled
-      ? (isBn ? 'বাতিল' : 'Cancelled')
-      : (isBn ? 'সফল' : 'Completed');
-
-    const statusCode = isPending ? 'pending' : isCancelled ? 'cancelled' : 'completed';
-
     const rawType = String(tx.type || '').toLowerCase();
     const isInvest =
       rawType === 'investment' ||
       rawType === 'invest' ||
       rawType.includes('package') ||
       rawType.includes('plan');
-
-    const isRecharge =
-      !isInvest && (
-        rawType === 'recharge' ||
-        rawType === 'deposit' ||
-        rawType === 'payin' ||
-        (typeof tx.amount === 'number' ? tx.amount > 0 : String(tx.amount || '').startsWith('+'))
-      );
 
     const isWithdraw =
       !isInvest && (
@@ -110,6 +89,27 @@ export const TransactionsTabContent: React.FC<TransactionsTabContentProps> = ({
 
     const normalizedType = isInvest ? 'invest' : isYield ? 'yield' : isWithdraw ? 'withdraw' : 'recharge';
 
+    const rawStatus = String(tx.status || '').toLowerCase();
+    const isPending = rawStatus === 'pending' || rawStatus === 'অপেক্ষমাণ' || rawStatus === 'processing';
+    const isCancelled = rawStatus === 'cancelled' || rawStatus === 'rejected' || rawStatus === 'failed' || rawStatus === 'বাতিল' || rawStatus === 'ব্যর্থ';
+    const isCompleted = !isPending && !isCancelled;
+    const isApproved = rawStatus === 'approved' || rawStatus === 'এপ্রুভ' || rawStatus === 'অনুমোদিত' || (isWithdraw && isCompleted);
+
+    const displayStatus = isPending
+      ? (isBn ? 'অপেক্ষমাণ' : 'Pending')
+      : isCancelled
+      ? (isBn ? 'বাতিল' : 'Cancelled')
+      : isWithdraw
+      ? (isBn ? 'এপ্রুভ' : 'Approved')
+      : (isBn ? 'সফল' : 'Completed');
+
+    const statusCode = isPending ? 'pending' : isCancelled ? 'cancelled' : 'completed';
+
+    const rawDesc = String(tx.desc || tx.description || `TrxID: ${tx.id || tx.hash || 'Verified'}`);
+    const displayDesc = isWithdraw && isApproved && !isPending && !isCancelled
+      ? rawDesc.replace('অপেক্ষমাণ', isBn ? 'এপ্রুভ' : 'Approved')
+      : rawDesc;
+
     return {
       id: tx.id || tx.hash || `TRX-${Date.now()}`,
       type: normalizedType,
@@ -122,7 +122,7 @@ export const TransactionsTabContent: React.FC<TransactionsTabContentProps> = ({
           : isYield
           ? (isBn ? 'দৈনিক ইনভেস্টমেন্ট আয়' : 'Daily Yield Reward')
           : (isBn ? 'ওয়ালেট রিচার্জ' : 'Wallet Recharge')),
-      desc: tx.desc || tx.description || `TrxID: ${tx.id || tx.hash || 'Verified'}`,
+      desc: displayDesc,
       amount:
         typeof tx.amount === 'number'
           ? tx.amount > 0

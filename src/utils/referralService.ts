@@ -4,7 +4,7 @@
  * Rules:
  * 1. Each user gets a unique invitation code (e.g. 6-digit alphanumeric based on memberId or custom generated).
  * 2. 3-Tier hierarchy:
- *    - Tier 1 (Level 1): Direct invitees (user signed up with your code). Commission: 7%
+ *    - Tier 1 (Level 1): Direct invitees (user signed up with your code). Commission: 6%
  *    - Tier 2 (Level 2): Invitees of your Tier 1 invitees. Commission: 3%
  *    - Tier 3 (Level 3): Invitees of your Tier 2 invitees. Commission: 1%
  * 3. Whenever someone in your 3-level tree deposits/recharges/invests, the commission is calculated and credited to the uplines.
@@ -504,13 +504,11 @@ export function getReferralTreeForUser(
 
   const isAccountActive = (acc: any): boolean => {
     if (!acc) return false;
-    // Strict business rule: A member is ONLY active if they have recharged or made a paid investment.
-    // Signup welcome bonus, initial wallet balance, or registration status alone NEVER makes them active.
+    // যারা প্যাকেজ কিনবে তারা একটিভ মেম্বার (প্যাকেজ ক্রয়কারী সদস্যরাই কেবল একটিভ)
+    if (acc.hasPurchasedPackage === true || acc.isVipActive === true) return true;
     const invest = Number(
       acc.investAmount ||
       acc.totalInvested ||
-      acc.totalRecharge ||
-      acc.totalDeposit ||
       0
     );
     const hasPaidInv =
@@ -538,8 +536,6 @@ export function getReferralTreeForUser(
         const invest = Number(
           acc.investAmount ||
           acc.totalInvested ||
-          acc.totalRecharge ||
-          acc.totalDeposit ||
           0
         );
         const comm = Number((invest * TIER_COMMISSION_RATES[1]).toFixed(2));
@@ -588,8 +584,6 @@ export function getReferralTreeForUser(
         const invest = Number(
           acc.investAmount ||
           acc.totalInvested ||
-          acc.totalRecharge ||
-          acc.totalDeposit ||
           0
         );
         const comm = Number((invest * TIER_COMMISSION_RATES[2]).toFixed(2));
@@ -636,8 +630,6 @@ export function getReferralTreeForUser(
         const invest = Number(
           acc.investAmount ||
           acc.totalInvested ||
-          acc.totalRecharge ||
-          acc.totalDeposit ||
           0
         );
         const comm = Number((invest * TIER_COMMISSION_RATES[3]).toFixed(2));
@@ -793,7 +785,7 @@ export function getReferralTreeForUser(
 
 /**
  * When any user deposits or activates an investment package, distribute 3-tier commissions to their uplines!
- * - Level 1 direct upline gets 7%
+ * - Level 1 direct upline gets 6%
  * - Level 2 grandparent upline gets 3%
  * - Level 3 great-grandparent upline gets 1%
  */
@@ -885,7 +877,7 @@ export async function distributeReferralDepositCommissionsCloud(
     console.log(`[ReferralService Cloud] Distributing 3-level commissions for deposit ৳${depositAmount} by ${cleanDepositCode}`);
 
     // 4. Traverse up to 3 levels:
-    // Level 1: 7%
+    // Level 1: 6%
     // Level 2: 3%
     // Level 3: 1%
     let currentChildCode = userAcc.referralCode || userAcc.userCode || cleanDepositCode;

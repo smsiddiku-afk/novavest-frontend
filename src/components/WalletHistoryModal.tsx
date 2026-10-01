@@ -180,7 +180,8 @@ export const WalletHistoryModal: React.FC<WalletHistoryModalProps> = ({
 
               const rawStatus = String(tx.status || '').toLowerCase();
               const isPending = rawStatus === 'pending' || rawStatus === 'অপেক্ষমাণ' || rawStatus === 'processing';
-              const isCancelled = rawStatus === 'cancelled' || rawStatus === 'rejected' || rawStatus === 'failed';
+              const isCancelled = rawStatus === 'cancelled' || rawStatus === 'rejected' || rawStatus === 'failed' || rawStatus === 'বাতিল';
+              const isApproved = rawStatus === 'approved' || rawStatus === 'এপ্রুভ' || rawStatus === 'অনুমোদিত' || (!isPending && !isCancelled);
 
               const txId = tx.id || tx.hash || `TRX-${idx}`;
 
@@ -224,13 +225,19 @@ export const WalletHistoryModal: React.FC<WalletHistoryModalProps> = ({
                         <span
                           className={`text-[9px] font-bold px-1.5 py-0.5 rounded-sm ${
                             isPending
-                              ? 'bg-amber-500/20 text-amber-400'
+                              ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
                               : isCancelled
-                              ? 'bg-rose-500/20 text-rose-400'
-                              : 'bg-emerald-500/20 text-emerald-400'
+                              ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                              : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
                           }`}
                         >
-                          {isPending ? (isBn ? 'অপেক্ষমাণ' : 'Pending') : isCancelled ? (isBn ? 'বাতিল' : 'Cancelled') : (isBn ? 'সফল' : 'Completed')}
+                          {isPending
+                            ? (isBn ? 'অপেক্ষমাণ' : 'Pending')
+                            : isCancelled
+                            ? (isBn ? 'বাতিল' : 'Cancelled')
+                            : isWithdraw
+                            ? (isBn ? 'এপ্রুভ' : 'Approved')
+                            : (isBn ? 'সফল' : 'Completed')}
                         </span>
                       </div>
 

@@ -893,7 +893,7 @@ export const getFaqItems = (lang: Language): FaqItem[] => {
       {
         id: 'faq-3',
         question: 'How does the daily login bonus and referral program work?',
-        answer: 'Every member can claim a free ৳50 bonus daily just by opening the app and tapping "Claim Bonus". Additionally, you earn multi-tier commissions (10% Tier 1, 3% Tier 2, 1% Tier 3) on investments made by friends you invite.',
+        answer: 'Every member can claim a free ৳50 bonus daily just by opening the app and tapping "Claim Bonus". Additionally, you earn multi-tier commissions (6% Tier 1, 3% Tier 2, 1% Tier 3) on investments made by friends you invite.',
         category: 'finance',
       },
       {
@@ -921,7 +921,7 @@ export const getFaqItems = (lang: Language): FaqItem[] => {
     {
       id: 'faq-3',
       question: 'দৈনিক ফ্রি বোনাস ও রেফারেল ইনকাম কীভাবে পাব?',
-      answer: 'প্রতিদিন একবার অ্যাপে প্রবেশ করে ‘৳৫০ গ্রহণ করুন’ বাটনে ট্যাপ করলেই ফ্রি হাজিরা বোনাস পেয়ে যাবেন। এছাড়া আপনার ইনভাইট লিংকের মাধ্যমে বন্ধুদের যুক্ত করলে তাদের বিনিয়োগের ওপর ৩ স্তর পর্যন্ত (১০%, ৩%, ১%) আকর্ষণীয় কমিশন পাবেন।',
+      answer: 'প্রতিদিন একবার অ্যাপে প্রবেশ করে ‘৳৫০ গ্রহণ করুন’ বাটনে ট্যাপ করলেই ফ্রি হাজিরা বোনাস পেয়ে যাবেন। এছাড়া আপনার ইনভাইট লিংকের মাধ্যমে বন্ধুদের যুক্ত করলে তাদের বিনিয়োগের ওপর ৩ স্তর পর্যন্ত (৬%, ৩%, ১%) আকর্ষণীয় কমিশন পাবেন।',
       category: 'finance',
     },
     {

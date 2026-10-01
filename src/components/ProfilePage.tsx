@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { scrollAppToTop } from '../utils/scrollHelper';
 import {
   ArrowLeft,
@@ -57,6 +57,7 @@ import {
   Coins,
   ChevronDown,
   MessageSquare,
+  Share2,
 } from 'lucide-react';
 import { openCrispChat } from '../utils/crispService';
 import { downloadNvtApk } from '../utils/appDownloader';
@@ -96,6 +97,7 @@ import {
   getFirestoreUserInvestments,
   updateFirestoreWalletBalance,
   updateFirestoreUserProfile,
+  getFirestoreUserProfile,
   auth,
 } from '../lib/firebase';
 import { ManualDepositDetails, PaymentChannelType } from './CleanWalletScreen';
@@ -226,6 +228,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       totalEarnings: realTotalEarnings,
       activeUnits: activeUnits,
       dailyRewards: realDailyRewards,
+      canRefer: Boolean(initialUser?.canRefer),
+      referralLimit: typeof initialUser?.referralLimit === 'number' ? initialUser.referralLimit : 0,
       activeInvestments: initialUser?.activeInvestments || savedInvestments,
       transactions: (initialUser?.transactions && initialUser.transactions.length > 0)
         ? initialUser.transactions
@@ -239,7 +243,6 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       const next = updater(prev);
       if (!isSameUser(prev, next)) {
         persistAuthUser(next);
-        onUpdateUser?.(next);
       }
       try {
         const activeId = next.uid || next.memberId;
@@ -252,6 +255,15 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       return next;
     });
   };
+
+  // Safely inform parent component (App) after render completes to avoid React's "Cannot update a component while rendering a different component" error
+  const lastNotifiedUserRef = useRef<UserProfile | null>(null);
+  useEffect(() => {
+    if (!lastNotifiedUserRef.current || !isSameUser(lastNotifiedUserRef.current, user)) {
+      lastNotifiedUserRef.current = user;
+      onUpdateUser?.(user);
+    }
+  }, [user, onUpdateUser]);
 
   // Keep user profile state in sync with initialUser prop only when actually changed,
   // scheduled on animation frame / microtask to prevent concurrent render-phase collision
@@ -275,6 +287,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
         const newActiveUnits = initialUser.activeUnits ?? prev.activeUnits;
         const newDailyRewards = initialUser.dailyRewards ?? prev.dailyRewards;
         const newInvestments = initialUser.activeInvestments ?? prev.activeInvestments;
+        const newCanRefer = initialUser.canRefer ?? prev.canRefer;
+        const newReferralLimit = initialUser.referralLimit ?? prev.referralLimit;
 
         if (
           prev.name === newName &&
@@ -288,6 +302,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           prev.totalEarnings === newTotalEarnings &&
           prev.activeUnits === newActiveUnits &&
           prev.dailyRewards === newDailyRewards &&
+          Boolean(prev.canRefer) === Boolean(newCanRefer) &&
+          (prev.referralLimit || 0) === (newReferralLimit || 0) &&
           prev.activeInvestments?.length === newInvestments?.length &&
           prev.transactions?.length === newTransactions?.length
         ) {
@@ -307,6 +323,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           totalEarnings: newTotalEarnings,
           activeUnits: newActiveUnits,
           dailyRewards: newDailyRewards,
+          canRefer: Boolean(newCanRefer),
+          referralLimit: newReferralLimit,
           activeInvestments: newInvestments,
           transactions: newTransactions,
         };
@@ -329,6 +347,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     initialUser?.totalEarnings,
     initialUser?.activeUnits,
     initialUser?.dailyRewards,
+    initialUser?.canRefer,
+    initialUser?.referralLimit,
     initialUser?.activeInvestments?.length,
     initialUser?.transactions?.length,
   ]);
@@ -513,25 +533,46 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
   // Directly switch tab and notify parent on user interaction
   const switchTab = (tab: 'home' | 'invest' | 'positions' | 'transactions' | 'wallet' | 'referral' | 'profile') => {
-    if (tab === 'referral') {
-      if (!user.canRefer) {
-        setReferralBlockReason('no_permission');
-        setIsManagerReferralModalOpen(true);
-        return;
-      }
-      const directCount = referralTree?.level1Count || 0;
-      if (user.referralLimit !== undefined && Number(user.referralLimit) > 0 && directCount >= Number(user.referralLimit)) {
-        setReferralBlockReason('limit_reached');
-        setIsManagerReferralModalOpen(true);
-        return;
-      }
-    }
     setLocalTab(tab);
     scrollAppToTop();
     if (onTabChange) {
       onTabChange(tab);
     }
+
+    if (tab === 'referral') {
+      // Check Firestore in real time to ensure latest approval status from admin
+      const activeUid = user.uid || auth.currentUser?.uid || user.memberId;
+      if (activeUid) {
+        getFirestoreUserProfile(activeUid).then((latestProfile) => {
+          if (latestProfile && (Boolean(latestProfile.canRefer) !== Boolean(user.canRefer) || latestProfile.referralLimit !== user.referralLimit)) {
+            updateUser((prev) => ({
+              ...prev,
+              canRefer: Boolean(latestProfile.canRefer),
+              referralLimit: latestProfile.referralLimit ?? prev.referralLimit ?? 5,
+            }));
+          }
+        }).catch(() => {});
+      }
+    }
   };
+
+  // Real-time synchronization whenever referral tab is active so approval opens immediately
+  useEffect(() => {
+    if (currentTab === 'referral') {
+      const activeUid = user.uid || auth.currentUser?.uid || user.memberId;
+      if (activeUid) {
+        getFirestoreUserProfile(activeUid).then((latestProfile) => {
+          if (latestProfile && (Boolean(latestProfile.canRefer) !== Boolean(user.canRefer) || latestProfile.referralLimit !== user.referralLimit)) {
+            updateUser((prev) => ({
+              ...prev,
+              canRefer: Boolean(latestProfile.canRefer),
+              referralLimit: latestProfile.referralLimit ?? prev.referralLimit ?? 5,
+            }));
+          }
+        }).catch(() => {});
+      }
+    }
+  }, [currentTab, user.uid, user.memberId, user.canRefer, user.referralLimit]);
 
   // Auto-scroll window to top whenever currentTab changes (ensures user always lands at the top of Profile, Promo Bonus, etc.)
   useEffect(() => {
@@ -1314,7 +1355,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
   // Real-time Firestore user transactions subscription
   useEffect(() => {
-    const activeUid = auth.currentUser?.uid || user.memberId;
+    const activeUid = user.uid || auth.currentUser?.uid || user.memberId;
     if (!activeUid) return;
 
     // Immediate one-time load on mount
@@ -1393,8 +1434,21 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           const earningsChanged =
             typeof updatedProfile.totalEarnings === 'number' &&
             updatedProfile.totalEarnings !== prev.totalEarnings;
+          const canReferChanged =
+            typeof updatedProfile.canRefer === 'boolean' &&
+            updatedProfile.canRefer !== prev.canRefer;
+          const referralLimitChanged =
+            typeof updatedProfile.referralLimit === 'number' &&
+            updatedProfile.referralLimit !== prev.referralLimit;
 
-          if (!balanceChanged && !depositsChanged && !vipChanged && !earningsChanged) {
+          if (
+            !balanceChanged &&
+            !depositsChanged &&
+            !vipChanged &&
+            !earningsChanged &&
+            !canReferChanged &&
+            !referralLimitChanged
+          ) {
             return prev;
           }
 
@@ -1405,10 +1459,23 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             vipLevel: vipChanged ? updatedProfile.vipLevel : prev.vipLevel,
             totalEarnings: earningsChanged ? updatedProfile.totalEarnings : prev.totalEarnings,
             hasDeposited: (updatedProfile.totalDeposited || 0) > 0 || prev.hasDeposited,
+            canRefer: canReferChanged ? updatedProfile.canRefer : prev.canRefer,
+            referralLimit: referralLimitChanged ? updatedProfile.referralLimit : prev.referralLimit,
           };
         });
       }
     });
+
+    const handleAuthStateChanged = (e: any) => {
+      if (e.detail) {
+        updateUser((prev) => ({
+          ...prev,
+          canRefer: e.detail.canRefer !== undefined ? Boolean(e.detail.canRefer) : prev.canRefer,
+          referralLimit: typeof e.detail.referralLimit === 'number' ? e.detail.referralLimit : prev.referralLimit,
+        }));
+      }
+    };
+    window.addEventListener('nvt-auth-state-changed', handleAuthStateChanged);
 
     return () => {
       if (typeof unsubscribe === 'function') {
@@ -1417,6 +1484,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       if (typeof unsubProfile === 'function') {
         unsubProfile();
       }
+      window.removeEventListener('nvt-auth-state-changed', handleAuthStateChanged);
     };
   }, [auth.currentUser?.uid, user.uid, user.memberId]);
 
@@ -1691,7 +1759,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       ).catch(() => {});
     }
 
-    // ৩ লেভেল রেফারেল কমিশন (L1: ৭%, L2: ৩%, L3: ১%) প্যাকেজ ক্রয়ের মূল্যের অনুপাতে আপলাইনে স্বয়ংক্রিয়ভাবে প্রদান
+    // ৩ লেভেল রেফারেল কমিশন (L1: ৬%, L2: ৩%, L3: ১%) প্যাকেজ ক্রয়ের মূল্যের অনুপাতে আপলাইনে স্বয়ংক্রিয়ভাবে প্রদান
     try {
       const purchaserCode = user.referralCode || user.memberId || user.phone || '';
       distributeReferralDepositCommissions(
@@ -1924,7 +1992,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               {currentLang === 'bn' ? 'ব্যালেন্স:' : 'Balance:'}
             </span>
             <span className="text-xs font-mono font-bold text-emerald-500">
-              ৳{user.walletBalance.toLocaleString()}
+              ৳{Math.max(0, user.walletBalance || 0).toLocaleString()}
             </span>
           </div>
 
@@ -2156,6 +2224,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             }}
             onOpenHistory={() => setIsWalletHistoryModalOpen(true)}
             onBack={() => switchTab('home')}
+            onNavigateToReferral={() => switchTab('referral')}
             onClaimPromoReward={(amt, lvl) => {
               const tierNum = parseInt(String(lvl || '').replace(/[^0-9]/g, '')) || 0;
               updateUser((prev) => ({
@@ -2238,6 +2307,37 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               currentLang={currentLang}
               onBack={() => switchTab('home')}
               onContactManager={() => openCrispChat()}
+              onCheckPermission={() => {
+                const activeUid = user.uid || auth.currentUser?.uid || user.memberId;
+                if (activeUid) {
+                  getFirestoreUserProfile(activeUid).then((latestProfile) => {
+                    if (latestProfile && latestProfile.canRefer) {
+                      updateUser((prev) => ({
+                        ...prev,
+                        canRefer: true,
+                        referralLimit: latestProfile.referralLimit ?? prev.referralLimit ?? 5,
+                      }));
+                      showToast(
+                        currentLang === 'bn'
+                          ? '✅ রেফারেল পারমিশন সক্রিয় হয়েছে!'
+                          : '✅ Referral permission activated!'
+                      );
+                    } else {
+                      showToast(
+                        currentLang === 'bn'
+                          ? '⏳ এখনো ম্যানেজারের অনুমোদন পেন্ডিং রয়েছে।'
+                          : '⏳ Manager authorization is still pending.'
+                      );
+                    }
+                  }).catch(() => {
+                    showToast(
+                      currentLang === 'bn'
+                        ? 'অনুমোদন যাচাই করতে সমস্যা হয়েছে।'
+                        : 'Failed to verify permission.'
+                    );
+                  });
+                }
+              }}
             />
           ) : (
             <ReferralPage
@@ -2250,6 +2350,48 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               referralLimit={user.referralLimit || 0}
               onContactManager={() => openCrispChat()}
               onBack={() => switchTab('home')}
+              onClaimPromoReward={(amt, lvl) => {
+                const tierNum = parseInt(String(lvl || '').replace(/[^0-9]/g, '')) || 0;
+                updateUser((prev) => ({
+                  ...prev,
+                  walletBalance: prev.walletBalance + amt,
+                  vipLevel: Math.max(prev.vipLevel || 0, tierNum),
+                  transactions: [
+                    {
+                      id: `PROMO-${Date.now().toString().slice(-6)}`,
+                      type: 'reward',
+                      amount: amt,
+                      timestamp:
+                        new Date().toLocaleDateString('en-GB') +
+                        ' ' +
+                        new Date().toLocaleTimeString('en-US', {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        }),
+                      status: 'completed',
+                      description:
+                        currentLang === 'bn'
+                          ? `${lvl} প্রমো বোনাস ক্যাশ রিওয়ার্ড (VIP ${tierNum})`
+                          : `${lvl} Promo Bonus Cash Reward (VIP ${tierNum})`,
+                    },
+                    ...(prev.transactions || []),
+                  ],
+                }));
+
+                const persistentUid = user.uid || user.memberId;
+                if (persistentUid) {
+                  updateFirestoreWalletBalance(persistentUid, user.walletBalance + amt).catch(() => {});
+                  if (tierNum > 0) {
+                    updateFirestoreUserProfile(persistentUid, { vipLevel: Math.max(user.vipLevel || 0, tierNum) }).catch(() => {});
+                  }
+                }
+
+                showToast(
+                  currentLang === 'bn'
+                    ? `${lvl} থেকে ৳${amt.toLocaleString()} প্রমো বোনাস ওয়ালেটে জমা হয়েছে!`
+                    : `${lvl} promo bonus ৳${amt.toLocaleString()} added to wallet!`
+                );
+              }}
             onClaimReward={(amt) => {
               if (amt < 200) {
                 showToast(
@@ -2574,7 +2716,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                     <span className={`text-2xl sm:text-[26px] font-bold tracking-tight font-mono ${
                       themeMode === 'day' ? 'text-slate-900' : 'text-white'
                     }`}>
-                      ৳{(user.walletBalance || 0).toFixed(2)}
+                      ৳{Math.max(0, user.walletBalance || 0).toFixed(2)}
                     </span>
                   </div>
                 </div>
@@ -3110,7 +3252,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               </div>
               <div>
                 <p className="text-3xl sm:text-4xl font-extrabold text-white font-mono tracking-tight">
-                  ৳{(user.walletBalance || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                  ৳{Math.max(0, user.walletBalance || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                 </p>
                 <p className="text-xs text-slate-300 mt-1">
                   {currentLang === 'bn' ? 'দৈনিক মুনাফা ও উত্তোলনযোগ্য তহবিল' : 'Daily profits and withdrawable funds'}
@@ -3241,7 +3383,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           userName={user.fullName || user.name}
           onClose={() => setActiveSubModal(null)}
           onWithdrawSuccess={(amt, details) => {
-            const activeUid = auth.currentUser?.uid || user.memberId || 'USER1001';
+            const activeUid = user.uid || auth.currentUser?.uid || user.memberId || 'USER1001';
             // Sync withdrawal to Firestore database & admin panel
             recordFirestoreWithdrawal({
               uid: activeUid,

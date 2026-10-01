@@ -1,19 +1,30 @@
-import React from 'react';
-import { ChevronLeft, Lock, Headphones, ArrowRight, ShieldCheck, Sparkles } from 'lucide-react';
+import React, { useState } from 'react';
+import { ChevronLeft, Lock, Headphones, ArrowRight, ShieldCheck, Sparkles, RefreshCw } from 'lucide-react';
 import { Language } from '../types';
 
 interface ManagerPermissionLockedScreenProps {
   currentLang?: Language;
   onBack: () => void;
   onContactManager: () => void;
+  onCheckPermission?: () => void;
 }
 
 export const ManagerPermissionLockedScreen: React.FC<ManagerPermissionLockedScreenProps> = ({
   currentLang = 'bn',
   onBack,
   onContactManager,
+  onCheckPermission,
 }) => {
   const isBn = currentLang === 'bn';
+  const [checking, setChecking] = useState(false);
+
+  const handleRefresh = () => {
+    if (onCheckPermission) {
+      setChecking(true);
+      onCheckPermission();
+      setTimeout(() => setChecking(false), 800);
+    }
+  };
 
   return (
     <div className="w-full min-h-[80vh] flex flex-col justify-between p-4 sm:p-6 text-white select-none animate-in fade-in duration-300">
@@ -70,6 +81,20 @@ export const ManagerPermissionLockedScreen: React.FC<ManagerPermissionLockedScre
         </p>
 
         <div className="w-full pt-4 space-y-3">
+          {onCheckPermission && (
+            <button
+              type="button"
+              onClick={handleRefresh}
+              disabled={checking}
+              className="w-full py-3 px-5 rounded-2xl font-bold text-sm bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 shadow-sm flex items-center justify-center gap-2 active:scale-[0.98] transition-all cursor-pointer"
+            >
+              <RefreshCw className={`w-4 h-4 ${checking ? 'animate-spin' : ''}`} />
+              <span>
+                {isBn ? 'অনুমোদন রিফ্রেশ করুন' : 'Refresh Permission Status'}
+              </span>
+            </button>
+          )}
+
           <button
             type="button"
             onClick={onContactManager}

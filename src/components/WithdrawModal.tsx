@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { Language } from '../types';
 import { AddWalletPaymentModal, WalletItem } from './AddWalletPaymentModal';
+import { verifyTOTP, getUserAuthenticatorSecret } from '../utils/totpService';
 
 interface WithdrawModalProps {
   currentLang?: Language;
@@ -28,6 +29,7 @@ interface WithdrawModalProps {
   onOpenRecharge?: () => void;
   showToast?: (message: string) => void;
   isAuthenticatorSet?: boolean;
+  authenticatorSecret?: string;
 }
 
 export interface WithdrawalReceiptData {
@@ -56,6 +58,7 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
   onOpenRecharge,
   showToast,
   isAuthenticatorSet: isAuthenticatorSetProp,
+  authenticatorSecret,
 }) => {
   const isBn = currentLang === 'bn';
 
@@ -231,6 +234,30 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
       return;
     }
 
+    // REAL RFC 6238 TOTP VERIFICATION
+    let userSecret = authenticatorSecret;
+    if (!userSecret) {
+      try {
+        const uStr = localStorage.getItem('nvt_auth_user') || localStorage.getItem('auth_user');
+        if (uStr) {
+          const u = JSON.parse(uStr);
+          const id = u.uid || u.memberId || u.phone;
+          userSecret = u.authenticatorSecret || (id ? localStorage.getItem(`nvt_google_auth_secret_${id}`) : null);
+        }
+      } catch {}
+    }
+    userSecret = getUserAuthenticatorSecret(undefined, userSecret);
+
+    const isCodeValid = verifyTOTP(cleanCode, userSecret, 1);
+    if (!isCodeValid) {
+      setErrorMsg(
+        isBn
+          ? 'ভুল গুগল অথেন্টিকেটর কোড! ফেক কোড গ্রহণযোগ্য নয়। আপনার Google Authenticator অ্যাপের সঠিক লাইভ কোডটি দিন।'
+          : 'Invalid Google Authenticator code! Fake code is not accepted. Please enter the real live 6-digit code from your Google Authenticator app.'
+      );
+      return;
+    }
+
     setIsSubmitting(true);
 
     setTimeout(() => {
@@ -257,7 +284,7 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
         dateStr,
         timeStr,
         status: 'Processing',
-        authCode: cleanCode || (isAuthSet ? '123456' : 'NOT_SET'),
+        authCode: cleanCode,
       };
 
       setReceiptData(newReceipt);

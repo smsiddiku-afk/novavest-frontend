@@ -18,6 +18,7 @@ interface DepositModalProps {
   onOpenHistory?: () => void;
   onWithdraw?: (amount: number, method: PaymentMethodType, account: string) => void;
   isAuthenticatorSet?: boolean;
+  authenticatorSecret?: string;
   onOpenSecuritySettings?: () => void;
 }
 
@@ -30,6 +31,7 @@ export const DepositModal: React.FC<DepositModalProps> = ({
   onOpenHistory,
   onWithdraw,
   isAuthenticatorSet = false,
+  authenticatorSecret,
   onOpenSecuritySettings,
 }) => {
   if (!isOpen) return null;
@@ -50,6 +52,7 @@ export const DepositModal: React.FC<DepositModalProps> = ({
         }}
         onConfirmWithdraw={onWithdraw}
         isAuthenticatorSet={isAuthenticatorSet}
+        authenticatorSecret={authenticatorSecret}
         onOpenSecuritySettings={onOpenSecuritySettings}
       />
     </div>

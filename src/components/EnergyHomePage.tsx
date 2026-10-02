@@ -49,6 +49,8 @@ interface EnergyHomePageProps {
   userBalance?: number;
   userName?: string;
   currentLang?: 'en' | 'bn';
+  isAuthenticatorSet?: boolean;
+  authenticatorSecret?: string;
 }
 
 export function EnergyHomePage({
@@ -58,6 +60,8 @@ export function EnergyHomePage({
   userBalance = 0.0,
   userName = 'John Doe',
   currentLang = 'en',
+  isAuthenticatorSet,
+  authenticatorSecret,
 }: EnergyHomePageProps) {
   // Mobile Nav State
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -1532,6 +1536,8 @@ export function EnergyHomePage({
           userName={userName}
           onClose={() => setActiveModal(null)}
           onOpenRecharge={onOpenRecharge}
+          isAuthenticatorSet={isAuthenticatorSet}
+          authenticatorSecret={authenticatorSecret}
           onWithdrawSuccess={(amt) => {
             showToast(
               currentLang === 'bn'

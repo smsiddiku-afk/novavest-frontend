@@ -98,9 +98,18 @@ import {
   updateFirestoreWalletBalance,
   updateFirestoreUserProfile,
   getFirestoreUserProfile,
+  transferReferralRewardsInFirestore,
   auth,
 } from '../lib/firebase';
 import { ManualDepositDetails, PaymentChannelType } from './CleanWalletScreen';
+import {
+  cleanBase32Key,
+  formatBase32Key,
+  verifyTOTP,
+  getOtpAuthUrl,
+  getQrCodeUrl,
+  getUserAuthenticatorSecret,
+} from '../utils/totpService';
 
 interface ProfilePageProps {
   initialUser?: Partial<UserProfile>;
@@ -189,13 +198,9 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
     // Determine initial real VIP level and active units
     const activeUnits = initialUser?.activeUnits ?? savedInvestments.length;
-    let maxVip = 0;
-    if (savedInvestments.length > 0) {
-      maxVip = Math.max(...savedInvestments.map((inv) => inv.vipLevel || 0), 0);
-    }
-    // VIP is strictly VIP 0 until VIP 1 is unlocked
-    const hasVip1OrHigher = (initialUser?.vipLevel !== undefined && initialUser.vipLevel >= 1) || maxVip >= 1;
-    const realVip = hasVip1OrHigher ? (initialUser?.vipLevel !== undefined && initialUser.vipLevel >= 1 ? initialUser.vipLevel : maxVip) : 0;
+    // VIP level is strictly determined by referral conditions (3 active Level 1 referrals for VIP 1)
+    // Purchasing packages does NOT automatically grant VIP 1.
+    const realVip = typeof initialUser?.vipLevel === 'number' ? initialUser.vipLevel : 0;
 
     const realTotalEarnings = initialUser?.totalEarnings ?? (
       savedInvestments.reduce((acc, curr) => acc + (curr.totalEarned || 0), 0)
@@ -389,11 +394,13 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     return getReferralTreeForUser(code, user.memberId, liveAccounts);
   }, [user.referralCode, user.memberId, liveAccounts, referralRefreshTick]);
 
-  // VIP Level is determined dynamically from Promo Bonus conditions (Level 1, 2 & 3 active members):
-  // When all conditions are met in the Promo Bonus option (3 active -> VIP 1, 5 active -> VIP 2, 10 active -> VIP 3, etc.)
-  // Recharging wallet alone does NOT give VIP 1.
+  // VIP Level is determined dynamically from Promo Bonus conditions:
+  // VIP 1-4 strictly evaluate Level 1 (direct) active referrals (3 active in L1 -> VIP 1, 5 -> VIP 2, etc.)
+  // VIP 5-8 evaluate 1-3 levels active members (40 -> VIP 5, 80 -> VIP 6, etc.)
+  // Purchasing packages or recharging wallet alone does NOT give VIP 1.
+  const activeLevel1Count = referralTree.activeLevel1Count || referralTree.level1ActiveCount || 0;
   const totalActiveMembersInLevels = referralTree.totalActiveCount || 0;
-  const promoVip = computeVipLevelFromLevels(totalActiveMembersInLevels, 0);
+  const promoVip = computeVipLevelFromLevels(activeLevel1Count, totalActiveMembersInLevels, 0);
   const computedVipLevel = Math.max(promoVip, Number(user.vipLevel) || 0);
   const isVip1Unlocked = computedVipLevel >= 1;
 
@@ -603,11 +610,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               if ((prev.activeInvestments || []).length >= cloudInvestments.length) {
                 return prev;
               }
-              const maxVip = Math.max(
-                prev.vipLevel || 0,
-                1,
-                ...cloudInvestments.map((inv: any) => inv.vipLevel || 1)
-              );
+              const currentVip = prev.vipLevel || 0;
               const totalDaily = cloudInvestments.reduce(
                 (acc: number, curr: any) => acc + (curr.dailyYield || 0),
                 0
@@ -616,7 +619,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 ...prev,
                 activeInvestments: cloudInvestments,
                 activeUnits: cloudInvestments.length,
-                vipLevel: maxVip,
+                vipLevel: currentVip,
                 dailyRewards: totalDaily,
               };
             });
@@ -1440,6 +1443,9 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           const referralLimitChanged =
             typeof updatedProfile.referralLimit === 'number' &&
             updatedProfile.referralLimit !== prev.referralLimit;
+          const referralRewardsChanged =
+            typeof updatedProfile.referralRewards === 'number' &&
+            updatedProfile.referralRewards !== prev.referralRewards;
 
           if (
             !balanceChanged &&
@@ -1447,7 +1453,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             !vipChanged &&
             !earningsChanged &&
             !canReferChanged &&
-            !referralLimitChanged
+            !referralLimitChanged &&
+            !referralRewardsChanged
           ) {
             return prev;
           }
@@ -1461,6 +1468,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             hasDeposited: (updatedProfile.totalDeposited || 0) > 0 || prev.hasDeposited,
             canRefer: canReferChanged ? updatedProfile.canRefer : prev.canRefer,
             referralLimit: referralLimitChanged ? updatedProfile.referralLimit : prev.referralLimit,
+            referralRewards: referralRewardsChanged ? updatedProfile.referralRewards : prev.referralRewards,
           };
         });
       }
@@ -1477,6 +1485,56 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     };
     window.addEventListener('nvt-auth-state-changed', handleAuthStateChanged);
 
+    const handleDepositApproved = (e: any) => {
+      const data = e.detail;
+      if (data && data.amount > 0) {
+        const isTarget =
+          !data.userId ||
+          data.userId === user.uid ||
+          data.userId === user.memberId ||
+          data.userId === auth.currentUser?.uid ||
+          (user.phone && String(user.phone).slice(-10) === String(data.userId).slice(-10));
+        if (isTarget) {
+          updateUser((prev) => {
+            const updatedTxns = (prev.transactions || []).map((t: any) => {
+              if (t.id === data.depositId || t.id === data.trxId || t.hash === data.trxId) {
+                return {
+                  ...t,
+                  status: 'Approved',
+                  statusBangla: 'সফল',
+                  isCredit: true,
+                };
+              }
+              return t;
+            });
+            return {
+              ...prev,
+              walletBalance: prev.walletBalance + Number(data.amount),
+              hasDeposited: true,
+              totalDeposited: (prev.totalDeposited || 0) + Number(data.amount),
+              transactions: updatedTxns,
+            };
+          });
+          showToast(
+            currentLang === 'bn'
+              ? `🎉 ডিপোজিট অনুমোদিত হয়েছে! ৳${Number(data.amount).toLocaleString()} আপনার ওয়ালেটে যোগ হয়েছে!`
+              : `🎉 Deposit approved! ৳${Number(data.amount).toLocaleString()} credited to your wallet!`
+          );
+        }
+      }
+    };
+    window.addEventListener('nvt_deposit_approved', handleDepositApproved);
+
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'nvt_last_deposit_approval' && e.newValue) {
+        try {
+          const data = JSON.parse(e.newValue);
+          handleDepositApproved({ detail: data });
+        } catch (_) {}
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+
     return () => {
       if (typeof unsubscribe === 'function') {
         unsubscribe();
@@ -1485,6 +1543,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
         unsubProfile();
       }
       window.removeEventListener('nvt-auth-state-changed', handleAuthStateChanged);
+      window.removeEventListener('nvt_deposit_approved', handleDepositApproved);
+      window.removeEventListener('storage', handleStorageChange);
     };
   }, [auth.currentUser?.uid, user.uid, user.memberId]);
 
@@ -1559,9 +1619,20 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     }
     return false;
   });
-  const [authSecretKey] = useState('NB2W 45DF OIZX E33N');
+  const [authSecretKey, setAuthSecretKey] = useState<string>(() => {
+    const activeId = user.uid || user.memberId || user.phone || '';
+    const secret = getUserAuthenticatorSecret(activeId, user.authenticatorSecret);
+    return formatBase32Key(secret);
+  });
   const [authInputCode, setAuthInputCode] = useState('');
   const [isAuthKeyCopied, setIsAuthKeyCopied] = useState(false);
+
+  // Sync state if user.authenticatorSecret changes externally
+  useEffect(() => {
+    if (user.authenticatorSecret) {
+      setAuthSecretKey(formatBase32Key(user.authenticatorSecret));
+    }
+  }, [user.authenticatorSecret]);
 
   // Sync state if user.isAuthenticatorSet changes externally
   useEffect(() => {
@@ -1570,17 +1641,40 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     }
   }, [user.isAuthenticatorSet]);
 
-  const handleSaveAuthenticator = (status: boolean) => {
-    setIsAuthenticatorSet(status);
-    updateUser((prev) => ({ ...prev, isAuthenticatorSet: status }));
+  const handleSaveAuthenticator = (status: boolean, customSecret?: string) => {
+    // একবার সেট করলে দ্বিতীয়বার যেনো ইউজার বন্ধ, রিসেট বা পরিবর্তন করতে না পারে
+    if (isAuthenticatorSet) {
+      showToast(
+        currentLang === 'bn'
+          ? 'নিরাপত্তার স্বার্থে একবার সেট করা গুগল অথেন্টিকেটর পুনরায় পরিবর্তন বা নিষ্ক্রিয় করা সম্ভব নয়।'
+          : 'Google Authenticator cannot be changed or disabled once activated.'
+      );
+      return false;
+    }
+
+    if (!status) return false;
+
+    const cleanSecret = cleanBase32Key(customSecret || authSecretKey);
+    setIsAuthenticatorSet(true);
+    updateUser((prev) => ({
+      ...prev,
+      isAuthenticatorSet: true,
+      authenticatorSecret: cleanSecret,
+    }));
     try {
       const activeId = user.uid || user.memberId || user.phone;
       if (activeId) {
-        localStorage.setItem(`nvt_google_auth_set_${activeId}`, status ? 'true' : 'false');
+        localStorage.setItem(`nvt_google_auth_set_${activeId}`, 'true');
+        localStorage.setItem(`nvt_google_auth_secret_${activeId}`, cleanSecret);
+        updateFirestoreUserProfile(activeId, {
+          isAuthenticatorSet: true,
+          authenticatorSecret: cleanSecret,
+        }).catch(() => {});
       }
     } catch {
       // ignore
     }
+    return true;
   };
 
 
@@ -1718,8 +1812,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       // ignore
     }
 
-    // Purchasing any plan upgrades the user to at least VIP 1
-    const maxVip = Math.max(user.vipLevel || 0, 1, ...updatedInvestments.map((inv: any) => inv.vipLevel || 1));
+    // Purchasing a package does NOT change VIP level. VIP 1 strictly requires 3 active Level 1 referrals.
+    const currentVip = user.vipLevel || 0;
     const totalDaily = updatedInvestments.reduce((acc: number, curr: any) => acc + (curr.dailyYield || 0), 0);
 
     const invTxn = {
@@ -1739,7 +1833,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     updateUser((prev) => ({
       ...prev,
       walletBalance: prev.walletBalance - amount,
-      vipLevel: maxVip,
+      vipLevel: currentVip,
       activeUnits: updatedInvestments.length,
       dailyRewards: totalDaily,
       activeInvestments: updatedInvestments,
@@ -1753,7 +1847,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
         persistentUid,
         newInvestment,
         user.walletBalance - amount,
-        maxVip,
+        currentVip,
         totalDaily,
         updatedInvestments
       ).catch(() => {});
@@ -1778,6 +1872,24 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
         : `Congratulations! Successfully purchased "${projectName}". View 24h countdown in Positions!`
     );
   };
+
+  // Accurate calculations for activeUnits and totalEarnings across the app
+  const calculatedActiveUnits = useMemo(() => {
+    if (Array.isArray(user.activeInvestments) && user.activeInvestments.length > 0) {
+      return user.activeInvestments.length;
+    }
+    return Number(user.activeUnits) || 0;
+  }, [user.activeInvestments, user.activeUnits]);
+
+  const calculatedTotalEarnings = useMemo(() => {
+    const invProfits = (Array.isArray(user.activeInvestments) ? user.activeInvestments : []).reduce(
+      (sum: number, curr: any) => sum + (Number(curr.totalEarned) || 0),
+      0
+    );
+    const refEarnings = Number(user.totalReferralEarnings) || 0;
+    const baseTotal = Number(user.totalEarnings) || 0;
+    return Math.max(baseTotal, invProfits + refEarnings);
+  }, [user.activeInvestments, user.totalReferralEarnings, user.totalEarnings]);
 
   // Claim 24-hour profit for a position
   const handleClaimPositionProfit = (positionId: string) => {
@@ -1812,10 +1924,14 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       isCredit: true,
     };
 
+    const newWalletBalance = user.walletBalance + yieldAmount;
+    const newTotalEarnings = (user.totalEarnings || 0) + yieldAmount;
+
     updateUser((prev) => ({
       ...prev,
-      walletBalance: prev.walletBalance + yieldAmount,
-      totalEarnings: (prev.totalEarnings || 0) + yieldAmount,
+      walletBalance: newWalletBalance,
+      totalEarnings: newTotalEarnings,
+      activeUnits: updatedInvestments.length,
       activeInvestments: updatedInvestments,
       transactions: [profitTxn, ...(prev.transactions || [])],
     }));
@@ -1824,7 +1940,12 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     if (activeId) {
       try {
         localStorage.setItem(`user_investments_${activeId}`, JSON.stringify(updatedInvestments));
-        updateFirestoreWalletBalance(activeId, user.walletBalance + yieldAmount).catch(() => {});
+        updateFirestoreUserProfile(activeId, {
+          walletBalance: newWalletBalance,
+          totalEarnings: newTotalEarnings,
+          activeInvestments: updatedInvestments,
+          activeUnits: updatedInvestments.length,
+        }).catch(() => {});
       } catch {}
     }
 
@@ -2268,24 +2389,41 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               );
             }}
             onWithdrawSubmit={(amt, method, acct) => {
+              const activeUid = user.uid || auth.currentUser?.uid || user.memberId || 'USER1001';
+              const trxId = `WTH-${Date.now().toString().slice(-6)}`;
+              const now = new Date();
+              const dateStr = now.toLocaleDateString(currentLang === 'bn' ? 'bn-BD' : 'en-US', {
+                day: '2-digit',
+                month: 'short',
+                year: 'numeric',
+              });
+              const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+              recordFirestoreWithdrawal({
+                uid: activeUid,
+                trxId,
+                amount: amt,
+                walletMethod: method,
+                accountNumber: acct,
+                accountName: user.fullName || user.name || 'User',
+                authCode: '2FA_VERIFIED',
+                status: 'Pending',
+                dateStr,
+                timeStr,
+              }).catch(() => {});
+
               updateUser((prev) => ({
                 ...prev,
                 walletBalance: Math.max(0, prev.walletBalance - amt),
                 transactions: [
                   {
-                    id: `WTH-${Date.now().toString().slice(-6)}`,
+                    id: trxId,
                     type: 'withdrawal',
                     amount: -amt,
-                    timestamp:
-                      new Date().toLocaleDateString('en-GB') +
-                      ' ' +
-                      new Date().toLocaleTimeString('en-US', {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      }),
-                    status: 'completed',
-                    description: `Payout to ${method} (${acct.slice(-4)})`,
-                    hash: `WTH-${Date.now().toString().slice(-6)}`,
+                    timestamp: `${dateStr} ${timeStr}`,
+                    status: 'pending',
+                    description: `Payout to ${method} (${acct.slice(-4)}) - অপেক্ষমাণ`,
+                    hash: trxId,
                   },
                   ...(prev.transactions || []),
                 ],
@@ -2297,6 +2435,9 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               );
             }}
             showToast={showToast}
+            isAuthenticatorSet={isAuthenticatorSet}
+            authenticatorSecret={cleanBase32Key(authSecretKey)}
+            onOpenSecuritySettings={() => setActiveSubModal('security')}
           />
         )}
 
@@ -2346,6 +2487,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               userCode={user.referralCode || user.memberId || 'NV8829'}
               userMemberId={user.memberId}
               userBalance={user.walletBalance}
+              referralRewards={user.referralRewards || 0}
               canRefer={user.canRefer}
               referralLimit={user.referralLimit || 0}
               onContactManager={() => openCrispChat()}
@@ -2401,9 +2543,11 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 );
                 return;
               }
+              const persistentUid = user.uid || user.memberId;
               updateUser((prev) => ({
                 ...prev,
                 walletBalance: prev.walletBalance + amt,
+                referralRewards: 0,
                 transactions: [
                   {
                     id: `REF-${Date.now().toString().slice(-6)}`,
@@ -2419,13 +2563,18 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                     status: 'completed',
                     description:
                       currentLang === 'bn'
-                        ? 'রেফারেল কমিশন রিওয়ার্ড স্থানান্তর'
-                        : 'Referral Commission Claim',
+                        ? 'রেফারেল কমিশন রিওয়ার্ড স্থানান্তর (৳২০০+ ট্রান্সফার)'
+                        : 'Referral Commission Transfer (৳200+)',
                     hash: `TXN-${Date.now().toString().slice(-6)}`,
+                    isCredit: true,
                   },
                   ...(prev.transactions || []),
                 ],
               }));
+
+              if (persistentUid) {
+                transferReferralRewardsInFirestore(persistentUid, amt).catch(() => {});
+              }
             }}
             showToast={showToast}
           />
@@ -2656,7 +2805,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                       {currentLang === 'bn' ? 'মোট আয়' : 'Total Earnings'}
                     </span>
                     <span className="text-xs sm:text-sm md:text-base font-black text-[#00e676] font-mono tracking-tight leading-none block">
-                      ৳{(user.totalEarnings ?? 0).toFixed(2)}
+                      ৳{calculatedTotalEarnings.toFixed(2)}
                     </span>
                   </div>
                 </div>
@@ -2671,7 +2820,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                       {currentLang === 'bn' ? 'সক্রিয় ইউনিট' : 'Active Units'}
                     </span>
                     <span className="text-xs sm:text-sm md:text-base font-black text-white font-mono tracking-tight leading-none block">
-                      {user.activeUnits ?? 0} {currentLang === 'bn' ? 'ইউনিট' : 'Units'}
+                      {calculatedActiveUnits} {currentLang === 'bn' ? 'ইউনিট' : 'Units'}
                     </span>
                   </div>
                 </div>
@@ -3329,7 +3478,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               <div className="grid grid-cols-3 gap-2">
                 <div className="p-3 rounded-2xl bg-[#042018] border border-emerald-500/20 text-center">
                   <span className="text-[10px] text-slate-300 block">{currentLang === 'bn' ? 'মোট আয়' : 'Total'}</span>
-                  <span className="text-xs sm:text-sm font-bold font-mono text-[#00e676]">৳{(user.totalEarnings || 0).toFixed(0)}</span>
+                  <span className="text-xs sm:text-sm font-bold font-mono text-[#00e676]">৳{calculatedTotalEarnings.toFixed(0)}</span>
                 </div>
                 <div className="p-3 rounded-2xl bg-[#042018] border border-emerald-500/20 text-center">
                   <span className="text-[10px] text-slate-300 block">{currentLang === 'bn' ? 'দৈনিক রিওয়ার্ড' : 'Daily'}</span>
@@ -3337,7 +3486,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 </div>
                 <div className="p-3 rounded-2xl bg-[#042018] border border-emerald-500/20 text-center">
                   <span className="text-[10px] text-slate-300 block">{currentLang === 'bn' ? 'ইউনিট' : 'Units'}</span>
-                  <span className="text-xs sm:text-sm font-bold font-mono text-white">{user.activeUnits || 0}</span>
+                  <span className="text-xs sm:text-sm font-bold font-mono text-white">{calculatedActiveUnits}</span>
                 </div>
               </div>
             </div>
@@ -3363,6 +3512,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           currentBalance={user.walletBalance}
           currentLang={currentLang}
           isAuthenticatorSet={isAuthenticatorSet}
+          authenticatorSecret={cleanBase32Key(authSecretKey)}
           onOpenSecuritySettings={() => {
             setActiveSubModal('security');
           }}
@@ -3419,6 +3569,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           onOpenRecharge={() => setActiveSubModal('recharge')}
           showToast={showToast}
           isAuthenticatorSet={isAuthenticatorSet}
+          authenticatorSecret={cleanBase32Key(authSecretKey)}
         />
       )}
 
@@ -3792,7 +3943,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               }`}
             >
               {isAuthenticatorSet
-                ? (currentLang === 'bn' ? 'একটিভ' : 'Active')
+                ? (currentLang === 'bn' ? 'লক করা (Active)' : 'Active (Locked)')
                 : 'not set'}
             </span>
           </header>
@@ -3810,38 +3961,42 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                       ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/35'
                       : 'bg-amber-500/20 text-amber-300 border-amber-500/35'
                   }`}>
-                    {isAuthenticatorSet ? (currentLang === 'bn' ? 'একটিভ' : 'Active') : 'not set'}
+                    {isAuthenticatorSet ? (currentLang === 'bn' ? 'স্থায়ী সক্রিয় (Active & Locked)' : 'Active (Locked)') : 'not set'}
                   </span>
                 </div>
                 <span className="text-xs text-slate-300 block">
                   {isAuthenticatorSet
                     ? (currentLang === 'bn'
-                        ? 'গুগল অথেন্টিকেটর একটিভ রয়েছে এবং অ্যাকাউন্ট সুরক্ষিত।'
-                        : 'Google Authenticator is Active & account is secured.')
+                        ? 'গুগল অথেন্টিকেটর সক্রিয় রয়েছে। নিরাপত্তার স্বার্থে ইউজার নিজে এটি পরিবর্তন বা নিষ্ক্রিয় করতে পারবেন না।'
+                        : 'Google Authenticator is permanently active & locked for security.')
                     : (currentLang === 'bn'
-                        ? 'গুগল অথেন্টিকেটর এখনও সেট করা হয়নি (not set)। সিক্রেট কি দিয়ে সেট করুন।'
-                        : 'Google Authenticator is not set. Setup using the key below.')}
+                        ? 'গুগল অথেন্টিকেটর এখনও সেট করা হয়নি (not set)। নিচের কি ও লাইভ কোড দিয়ে সেট করুন।'
+                        : 'Google Authenticator is not set. Setup using the key and live code below.')}
                 </span>
               </div>
               <button
                 type="button"
                 id="profile-authenticator-toggle-btn"
+                disabled={isAuthenticatorSet}
                 onClick={() => {
-                  const nextState = !isAuthenticatorSet;
-                  handleSaveAuthenticator(nextState);
+                  if (isAuthenticatorSet) {
+                    showToast(
+                      currentLang === 'bn'
+                        ? 'নিরাপত্তার স্বার্থে একবার সেট করা গুগল অথেন্টিকেটর বন্ধ বা পরিবর্তন করা সম্ভব নয়।'
+                        : 'Google Authenticator is permanently locked and cannot be disabled.'
+                    );
+                    return;
+                  }
                   showToast(
-                    nextState
-                      ? currentLang === 'bn'
-                        ? 'গুগল অথেন্টিকেটর সক্রিয় হয়েছে (একটিভ)!'
-                        : 'Google Authenticator Activated!'
-                      : currentLang === 'bn'
-                      ? 'গুগল অথেন্টিকেটর নিষ্ক্রিয় করা হয়েছে (not set)'
-                      : 'Google Authenticator disabled (not set)'
+                    currentLang === 'bn'
+                      ? 'গুগল অথেন্টিকেটর সক্রিয় করতে নিচের লাইভ কোড যাচাই সম্পন্ন করুন।'
+                      : 'Please verify the 6-digit live code below to activate.'
                   );
                 }}
-                className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
-                  isAuthenticatorSet ? 'bg-emerald-500' : 'bg-slate-700'
+                className={`relative inline-flex h-7 w-12 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
+                  isAuthenticatorSet ? 'bg-emerald-500 cursor-not-allowed opacity-90' : 'bg-slate-700 cursor-pointer'
                 }`}
+                title={isAuthenticatorSet ? (currentLang === 'bn' ? 'স্থায়ীভাবে সক্রিয় ও লক করা' : 'Active & Locked') : undefined}
               >
                 <span
                   className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
@@ -3851,161 +4006,221 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               </button>
             </div>
 
-            {/* QR Code Matrix & Manual Key */}
-            <div className="rounded-3xl bg-[#062c22] border border-emerald-500/30 p-6 shadow-xl space-y-5">
-              <div className="text-center space-y-1">
-                <h3 className="text-sm font-bold text-white">
-                  {currentLang === 'bn'
-                    ? 'QR কোড স্ক্যান করুন অথবা সিক্রেট কি ব্যবহার করুন'
-                    : 'Scan QR Code or Use Secret Key'}
-                </h3>
-                <p className="text-xs text-slate-300">
-                  {currentLang === 'bn'
-                    ? 'আপনার মোবাইল অ্যাপে স্ক্যান করে ৬-সংখ্যার কোডটি সেটআপ সম্পন্ন করুন।'
-                    : 'Scan with Google Authenticator or enter the manual key below.'}
-                </p>
-              </div>
-
-              {/* Realistic SVG QR Matrix */}
-              <div className="w-44 h-44 mx-auto bg-white rounded-2xl p-3 flex items-center justify-center shadow-lg">
-                <svg viewBox="0 0 100 100" className="w-full h-full text-slate-900" fill="currentColor">
-                  {/* Top-Left Finder */}
-                  <rect x="5" y="5" width="28" height="28" fill="#062c22" rx="3" />
-                  <rect x="10" y="10" width="18" height="18" fill="white" rx="2" />
-                  <rect x="14" y="14" width="10" height="10" fill="#062c22" rx="1.5" />
-                  {/* Top-Right Finder */}
-                  <rect x="67" y="5" width="28" height="28" fill="#062c22" rx="3" />
-                  <rect x="72" y="10" width="18" height="18" fill="white" rx="2" />
-                  <rect x="76" y="14" width="10" height="10" fill="#062c22" rx="1.5" />
-                  {/* Bottom-Left Finder */}
-                  <rect x="5" y="67" width="28" height="28" fill="#062c22" rx="3" />
-                  <rect x="10" y="72" width="18" height="18" fill="white" rx="2" />
-                  <rect x="14" y="76" width="10" height="10" fill="#062c22" rx="1.5" />
-                  {/* Matrix Patterns */}
-                  <rect x="40" y="8" width="6" height="6" fill="#062c22" />
-                  <rect x="50" y="14" width="8" height="6" fill="#062c22" />
-                  <rect x="42" y="24" width="6" height="8" fill="#062c22" />
-                  <rect x="52" y="26" width="6" height="6" fill="#062c22" />
-                  <rect x="8" y="40" width="6" height="8" fill="#062c22" />
-                  <rect x="18" y="44" width="8" height="6" fill="#062c22" />
-                  <rect x="28" y="40" width="6" height="6" fill="#062c22" />
-                  <rect x="40" y="40" width="20" height="20" fill="#062c22" rx="3" />
-                  <circle cx="50" cy="50" r="5" fill="#10b981" />
-                  <rect x="68" y="42" width="8" height="6" fill="#062c22" />
-                  <rect x="80" y="40" width="6" height="8" fill="#062c22" />
-                  <rect x="68" y="54" width="6" height="6" fill="#062c22" />
-                  <rect x="80" y="52" width="8" height="6" fill="#062c22" />
-                  <rect x="40" y="68" width="6" height="8" fill="#062c22" />
-                  <rect x="52" y="74" width="8" height="6" fill="#062c22" />
-                  <rect x="42" y="82" width="6" height="6" fill="#062c22" />
-                  <rect x="68" y="72" width="8" height="6" fill="#062c22" />
-                  <rect x="82" y="70" width="6" height="8" fill="#062c22" />
-                  <rect x="74" y="84" width="8" height="6" fill="#062c22" />
-                </svg>
-              </div>
-
-              {/* Secret Key with Copy */}
-              <div>
-                <span className="text-xs text-slate-300 block mb-1.5">
-                  {currentLang === 'bn' ? 'ম্যানুয়াল সিক্রেট কি (Secret Key):' : 'Or enter setup key manually:'}
-                </span>
-                <div className="flex items-center justify-between p-3 rounded-2xl bg-[#042018] border border-emerald-500/30">
-                  <code className="text-xs sm:text-sm font-mono text-emerald-300 tracking-wider">
-                    {authSecretKey}
-                  </code>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      navigator.clipboard?.writeText?.(authSecretKey);
-                      setIsAuthKeyCopied(true);
-                      showToast(currentLang === 'bn' ? 'কি ক্লিপবোর্ডে কপি করা হয়েছে!' : 'Setup Key copied!');
-                      setTimeout(() => setIsAuthKeyCopied(false), 2000);
-                    }}
-                    className="p-1.5 rounded-xl text-emerald-400 hover:text-white hover:bg-emerald-500/20 transition-colors flex items-center gap-1 text-xs font-semibold cursor-pointer"
-                  >
-                    {isAuthKeyCopied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
-                    <span>
-                      {isAuthKeyCopied
-                        ? currentLang === 'bn'
-                          ? 'কপি হয়েছে'
-                          : 'Copied'
-                        : currentLang === 'bn'
-                        ? 'কপি'
-                        : 'Copy'}
-                    </span>
-                  </button>
+            {isAuthenticatorSet ? (
+              /* ALREADY SET & PERMANENTLY LOCKED VIEW ("একবার সেট করলে দ্বিতীয় বের যেনো ইউজার করতে না পারে") */
+              <div className="rounded-3xl bg-[#062c22] border border-emerald-500/35 p-6 shadow-xl space-y-4">
+                <div className="w-16 h-16 rounded-2xl bg-emerald-500/20 border border-emerald-400/40 flex items-center justify-center mx-auto text-emerald-400 shadow-lg shadow-emerald-500/20">
+                  <ShieldCheck className="w-9 h-9 text-emerald-400" />
                 </div>
-              </div>
-            </div>
+                <div className="text-center space-y-1.5">
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>{currentLang === 'bn' ? 'স্থায়ীভাবে সক্রিয় ও লক করা (Active & Locked)' : 'Permanently Active & Locked'}</span>
+                  </span>
+                  <h3 className="text-base sm:text-lg font-bold text-white pt-1">
+                    {currentLang === 'bn' ? 'গুগল অথেন্টিকেটর সক্রিয় রয়েছে' : 'Google Authenticator Active'}
+                  </h3>
+                  <p className="text-xs text-slate-300 leading-relaxed max-w-md mx-auto">
+                    {currentLang === 'bn'
+                      ? 'আপনার অ্যাকাউন্টের ২-স্টেপ ভেরিফিকেশন ইতিমধ্যে সফলভাবে সক্রিয় ও লক করা রয়েছে। নিরাপত্তার স্বার্থে ইউজার নিজে এটি দ্বিতীয়বার পরিবর্তন বা রিসেট করতে পারবেন না।'
+                      : 'Your 2-Step Verification is active and locked. To safeguard your funds, users cannot alter or reset it.'}
+                  </p>
+                </div>
 
-            {/* Test Verification Input */}
-            <div className="rounded-3xl bg-[#062c22] border border-emerald-500/30 p-5 space-y-3">
-              <label className="text-xs font-semibold text-emerald-200 block">
-                {currentLang === 'bn'
-                  ? 'অথেন্টিকেটর অ্যাপের ৬-ডিজিট কোড যাচাই করুন:'
-                  : 'Enter 6-digit Code from Authenticator:'}
-              </label>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  maxLength={6}
-                  value={authInputCode}
-                  onChange={(e) => setAuthInputCode(e.target.value.replace(/\D/g, ''))}
-                  placeholder="000 000"
-                  className="flex-1 px-4 py-3 text-center font-mono tracking-[0.35em] text-base bg-[#042018] border border-emerald-500/30 rounded-2xl text-white focus:outline-none focus:border-emerald-400 placeholder:text-slate-600"
-                />
+                {/* Secret Key Display with Copy */}
+                <div className="pt-2 border-t border-emerald-500/20">
+                  <span className="text-xs text-slate-300 block mb-1.5 font-medium">
+                    {currentLang === 'bn' ? 'আপনার বর্তমান সিক্রেট কি (Secret Key):' : 'Your Configured Secret Key:'}
+                  </span>
+                  <div className="flex items-center justify-between p-3.5 rounded-2xl bg-[#042018] border border-emerald-500/30">
+                    <code className="text-xs sm:text-sm font-mono text-emerald-300 font-bold tracking-widest">
+                      {authSecretKey}
+                    </code>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard?.writeText?.(cleanBase32Key(authSecretKey));
+                        setIsAuthKeyCopied(true);
+                        showToast(currentLang === 'bn' ? 'কি ক্লিপবোর্ডে কপি করা হয়েছে!' : 'Secret Key copied!');
+                        setTimeout(() => setIsAuthKeyCopied(false), 2000);
+                      }}
+                      className="p-1.5 px-3 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 transition-colors flex items-center gap-1.5 text-xs font-bold cursor-pointer"
+                    >
+                      {isAuthKeyCopied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+                      <span>{isAuthKeyCopied ? (currentLang === 'bn' ? 'কপি হয়েছে' : 'Copied') : (currentLang === 'bn' ? 'কপি' : 'Copy')}</span>
+                    </button>
+                  </div>
+                </div>
+
                 <button
                   type="button"
-                  id="profile-auth-verify-code-btn"
-                  onClick={() => {
-                    if (authInputCode.length === 6) {
-                      handleSaveAuthenticator(true);
-                      showToast(
-                        currentLang === 'bn'
-                          ? '২এফএ কোড সফলভাবে যাচাই হয়েছে! গুগল অথেন্টিকেটর এখন একটিভ।'
-                          : '2FA Code Verified! Google Authenticator is now Active.'
-                      );
-                      setAuthInputCode('');
-                    } else {
-                      showToast(currentLang === 'bn' ? 'দয়া করে ৬-সংখ্যার কোড লিখুন' : 'Please enter 6-digit code');
-                    }
-                  }}
-                  className="px-5 py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold shrink-0 transition-colors cursor-pointer"
+                  id="profile-auth-done-back-btn"
+                  onClick={() => setActiveSubModal(null)}
+                  className="w-full mt-4 py-3.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-sm shadow-lg shadow-emerald-500/25 transition-all cursor-pointer flex items-center justify-center gap-2"
                 >
-                  {currentLang === 'bn' ? 'যাচাই ও একটিভ করুন' : 'Verify & Set'}
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>{currentLang === 'bn' ? 'ঠিক আছে (ফিরে যান)' : 'Done & Return'}</span>
                 </button>
               </div>
-            </div>
+            ) : (
+              /* FIRST-TIME SETUP VIEW */
+              <>
+                <div className="rounded-3xl bg-[#062c22] border border-emerald-500/30 p-6 shadow-xl space-y-5">
+                  <div className="text-center space-y-1">
+                    <h3 className="text-sm font-bold text-white">
+                      {currentLang === 'bn'
+                        ? 'QR কোড স্ক্যান করুন অথবা সিক্রেট কি ব্যবহার করুন'
+                        : 'Scan QR Code or Use Secret Key'}
+                    </h3>
+                    <p className="text-xs text-slate-300">
+                      {currentLang === 'bn'
+                        ? 'Google Authenticator অ্যাপ দিয়ে স্ক্যান করুন অথবা সিক্রেট কি টি কপি করে অ্যাপে যুক্ত করুন।'
+                        : 'Scan with Google Authenticator or enter the manual key below.'}
+                    </p>
+                  </div>
 
-            <button
-              type="button"
-              id="profile-auth-final-save-btn"
-              onClick={() => {
-                if (!isAuthenticatorSet) {
-                  handleSaveAuthenticator(true);
-                  showToast(
-                    currentLang === 'bn'
-                      ? 'গুগল অথেন্টিকেটর সফলভাবে সেট ও একটিভ করা হয়েছে!'
-                      : 'Google Authenticator set and activated!'
-                  );
-                } else {
-                  showToast(
-                    currentLang === 'bn'
-                      ? 'গুগল অথেন্টিকেটর বর্তমানে একটিভ রয়েছে।'
-                      : 'Google Authenticator is currently Active.'
-                  );
-                }
-                setActiveSubModal(null);
-              }}
-              className="w-full py-3.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-sm shadow-lg shadow-emerald-500/25 transition-all cursor-pointer flex items-center justify-center gap-2"
-            >
-              <ShieldCheck className="w-4 h-4" />
-              <span>
-                {isAuthenticatorSet
-                  ? (currentLang === 'bn' ? 'একটিভ রয়েছে (সংরক্ষণ সম্পন্ন)' : 'Active (Done & Back)')
-                  : (currentLang === 'bn' ? 'অথেনটিক সেট করুন ও একটিভ করুন' : 'Set & Activate Authenticator')}
-              </span>
-            </button>
+                  {/* Real QR Code using api.qrserver.com */}
+                  <div className="w-48 h-48 mx-auto bg-white rounded-2xl p-2.5 flex items-center justify-center shadow-lg border-2 border-emerald-400/40">
+                    <img
+                      src={getQrCodeUrl(getOtpAuthUrl(cleanBase32Key(authSecretKey), user.phone || user.memberId || 'NVT Energy', 'NVT Energy'))}
+                      alt="Google Authenticator QR Code"
+                      className="w-full h-full object-contain"
+                    />
+                  </div>
+
+                  {/* Secret Key with Copy */}
+                  <div>
+                    <span className="text-xs text-slate-300 block mb-1.5">
+                      {currentLang === 'bn' ? 'ম্যানুয়াল সিক্রেট কি (Secret Key):' : 'Or enter setup key manually:'}
+                    </span>
+                    <div className="flex items-center justify-between p-3 rounded-2xl bg-[#042018] border border-emerald-500/30">
+                      <code className="text-xs sm:text-sm font-mono text-emerald-300 tracking-wider font-bold">
+                        {authSecretKey}
+                      </code>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard?.writeText?.(cleanBase32Key(authSecretKey));
+                          setIsAuthKeyCopied(true);
+                          showToast(currentLang === 'bn' ? 'কি ক্লিপবোর্ডে কপি করা হয়েছে!' : 'Setup Key copied!');
+                          setTimeout(() => setIsAuthKeyCopied(false), 2000);
+                        }}
+                        className="p-1.5 px-2.5 rounded-xl text-emerald-400 hover:text-white bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 transition-colors flex items-center gap-1 text-xs font-semibold cursor-pointer"
+                      >
+                        {isAuthKeyCopied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+                        <span>
+                          {isAuthKeyCopied
+                            ? currentLang === 'bn'
+                              ? 'কপি হয়েছে'
+                              : 'Copied'
+                            : currentLang === 'bn'
+                            ? 'কপি'
+                            : 'Copy'}
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Real Verification Input */}
+                <div className="rounded-3xl bg-[#062c22] border border-emerald-500/30 p-5 space-y-3">
+                  <label className="text-xs font-semibold text-emerald-200 block">
+                    {currentLang === 'bn'
+                      ? 'অথেন্টিকেটর অ্যাপের ৬-ডিজিট লাইভ কোড যাচাই করুন:'
+                      : 'Enter 6-digit Live Code from Authenticator:'}
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={6}
+                      value={authInputCode}
+                      onChange={(e) => setAuthInputCode(e.target.value.replace(/\D/g, ''))}
+                      placeholder="000 000"
+                      className="flex-1 px-4 py-3 text-center font-mono tracking-[0.35em] text-base bg-[#042018] border border-emerald-500/30 rounded-2xl text-white focus:outline-none focus:border-emerald-400 placeholder:tracking-normal placeholder:text-slate-600"
+                    />
+                    <button
+                      type="button"
+                      id="profile-auth-verify-code-btn"
+                      onClick={() => {
+                        const cleanCode = authInputCode.trim().replace(/\D/g, '');
+                        if (cleanCode.length !== 6) {
+                          showToast(currentLang === 'bn' ? 'দয়া করে ৬-সংখ্যার কোড লিখুন' : 'Please enter 6-digit code');
+                          return;
+                        }
+                        const cleanSecret = cleanBase32Key(authSecretKey);
+                        const isValid = verifyTOTP(cleanCode, cleanSecret, 1);
+                        if (!isValid) {
+                          showToast(
+                            currentLang === 'bn'
+                              ? 'ভুল গুগল অথেন্টিকেটর কোড! ফেক কোড গ্রহণযোগ্য নয়। Google Authenticator অ্যাপের সঠিক লাইভ কোডটি দিন।'
+                              : 'Invalid Google Authenticator code! Fake code is not accepted. Please enter the real live code.'
+                          );
+                          return;
+                        }
+
+                        // Success: Save and Lock permanently!
+                        handleSaveAuthenticator(true, cleanSecret);
+                        showToast(
+                          currentLang === 'bn'
+                            ? '২এফএ কোড সফলভাবে যাচাই হয়েছে! গুগল অথেন্টিকেটর স্থায়ীভাবে একটিভ ও লক করা হয়েছে।'
+                            : '2FA Code Verified! Google Authenticator is now permanently Active & Locked.'
+                        );
+                        setAuthInputCode('');
+                      }}
+                      className="px-5 py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold shrink-0 transition-colors cursor-pointer"
+                    >
+                      {currentLang === 'bn' ? 'যাচাই ও একটিভ করুন' : 'Verify & Set'}
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-slate-300">
+                    {currentLang === 'bn'
+                      ? 'সতর্কতা: একবার সক্রিয় করলে ইউজার নিজে আর এটি পরিবর্তন বা নিষ্ক্রিয় করতে পারবেন না।'
+                      : 'Notice: Once activated, this cannot be changed or disabled by user.'}
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  id="profile-auth-final-save-btn"
+                  onClick={() => {
+                    const cleanCode = authInputCode.trim().replace(/\D/g, '');
+                    if (cleanCode.length === 6) {
+                      const cleanSecret = cleanBase32Key(authSecretKey);
+                      const isValid = verifyTOTP(cleanCode, cleanSecret, 1);
+                      if (isValid) {
+                        handleSaveAuthenticator(true, cleanSecret);
+                        showToast(
+                          currentLang === 'bn'
+                            ? '২এফএ কোড সফলভাবে যাচাই হয়েছে! গুগল অথেন্টিকেটর স্থায়ীভাবে একটিভ করা হয়েছে।'
+                            : '2FA Code Verified! Google Authenticator activated.'
+                        );
+                        setActiveSubModal(null);
+                        return;
+                      } else {
+                        showToast(
+                          currentLang === 'bn'
+                            ? 'ভুল কোড! ফেক কোড গ্রহণযোগ্য নয়। Google Authenticator অ্যাপের সঠিক লাইভ কোড দিন।'
+                            : 'Invalid code! Fake code not accepted. Please enter real live code.'
+                        );
+                        return;
+                      }
+                    }
+                    showToast(
+                      currentLang === 'bn'
+                        ? 'আগে অথেন্টিকেটর অ্যাপ থেকে সঠিক ৬-সংখ্যার কোড দিয়ে যাচাই সম্পন্ন করুন।'
+                        : 'Please enter and verify 6-digit code from Authenticator first.'
+                    );
+                  }}
+                  className="w-full py-3.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-sm shadow-lg shadow-emerald-500/25 transition-all cursor-pointer flex items-center justify-center gap-2"
+                >
+                  <ShieldCheck className="w-4 h-4" />
+                  <span>
+                    {currentLang === 'bn' ? 'যাচাই ও সক্রিয় সম্পন্ন করুন' : 'Verify & Complete Activation'}
+                  </span>
+                </button>
+              </>
+            )}
           </main>
         </div>
       )}

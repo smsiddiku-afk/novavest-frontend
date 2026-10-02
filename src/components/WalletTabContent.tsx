@@ -25,6 +25,9 @@ interface WalletTabContentProps {
   onWithdrawSubmit?: (amount: number, method: PaymentMethodType, account: string) => void;
   onClaimPromoReward?: (amount: number, level: string) => void;
   showToast?: (msg: string) => void;
+  isAuthenticatorSet?: boolean;
+  authenticatorSecret?: string;
+  onOpenSecuritySettings?: () => void;
 }
 
 export const WalletTabContent: React.FC<WalletTabContentProps> = ({
@@ -42,6 +45,9 @@ export const WalletTabContent: React.FC<WalletTabContentProps> = ({
   onWithdrawSubmit,
   onClaimPromoReward,
   showToast,
+  isAuthenticatorSet,
+  authenticatorSecret,
+  onOpenSecuritySettings,
 }) => {
   // Sub-view within Promo Bonus / Wallet tab: default is 'promo' (হোস্টিং লেভেল বিবরণী)
   const [subView, setSubView] = useState<'promo' | 'wallet'>('promo');
@@ -85,6 +91,9 @@ export const WalletTabContent: React.FC<WalletTabContentProps> = ({
           }}
           onConfirmWithdraw={onWithdrawSubmit}
           showToast={showToast}
+          isAuthenticatorSet={isAuthenticatorSet}
+          authenticatorSecret={authenticatorSecret}
+          onOpenSecuritySettings={onOpenSecuritySettings}
         />
       )}
     </div>

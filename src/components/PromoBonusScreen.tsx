@@ -45,9 +45,9 @@ const TIER_LEVELS: TierLevelItem[] = [
     tierNumber: 1,
     targetCount: 3,
     rewardBdt: 300,
-    taskBn: '৩ লেভেলে ৩ জন সক্রিয় সদস্য যুক্ত করুন (VIP 1 আনলক ও ৳৩০০ বোনাস)',
-    taskEn: 'Promote 3 active members in 3 levels (Unlock VIP 1 & ৳300 Bonus)',
-    type: 'team',
+    taskBn: 'প্রথম লেভেলে ৩ জন সক্রিয় সদস্য যুক্ত করুন (VIP 1 আনলক ও ৳৩০০ বোনাস)',
+    taskEn: 'Add 3 active members in Level 1 (Unlock VIP 1 & ৳300 Bonus)',
+    type: 'direct',
   },
   {
     id: 'v2',
@@ -55,9 +55,9 @@ const TIER_LEVELS: TierLevelItem[] = [
     tierNumber: 2,
     targetCount: 5,
     rewardBdt: 500,
-    taskBn: '৩ লেভেলে ৫ জন সক্রিয় সদস্য যুক্ত করুন (VIP 2 আনলক)',
-    taskEn: 'Promote 5 active members in 3 levels to unlock VIP 2',
-    type: 'team',
+    taskBn: 'প্রথম লেভেলে ৫ জন সক্রিয় সদস্য যুক্ত করুন (VIP 2 আনলক ও ৳৫০০ বোনাস)',
+    taskEn: 'Add 5 active members in Level 1 (Unlock VIP 2 & ৳500 Bonus)',
+    type: 'direct',
   },
   {
     id: 'v3',
@@ -65,9 +65,9 @@ const TIER_LEVELS: TierLevelItem[] = [
     tierNumber: 3,
     targetCount: 10,
     rewardBdt: 1000,
-    taskBn: '৩ লেভেলে ১০ জন সক্রিয় সদস্য যুক্ত করুন (VIP 3 আনলক)',
-    taskEn: 'Promote 10 active members in 3 levels to unlock VIP 3',
-    type: 'team',
+    taskBn: 'প্রথম লেভেলে ১০ জন সক্রিয় সদস্য যুক্ত করুন (VIP 3 আনলক ও ৳১,০০০ বোনাস)',
+    taskEn: 'Add 10 active members in Level 1 (Unlock VIP 3 & ৳1000 Bonus)',
+    type: 'direct',
   },
   {
     id: 'v4',
@@ -75,9 +75,9 @@ const TIER_LEVELS: TierLevelItem[] = [
     tierNumber: 4,
     targetCount: 20,
     rewardBdt: 2000,
-    taskBn: '৩ লেভেলে ২০ জন সক্রিয় সদস্য যুক্ত করুন (VIP 4 আনলক)',
-    taskEn: 'Promote 20 active members in 3 levels to unlock VIP 4',
-    type: 'team',
+    taskBn: 'প্রথম লেভেলে ২০ জন সক্রিয় সদস্য যুক্ত করুন (VIP 4 আনলক ও ৳২,০০০ বোনাস)',
+    taskEn: 'Add 20 active members in Level 1 (Unlock VIP 4 & ৳2000 Bonus)',
+    type: 'direct',
   },
   {
     id: 'v5',
@@ -85,8 +85,8 @@ const TIER_LEVELS: TierLevelItem[] = [
     tierNumber: 5,
     targetCount: 40,
     rewardBdt: 4000,
-    taskBn: 'লেভেল ১, ২ ও ৩ মিলিয়ে মোট ৪০ জন সক্রিয় সদস্য (VIP 5 আনলক)',
-    taskEn: 'Team levels 1, 2 & 3 total 40 active members (Unlock VIP 5)',
+    taskBn: '১-৩ লেভেলে মোট ৪০ জন সক্রিয় সদস্য যুক্ত করুন (VIP 5 আনলক ও ৳৪,০০০ বোনাস)',
+    taskEn: 'Add 40 active members across Levels 1-3 (Unlock VIP 5 & ৳4000 Bonus)',
     type: 'team',
   },
   {
@@ -95,8 +95,8 @@ const TIER_LEVELS: TierLevelItem[] = [
     tierNumber: 6,
     targetCount: 80,
     rewardBdt: 8000,
-    taskBn: 'লেভেল ১, ২ ও ৩ মিলিয়ে মোট ৮০ জন সক্রিয় সদস্য (VIP 6 আনলক)',
-    taskEn: 'Team levels 1, 2 & 3 total 80 active members (Unlock VIP 6)',
+    taskBn: '১-৩ লেভেলে মোট ৮০ জন সক্রিয় সদস্য যুক্ত করুন (VIP 6 আনলক ও ৳৮,০০০ বোনাস)',
+    taskEn: 'Add 80 active members across Levels 1-3 (Unlock VIP 6 & ৳8000 Bonus)',
     type: 'team',
   },
   {
@@ -105,8 +105,8 @@ const TIER_LEVELS: TierLevelItem[] = [
     tierNumber: 7,
     targetCount: 160,
     rewardBdt: 16000,
-    taskBn: 'লেভেল ১, ২ ও ৩ মিলিয়ে মোট ১৬০ জন সক্রিয় সদস্য (VIP 7 আনলক)',
-    taskEn: 'Team levels 1, 2 & 3 total 160 active members (Unlock VIP 7)',
+    taskBn: '১-৩ লেভেলে মোট ১৬০ জন সক্রিয় সদস্য যুক্ত করুন (VIP 7 আনলক ও ৳১৬,০০০ বোনাস)',
+    taskEn: 'Add 160 active members across Levels 1-3 (Unlock VIP 7 & ৳16000 Bonus)',
     type: 'team',
   },
   {
@@ -115,8 +115,8 @@ const TIER_LEVELS: TierLevelItem[] = [
     tierNumber: 8,
     targetCount: 320,
     rewardBdt: 32000,
-    taskBn: 'লেভেল ১, ২ ও ৩ মিলিয়ে মোট ৩২০ জন সক্রিয় সদস্য (VIP 8 আনলক)',
-    taskEn: 'Team levels 1, 2 & 3 total 320 active members (Unlock VIP 8)',
+    taskBn: '১-৩ লেভেলে মোট ৩২০ জন সক্রিয় সদস্য যুক্ত করুন (VIP 8 আনলক ও ৳৩২,০০০ বোনাস)',
+    taskEn: 'Add 320 active members across Levels 1-3 (Unlock VIP 8 & ৳32000 Bonus)',
     type: 'team',
   },
 ];
@@ -310,14 +310,20 @@ export const PromoBonusScreen: React.FC<PromoBonusScreenProps> = ({
 
     if (isCompleted) return;
 
-    // In accordance with rule: all active members across 3 levels count towards targets
-    const currentProgress = totalActiveCount;
+    // VIP 1-4: strictly evaluate Level 1 (direct) active members
+    // VIP 5-8: evaluate across 1-3 levels active members
+    const isDirectTier = tier.tierNumber <= 4 || tier.type === 'direct';
+    const currentProgress = isDirectTier ? activeLevel1Count : totalActiveCount;
     if (currentProgress < tier.targetCount) {
       if (showToast) {
         showToast(
           lang === 'en'
-            ? `Target not reached yet. Active members in 3 levels: ${currentProgress}/${tier.targetCount}`
-            : `লক্ষ্য এখনো পূরণ হয়নি। ৩ লেভেলে সক্রিয় সদস্য: ${currentProgress}/${tier.targetCount} জন`
+            ? (isDirectTier
+                ? `Target not reached yet. Active members in Level 1: ${currentProgress}/${tier.targetCount}`
+                : `Target not reached yet. Active members in 1-3 levels: ${currentProgress}/${tier.targetCount}`)
+            : (isDirectTier
+                ? `টার্গেট এখনো পূরণ হয়নি। প্রথম লেভেলে সক্রিয় সদস্য: ${currentProgress}/${tier.targetCount} জন (শর্ত: প্রথম লেভেলে ৩টি রেফার)`
+                : `টার্গেট এখনো পূরণ হয়নি। ১-৩ লেভেলে সক্রিয় সদস্য: ${currentProgress}/${tier.targetCount} জন`)
         );
       }
       return;
@@ -681,7 +687,7 @@ export const PromoBonusScreen: React.FC<PromoBonusScreenProps> = ({
                       <div>
                         <div className="flex items-center gap-2">
                           <span className="font-mono font-bold text-white text-xs sm:text-sm">
-                            {member.phone}
+                            {member.username || member.memberId || member.id}
                           </span>
                           {member.status === 'active' && (
                             <span className="px-1.5 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-[9px] font-semibold">
@@ -690,7 +696,7 @@ export const PromoBonusScreen: React.FC<PromoBonusScreenProps> = ({
                           )}
                         </div>
                         <span className="text-[10px] text-emerald-200/70 block mt-0.5">
-                          {member.date} • {lang === 'en' ? 'Invested:' : 'বিনিয়োগ:'} ৳
+                          {member.memberId ? `ID: ${member.memberId} • ` : ''}{member.date} • {lang === 'en' ? 'Invested:' : 'বিনিয়োগ:'} ৳
                           {member.investAmount.toLocaleString()}
                         </span>
                       </div>
@@ -730,8 +736,10 @@ export const PromoBonusScreen: React.FC<PromoBonusScreenProps> = ({
                 !!claimedTiers[tier.level.toLowerCase()] ||
                 !!claimedTiers[`vip${tier.tierNumber}`];
 
-              // All VIP 1 - VIP 8 tiers evaluate active members across all 3 levels (L1 + L2 + L3)
-              const currentProgress = totalActiveCount;
+              // VIP 1-4: strictly evaluate Level 1 (direct) active members
+              // VIP 5-8: evaluate across 1-3 levels active members
+              const isDirectTier = tier.tierNumber <= 4 || tier.type === 'direct';
+              const currentProgress = isDirectTier ? activeLevel1Count : totalActiveCount;
               const isReadyToClaim = currentProgress >= tier.targetCount && !isCompleted;
 
               return (
@@ -757,14 +765,18 @@ export const PromoBonusScreen: React.FC<PromoBonusScreenProps> = ({
                         {lang === 'en' ? tier.taskEn : tier.taskBn}
                       </p>
 
-                      {/* Active in 3 levels count and target */}
+                      {/* Active count and target */}
                       <div className="flex items-center gap-1.5 mt-1">
                         <span className="text-[10px] sm:text-[11px] text-emerald-300 font-semibold flex items-center gap-1">
                           <Users className="w-3 h-3 text-emerald-400" />
                           <span>
-                            {lang === 'en'
-                              ? `3-Level Active: ${currentProgress}/${tier.targetCount}`
-                              : `৩ লেভেলে সক্রিয়: ${currentProgress}/${tier.targetCount} জন`}
+                            {isDirectTier
+                              ? (lang === 'en'
+                                  ? `Level 1 Active: ${currentProgress}/${tier.targetCount}`
+                                  : `প্রথম লেভেল সক্রিয়: ${currentProgress}/${tier.targetCount} জন`)
+                              : (lang === 'en'
+                                  ? `1-3 Level Active: ${currentProgress}/${tier.targetCount}`
+                                  : `১-৩ লেভেল সক্রিয়: ${currentProgress}/${tier.targetCount} জন`)}
                           </span>
                         </span>
                       </div>

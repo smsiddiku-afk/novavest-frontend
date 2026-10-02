@@ -67,6 +67,7 @@ export interface UserProfile {
   totalEarnings?: number;
   totalInvested?: number;
   totalReferralEarnings?: number;
+  referralRewards?: number;
   activeUnits?: number;
   dailyRewards?: number;
   activeInvestments?: Array<{

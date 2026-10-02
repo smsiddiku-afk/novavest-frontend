@@ -22,7 +22,8 @@ import { collection, getDocs } from 'firebase/firestore';
 
 export interface TeamMember {
   id: string;
-  phone: string;
+  phone?: string;
+  memberId?: string;
   username?: string;
   level: 1 | 2 | 3;
   date: string;
@@ -540,10 +541,12 @@ export function getReferralTreeForUser(
         );
         const comm = Number((invest * TIER_COMMISSION_RATES[1]).toFixed(2));
         const active = isAccountActive(acc);
+        const l1DisplayName = acc.username || acc.name || acc.memberId || acc.userCode || `Member #${accId.slice(-6)}`;
         members.push({
           id: `REF-L1-${acc.userCode || accId}`,
-          phone: maskPhone(acc.phone),
-          username: acc.username || 'Member',
+          phone: l1DisplayName,
+          memberId: acc.memberId || acc.userCode,
+          username: l1DisplayName,
           level: 1,
           date: acc.joinedAt ? new Date(acc.joinedAt).toLocaleDateString('en-GB') : 'Today',
           investAmount: invest,
@@ -588,10 +591,13 @@ export function getReferralTreeForUser(
         );
         const comm = Number((invest * TIER_COMMISSION_RATES[2]).toFixed(2));
         const active = isAccountActive(acc);
+        const l2DisplayName = acc.username || acc.name || acc.memberId || acc.userCode || `Member #${accId.slice(-6)}`;
+        const l1ParentName = parentL1 ? (parentL1.username || parentL1.name || parentL1.memberId || parentL1.userCode) : 'L1 Member';
         members.push({
           id: `REF-L2-${acc.userCode || accId}`,
-          phone: maskPhone(acc.phone),
-          username: acc.username || 'Member',
+          phone: l2DisplayName,
+          memberId: acc.memberId || acc.userCode,
+          username: l2DisplayName,
           level: 2,
           date: acc.joinedAt ? new Date(acc.joinedAt).toLocaleDateString('en-GB') : 'Recently',
           investAmount: invest,
@@ -599,7 +605,7 @@ export function getReferralTreeForUser(
           status: active ? 'active' : 'pending',
           referralCode: acc.userCode,
           referredBy: parentL1 ? parentL1.userCode : acc.referredByCode,
-          referredByName: parentL1 ? maskPhone(parentL1.phone) : 'L1 Member',
+          referredByName: l1ParentName,
         });
       }
     });
@@ -634,10 +640,13 @@ export function getReferralTreeForUser(
         );
         const comm = Number((invest * TIER_COMMISSION_RATES[3]).toFixed(2));
         const active = isAccountActive(acc);
+        const l3DisplayName = acc.username || acc.name || acc.memberId || acc.userCode || `Member #${accId.slice(-6)}`;
+        const l2ParentName = parentL2 ? (parentL2.username || parentL2.name || parentL2.memberId || parentL2.userCode) : 'L2 Member';
         members.push({
           id: `REF-L3-${acc.userCode || accId}`,
-          phone: maskPhone(acc.phone),
-          username: acc.username || 'Member',
+          phone: l3DisplayName,
+          memberId: acc.memberId || acc.userCode,
+          username: l3DisplayName,
           level: 3,
           date: acc.joinedAt ? new Date(acc.joinedAt).toLocaleDateString('en-GB') : 'Recently',
           investAmount: invest,
@@ -645,7 +654,7 @@ export function getReferralTreeForUser(
           status: active ? 'active' : 'pending',
           referralCode: acc.userCode,
           referredBy: parentL2 ? parentL2.userCode : acc.referredByCode,
-          referredByName: parentL2 ? maskPhone(parentL2.phone) : 'L2 Member',
+          referredByName: l2ParentName,
         });
       }
     });
@@ -1437,27 +1446,36 @@ export function clearTestReferralMembers(rootCode?: string, rootMemberId?: strin
 
 /**
  * VIP level calculation from Promo Bonus conditions:
- * Active members across 3-tier team network:
- * - 3 active members in 3 levels: VIP 1
- * - 5 active members in 3 levels: VIP 2
- * - 10 active members in 3 levels: VIP 3
- * - 20 active members in 3 levels: VIP 4
- * - 40 active members in 3 levels: VIP 5
- * - 80 active members in 3 levels: VIP 6
- * - 160 active members in 3 levels: VIP 7
- * - 320 active members in 3 levels: VIP 8
+ * - VIP 1 - VIP 4: Strictly counts Level 1 (Direct) active members:
+ *   - 3 active members in Level 1: VIP 1
+ *   - 5 active members in Level 1: VIP 2
+ *   - 10 active members in Level 1: VIP 3
+ *   - 20 active members in Level 1: VIP 4
+ * - VIP 5 - VIP 8: Counts 1-3 levels (total team) active members:
+ *   - 40 active members across 1-3 levels: VIP 5
+ *   - 80 active members across 1-3 levels: VIP 6
+ *   - 160 active members across 1-3 levels: VIP 7
+ *   - 320 active members across 1-3 levels: VIP 8
  */
-export function computeVipLevelFromLevels(totalActiveIn3Levels: number, baseVipLevel: number = 0): number {
-  const activeCount = Math.max(0, Number(totalActiveIn3Levels) || 0);
+export function computeVipLevelFromLevels(
+  activeLevel1Count: number,
+  totalActiveIn3Levels?: number,
+  baseVipLevel: number = 0
+): number {
+  const l1 = Math.max(0, Number(activeLevel1Count) || 0);
+  const total = totalActiveIn3Levels !== undefined ? Math.max(0, Number(totalActiveIn3Levels) || 0) : l1;
+
   let earnedLevel = 0;
-  if (activeCount >= 320) earnedLevel = 8;
-  else if (activeCount >= 160) earnedLevel = 7;
-  else if (activeCount >= 80) earnedLevel = 6;
-  else if (activeCount >= 40) earnedLevel = 5;
-  else if (activeCount >= 20) earnedLevel = 4;
-  else if (activeCount >= 10) earnedLevel = 3;
-  else if (activeCount >= 5) earnedLevel = 2;
-  else if (activeCount >= 3) earnedLevel = 1;
+  // VIP 5-8: evaluate across 1-3 levels active members
+  if (total >= 320) earnedLevel = 8;
+  else if (total >= 160) earnedLevel = 7;
+  else if (total >= 80) earnedLevel = 6;
+  else if (total >= 40) earnedLevel = 5;
+  // VIP 1-4: strictly evaluate Level 1 (direct) active members
+  else if (l1 >= 20) earnedLevel = 4;
+  else if (l1 >= 10) earnedLevel = 3;
+  else if (l1 >= 5) earnedLevel = 2;
+  else if (l1 >= 3) earnedLevel = 1;
   else earnedLevel = 0;
 
   return Math.max(earnedLevel, Number(baseVipLevel) || 0);

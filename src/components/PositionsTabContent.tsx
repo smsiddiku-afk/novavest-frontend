@@ -119,10 +119,13 @@ export const PositionsTabContent: React.FC<PositionsTabContentProps> = ({
   }, [rawInvestments, currentTime]);
 
   // Aggregate summary metrics
-  const totalPositions = positions.length;
+  const totalPositions = positions.length > 0 ? positions.length : (Number(user.activeUnits) || 0);
   const totalPrincipal = positions.reduce((acc, p) => acc + p.amount, 0);
   const totalDailyYield = positions.reduce((acc, p) => acc + p.dailyYield, 0);
-  const totalRealizedProfit = positions.reduce((acc, p) => acc + p.totalEarned, 0);
+  const totalRealizedProfit = Math.max(
+    positions.reduce((acc, p) => acc + p.totalEarned, 0),
+    Number(user.totalEarnings) || 0
+  );
   const readyCount = positions.filter((p) => p.isReadyToClaim).length;
 
   const filteredPositions = positions.filter((p) => {
@@ -478,7 +481,7 @@ export const PositionsTabContent: React.FC<PositionsTabContentProps> = ({
 
                   <div className="flex items-center gap-2">
                     <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-400 border border-amber-500/30">
-                      VIP {pos.vipLevel}
+                      {currentLang === 'bn' ? `প্যাকেজ স্তর ${pos.vipLevel || 1}` : `Package Tier ${pos.vipLevel || 1}`}
                     </span>
                     <span className="text-[11px] text-slate-400 hidden sm:inline">
                       {pos.date || 'Active'}

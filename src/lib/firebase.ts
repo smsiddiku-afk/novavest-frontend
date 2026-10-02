@@ -1167,6 +1167,7 @@ export const subscribeToFirestoreUserProfile = (
         activeInvestments: Array.isArray(data.activeInvestments) ? data.activeInvestments : [],
         totalInvested: typeof data.totalInvested === 'number' ? data.totalInvested : 0.0,
         totalReferralEarnings: typeof data.totalReferralEarnings === 'number' ? data.totalReferralEarnings : 0.0,
+        referralRewards: typeof data.referralRewards === 'number' ? data.referralRewards : 0.0,
         memberSince: data.memberSince || 'May 2024',
         isVerified: data.isVerified ?? true,
         avatarUrl: data.avatarUrl,
@@ -1562,19 +1563,49 @@ export const updateFirestoreDepositStatus = async (
     if (!userDocRef) return false;
     let userSnap = await getDoc(userDocRef);
 
-    // Fallback: If not found by direct doc ID, search by memberId or email
+    // Fallback 1: If not found by direct doc ID, search by memberId, phone, email, or uid
     if (!userSnap.exists()) {
       try {
         const uCol = collection(db, 'users');
-        const qSnap = await getDocs(query(uCol, where('memberId', '==', cleanUid), limit(1)));
-        if (!qSnap.empty) {
-          userDocRef = qSnap.docs[0].ref;
-          userSnap = qSnap.docs[0];
-        } else {
-          const qSnap2 = await getDocs(query(uCol, where('email', '==', cleanUid), limit(1)));
-          if (!qSnap2.empty) {
-            userDocRef = qSnap2.docs[0].ref;
-            userSnap = qSnap2.docs[0];
+        const searchStrategies = [
+          query(uCol, where('memberId', '==', cleanUid), limit(1)),
+          query(uCol, where('phone', '==', cleanUid), limit(1)),
+          query(uCol, where('uid', '==', cleanUid), limit(1)),
+          query(uCol, where('email', '==', cleanUid), limit(1)),
+        ];
+        if (cleanUid.length === 11 && cleanUid.startsWith('01')) {
+          searchStrategies.push(query(uCol, where('phone', '==', `+88${cleanUid}`), limit(1)));
+        }
+        for (const strat of searchStrategies) {
+          const qSnap = await getDocs(strat);
+          if (!qSnap.empty) {
+            userDocRef = qSnap.docs[0].ref;
+            userSnap = qSnap.docs[0];
+            break;
+          }
+        }
+      } catch (_) {}
+    }
+
+    // Fallback 2: Look up from the deposit document itself if available
+    if (!userSnap.exists() && cleanDepId) {
+      try {
+        const dRef = safeDoc('deposits', cleanDepId);
+        if (dRef) {
+          const dSnap = await getDoc(dRef);
+          if (dSnap.exists()) {
+            const dData = dSnap.data();
+            const dUserId = cleanDocId(dData.userId || dData.uid || '', '');
+            if (dUserId) {
+              const uRef2 = safeDoc('users', dUserId);
+              if (uRef2) {
+                const uSnap2 = await getDoc(uRef2);
+                if (uSnap2.exists()) {
+                  userDocRef = uRef2;
+                  userSnap = uSnap2;
+                }
+              }
+            }
           }
         }
       } catch (_) {}
@@ -1582,18 +1613,27 @@ export const updateFirestoreDepositStatus = async (
 
     if (userSnap.exists()) {
       const userData = userSnap.data();
-      const txns: TransactionRecord[] = userData.transactions || [];
-      let foundAmount = amount || 0;
+      const txns: TransactionRecord[] = Array.isArray(userData.transactions) ? userData.transactions : [];
+      let foundAmount = Number(amount) || 0;
+
+      let matched = false;
+      const cleanIdLower = cleanId.toLowerCase();
+      const cleanDepIdLower = cleanDepId.toLowerCase();
 
       const updatedTxns = txns.map((t: any) => {
+        const tId = String(t.id || '').toLowerCase();
+        const tHash = String(t.hash || '').toLowerCase();
+        const tOrder = String(t.orderNo || '').toLowerCase();
         const matchesId =
-          (cleanId && (t.id === cleanId || t.hash === cleanId || t.orderNo === cleanId)) ||
-          (cleanDepId && (t.id === cleanDepId || t.orderNo === cleanDepId || t.hash === cleanDepId));
+          (cleanIdLower && (tId === cleanIdLower || tHash === cleanIdLower || tOrder === cleanIdLower)) ||
+          (cleanDepIdLower && (tId === cleanDepIdLower || tOrder === cleanDepIdLower || tHash === cleanDepIdLower));
         if (matchesId) {
+          matched = true;
           if (!foundAmount && t.rawAmount) foundAmount = Number(t.rawAmount);
           return {
             ...t,
-            status: statusBangla,
+            status: isCompleted ? 'Approved' : 'Rejected',
+            statusBangla: statusBangla,
             isCredit: isCompleted,
             desc: isCompleted
               ? `ডিপোজিট TrxID: ${cleanId || cleanDepId} (সফল)`
@@ -1602,6 +1642,26 @@ export const updateFirestoreDepositStatus = async (
         }
         return t;
       });
+
+      // If the deposit was not found in transactions array yet, prepend it
+      if (!matched && isCompleted && foundAmount > 0) {
+        const now = new Date();
+        updatedTxns.unshift({
+          id: cleanId || cleanDepId,
+          type: 'recharge',
+          title: `ওয়ালেট রিচার্জ (অনুমোদিত)`,
+          desc: `ডিপোজিট TrxID: ${cleanId || cleanDepId} (সফল)`,
+          amount: `+৳${foundAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+          rawAmount: foundAmount,
+          time: `আজ, ${now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`,
+          date: now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }),
+          status: 'Approved',
+          statusBangla: statusBangla,
+          isCredit: true,
+          hash: cleanId || cleanDepId,
+          createdAt: now.toISOString(),
+        });
+      }
 
       const updatePayload: any = {
         transactions: updatedTxns,
@@ -1628,7 +1688,8 @@ export const updateFirestoreDepositStatus = async (
           await safeSetDoc(
             uDep,
             {
-              status: depositStatus,
+              status: isCompleted ? 'Approved' : 'Rejected',
+              isApproved: isCompleted,
               updatedAt: serverTimestamp(),
             },
             { merge: true }
@@ -1642,6 +1703,7 @@ export const updateFirestoreDepositStatus = async (
             tDep,
             {
               status: isCompleted ? 'Approved' : 'Rejected',
+              isApproved: isCompleted,
               updatedAt: serverTimestamp(),
             },
             { merge: true }
@@ -1801,6 +1863,7 @@ export const subscribeToUserTransactions = (
 
   let latestTxns: TransactionRecord[] = [];
   let latestWithdrawals: TransactionRecord[] = [];
+  let latestDeposits: TransactionRecord[] = [];
   let latestUserDocTxns: TransactionRecord[] = [];
 
   const mergeAndEmit = () => {
@@ -1812,7 +1875,16 @@ export const subscribeToUserTransactions = (
       if (k) map.set(k, t);
     });
 
-    // 2. Withdrawals from user withdrawals subcollection (syncs real-time admin approvals)
+    // 2. Deposits from user deposits subcollection (syncs real-time admin approvals)
+    latestDeposits.forEach((dep) => {
+      const k = dep.id || (dep as any).hash;
+      if (k) {
+        const existing = map.get(k);
+        map.set(k, { ...(existing || {}), ...dep });
+      }
+    });
+
+    // 3. Withdrawals from user withdrawals subcollection (syncs real-time admin approvals)
     latestWithdrawals.forEach((w) => {
       const k = w.id || (w as any).hash;
       if (k) {
@@ -1821,15 +1893,19 @@ export const subscribeToUserTransactions = (
       }
     });
 
-    // 3. Transactions from user document array
+    // 4. Transactions from user document array
     latestUserDocTxns.forEach((t) => {
       const k = t.id || (t as any).hash;
       if (k) {
         const existing = map.get(k);
         if (!existing) {
           map.set(k, t);
-        } else if ((t.status === 'Approved' || t.status === 'এপ্রুভ') && existing.status !== 'Approved') {
-          map.set(k, { ...existing, status: 'Approved', statusBangla: 'এপ্রুভ' });
+        } else {
+          const rawSt = String(t.status || '').toLowerCase();
+          const isAppr = rawSt === 'approved' || rawSt === 'completed' || rawSt === 'সফল' || rawSt === 'এপ্রুভ';
+          if (isAppr) {
+            map.set(k, { ...existing, ...t, status: 'Approved', statusBangla: 'সফল', isCredit: true });
+          }
         }
       }
     });
@@ -1845,6 +1921,38 @@ export const subscribeToUserTransactions = (
     },
     (err) => {
       console.warn('[Firebase] Transactions listener notice:', err);
+    }
+  );
+
+  const unsubDeposits = onSnapshot(
+    collection(db, 'users', cleanUid, 'deposits'),
+    (snap) => {
+      latestDeposits = snap.docs.map((d) => {
+        const data = d.data();
+        const rawStatus = String(data.status || 'Pending').toLowerCase();
+        const isApproved = rawStatus === 'approved' || rawStatus === 'completed' || rawStatus === 'সফল' || data.isApproved === true;
+        const isRejected = rawStatus === 'rejected' || rawStatus === 'failed' || rawStatus === 'cancelled' || rawStatus === 'বাতিল';
+        const statusBangla = isApproved ? 'সফল' : isRejected ? 'বাতিল' : 'অপেক্ষমাণ';
+        return {
+          id: d.id,
+          userId: cleanUid,
+          type: 'recharge',
+          amount: Math.abs(Number(data.amount) || 0),
+          status: isApproved ? 'Approved' : isRejected ? 'Rejected' : 'Pending',
+          statusBangla: statusBangla,
+          timestamp: data.dateFormatted || data.createdAt || 'Recent',
+          date: data.dateFormatted ? data.dateFormatted.split(' ')[0] : undefined,
+          channel: data.method || 'bKash',
+          description: `ডিপোজিট TrxID: ${data.trxId || d.id} (${statusBangla})`,
+          hash: data.trxId || d.id,
+          isCredit: isApproved,
+          ...data,
+        } as TransactionRecord;
+      });
+      mergeAndEmit();
+    },
+    (err) => {
+      console.warn('[Firebase] Deposits listener notice:', err);
     }
   );
 
@@ -1896,6 +2004,7 @@ export const subscribeToUserTransactions = (
 
   return () => {
     try { unsubTxns(); } catch (_) {}
+    try { unsubDeposits(); } catch (_) {}
     try { unsubWithdrawals(); } catch (_) {}
     try { unsubUserDoc(); } catch (_) {}
   };
@@ -2475,12 +2584,13 @@ export const creditUserCommissionInFirestore = async (
       isCredit: true,
     };
 
+    // Save commission strictly into invitation available referral rewards (not main wallet balance)
+    // The user will transfer it to main wallet balance when it reaches at least ৳200 from the Invitation screen.
     await safeSetDoc(
       targetRef,
       {
-        walletBalance: increment(amt),
+        referralRewards: increment(amt),
         totalReferralEarnings: increment(amt),
-        transactions: [newTxn, ...currentTxns.slice(0, 99)],
         updatedAt: serverTimestamp(),
       },
       { merge: true }
@@ -2506,6 +2616,38 @@ export const creditUserCommissionInFirestore = async (
     return true;
   } catch (err) {
     console.warn('[Firebase] Notice crediting commission to user in Firestore:', err);
+    return false;
+  }
+};
+
+/**
+ * Transfer referral rewards from invitation option to main wallet balance in Firestore
+ * Enforces minimum transfer of 200 BDT
+ */
+export const transferReferralRewardsInFirestore = async (
+  uidOrCode: string,
+  amount: number
+): Promise<boolean> => {
+  const cleanId = cleanDocId(uidOrCode, '');
+  const amt = Number(amount);
+  if (!cleanId || amt < 200) return false;
+
+  try {
+    const userDocRef = safeDoc('users', cleanId);
+    if (!userDocRef) return false;
+    await safeSetDoc(
+      userDocRef,
+      {
+        walletBalance: increment(amt),
+        balance: increment(amt),
+        referralRewards: 0,
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
+    return true;
+  } catch (err) {
+    console.warn('[Firebase] Notice transferring referral rewards to wallet:', err);
     return false;
   }
 };

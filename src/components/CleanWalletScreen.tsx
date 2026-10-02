@@ -17,6 +17,7 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { Language } from '../types';
+import { verifyTOTP, getUserAuthenticatorSecret } from '../utils/totpService';
 
 export type PaymentMethodType = 'bKash' | 'Nagad' | 'Rocket';
 export type PaymentChannelType = 'channel1' | 'channel2' | 'gogopay' | 'manual';
@@ -42,6 +43,7 @@ interface CleanWalletScreenProps {
   onConfirmWithdraw?: (amount: number, method: PaymentMethodType, account: string) => void;
   showToast?: (msg: string) => void;
   isAuthenticatorSet?: boolean;
+  authenticatorSecret?: string;
   onOpenSecuritySettings?: () => void;
 }
 
@@ -59,6 +61,7 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
   onConfirmWithdraw,
   showToast,
   isAuthenticatorSet = false,
+  authenticatorSecret,
   onOpenSecuritySettings,
 }) => {
   const [activeTab, setActiveTab] = useState<'recharge' | 'withdraw'>(initialTab);
@@ -66,8 +69,24 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethodType>('bKash');
   const [amount, setAmount] = useState<string>('100');
   const [withdrawAccount, setWithdrawAccount] = useState<string>('');
+  const [authCode, setAuthCode] = useState<string>('');
   const [localToast, setLocalToast] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+
+  const isAuthSet = Boolean(
+    isAuthenticatorSet || (() => {
+      try {
+        const uStr = localStorage.getItem('nvt_auth_user') || localStorage.getItem('auth_user');
+        if (uStr) {
+          const u = JSON.parse(uStr);
+          if (u.isAuthenticatorSet !== undefined) return Boolean(u.isAuthenticatorSet);
+          const id = u.uid || u.memberId || u.phone;
+          if (id && localStorage.getItem(`nvt_google_auth_set_${id}`) === 'true') return true;
+        }
+      } catch {}
+      return false;
+    })()
+  );
   const [loadingStep, setLoadingStep] = useState<number>(0);
   const [redirectUrl, setRedirectUrl] = useState<string | null>(null);
 
@@ -135,7 +154,7 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
 
   const handleWithdrawSubmit = () => {
     // 0. Enforce Authenticator Setup
-    if (!isAuthenticatorSet) {
+    if (!isAuthSet) {
       displayToast(
         currentLang === 'bn'
           ? 'উইথড্র করার আগে গুগল অথেনটিকেটর সেটআপ করা বাধ্যতামূলক। সিকিউরিটি পেজে যান।'
@@ -168,6 +187,29 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
       displayToast(currentLang === 'bn' ? 'অপর্যাপ্ত ব্যালেন্স' : 'Insufficient wallet balance');
       return;
     }
+
+    // 2FA Google Authenticator REAL Verification
+    const cleanCode = authCode.trim().replace(/\D/g, '');
+    if (cleanCode.length !== 6) {
+      displayToast(
+        currentLang === 'bn'
+          ? 'অনুগ্রহ করে আপনার ৬ সংখ্যার গুগল অথেন্টিকেটর কোডটি দিন।'
+          : 'Please enter your 6-digit Google Authenticator code.'
+      );
+      return;
+    }
+
+    const activeSecret = getUserAuthenticatorSecret(undefined, authenticatorSecret);
+    const isCodeValid = verifyTOTP(cleanCode, activeSecret, 1);
+    if (!isCodeValid) {
+      displayToast(
+        currentLang === 'bn'
+          ? 'ভুল গুগল অথেন্টিকেটর কোড! ফেক কোড গ্রহণযোগ্য নয়। Google Authenticator অ্যাপের সঠিক লাইভ কোড দিন।'
+          : 'Invalid Google Authenticator code! Fake code is not accepted. Please enter the real live code.'
+      );
+      return;
+    }
+
     if (onConfirmWithdraw) {
       onConfirmWithdraw(num, selectedMethod, withdrawAccount);
     } else {
@@ -684,6 +726,44 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
                     ৳{preset}
                   </button>
                 ))}
+              </div>
+
+              {/* 2FA Google Authenticator Code Input */}
+              <div className="space-y-1.5 pt-2 border-t border-emerald-500/20">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                    <span className="text-sm font-bold text-slate-200">
+                      {currentLang === 'bn' ? 'Google Authenticator কোড (2FA):' : 'Google Authenticator Code (2FA):'}
+                    </span>
+                  </div>
+                  {isAuthSet ? (
+                    <span className="text-[10px] text-emerald-300 font-bold bg-emerald-500/20 px-2 py-0.5 rounded-full border border-emerald-500/35">
+                      {currentLang === 'bn' ? 'সক্রিয় (Active)' : 'Active'}
+                    </span>
+                  ) : (
+                    <span className="text-[10px] text-amber-300 font-bold bg-amber-500/20 px-2 py-0.5 rounded-full border border-amber-500/35">
+                      {currentLang === 'bn' ? 'সেট করা হয়নি' : 'Not Set'}
+                    </span>
+                  )}
+                </div>
+                <div className="relative flex items-center bg-[#031812] border-2 border-emerald-500/30 rounded-2xl px-5 py-3.5 focus-within:border-emerald-400 transition-all">
+                  <input
+                    id="clean-wallet-withdraw-auth-code"
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={6}
+                    value={authCode}
+                    onChange={(e) => setAuthCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    placeholder="000 000"
+                    className="w-full bg-transparent text-white font-mono text-center text-xl font-bold tracking-[0.35em] placeholder:tracking-normal placeholder:text-slate-600 focus:outline-none"
+                  />
+                </div>
+                <p className="text-[11px] text-slate-300">
+                  {currentLang === 'bn'
+                    ? 'আপনার Google Authenticator অ্যাপের লাইভ ৬-সংখ্যার কোডটি লিখুন। ফেক কোড গ্রহণযোগ্য নয়।'
+                    : 'Enter the live 6-digit code from Google Authenticator. Fake codes are strictly rejected.'}
+                </p>
               </div>
             </div>
 

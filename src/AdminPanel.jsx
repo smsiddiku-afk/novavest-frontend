@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { collection, getDocs, doc, setDoc, getDoc, query, orderBy, increment, deleteDoc } from "firebase/firestore";
+import { collection, getDocs, doc, setDoc, getDoc, query, orderBy, increment, deleteDoc, onSnapshot } from "firebase/firestore";
 import { db, updateFirestoreDepositStatus, updateFirestoreWithdrawalStatus, updateFirestoreReferralPermission, sanitizeFirestoreData, cleanDocId, safeDoc, safeSetDoc, safeDeleteDoc, deleteFirestoreUserProfile } from "./lib/firebase";
 import {
   loadCommissionRatesFromFirestore,
@@ -26,6 +26,8 @@ export default function AdminPanel() {
 
   const [users, setUsers] = useState([]);
   const [userSearchQuery, setUserSearchQuery] = useState(""); // ইউজার সার্চ স্টেট
+  const [userFilterTab, setUserFilterTab] = useState("all"); // 'all' | 'active' | 'free' | 'referral'
+  const [showIdRemover, setShowIdRemover] = useState(false); // কুইক আইডি রিমুভার ড্রপডাউন টগল
   const [withdrawals, setWithdrawals] = useState([]);
   const [deposits, setDeposits] = useState([]);
   const [packages, setPackages] = useState([]);
@@ -99,54 +101,82 @@ export default function AdminPanel() {
     }
   };
 
-  const fetchAllData = async () => {
-    setLoading(true);
+  // Real-time synchronization for instant deposits and withdrawals
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    let unsubDeposits = () => {};
+    let unsubWithdrawals = () => {};
     try {
-      const userSnapshot = await getDocs(collection(db, "users"));
-      const userList = [];
-      userSnapshot.forEach((docSnap) => {
-        userList.push({ id: docSnap.id, ...docSnap.data() });
-      });
-      setUsers(userList);
+      unsubDeposits = onSnapshot(collection(db, "deposits"), (snap) => {
+        const list = [];
+        snap.forEach((d) => list.push({ id: d.id, ...d.data() }));
+        list.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+        setDeposits(list);
+      }, (err) => console.warn("Admin deposits listener notice:", err));
+    } catch (_) {}
 
-      try {
-        const withdrawQuery = query(collection(db, "withdrawals"), orderBy("createdAt", "desc"));
-        const withdrawSnap = await getDocs(withdrawQuery);
-        const withdrawList = [];
-        withdrawSnap.forEach((docSnap) => {
-          withdrawList.push({ id: docSnap.id, ...docSnap.data() });
+    try {
+      unsubWithdrawals = onSnapshot(collection(db, "withdrawals"), (snap) => {
+        const list = [];
+        snap.forEach((d) => list.push({ id: d.id, ...d.data() }));
+        list.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+        setWithdrawals(list);
+      }, (err) => console.warn("Admin withdrawals listener notice:", err));
+    } catch (_) {}
+
+    return () => {
+      unsubDeposits();
+      unsubWithdrawals();
+    };
+  }, [isAuthenticated]);
+
+  const fetchAllData = async (silent = false) => {
+    if (!silent) setLoading(true);
+    try {
+      const [
+        userSnapRes,
+        withdrawRes,
+        depositRes,
+        settingsRes,
+        packagesRes,
+        ratesRes,
+        bannersRes
+      ] = await Promise.allSettled([
+        getDocs(collection(db, "users")),
+        getDocs(query(collection(db, "withdrawals"), orderBy("createdAt", "desc"))).catch(() => getDocs(collection(db, "withdrawals"))),
+        getDocs(query(collection(db, "deposits"), orderBy("createdAt", "desc"))).catch(() => getDocs(collection(db, "deposits"))),
+        safeDoc("settings", "support") ? getDoc(safeDoc("settings", "support")) : null,
+        getLivePackages(),
+        loadCommissionRatesFromFirestore(),
+        fetch('/api/admin/charity-banners').then(r => r.ok ? r.json() : null).catch(() => null),
+      ]);
+
+      if (userSnapRes.status === 'fulfilled' && userSnapRes.value) {
+        const userList = [];
+        userSnapRes.value.forEach((docSnap) => {
+          userList.push({ id: docSnap.id, ...docSnap.data() });
         });
-        setWithdrawals(withdrawList);
-      } catch (err) {
-        const fallbackSnap = await getDocs(collection(db, "withdrawals"));
+        setUsers(userList);
+      }
+
+      if (withdrawRes.status === 'fulfilled' && withdrawRes.value) {
         const withdrawList = [];
-        fallbackSnap.forEach((docSnap) => {
+        withdrawRes.value.forEach((docSnap) => {
           withdrawList.push({ id: docSnap.id, ...docSnap.data() });
         });
         setWithdrawals(withdrawList);
       }
 
-      try {
-        const depositQuery = query(collection(db, "deposits"), orderBy("createdAt", "desc"));
-        const depositSnap = await getDocs(depositQuery);
+      if (depositRes.status === 'fulfilled' && depositRes.value) {
         const depositList = [];
-        depositSnap.forEach((docSnap) => {
-          depositList.push({ id: docSnap.id, ...docSnap.data() });
-        });
-        setDeposits(depositList);
-      } catch (err) {
-        const fallbackDepositSnap = await getDocs(collection(db, "deposits"));
-        const depositList = [];
-        fallbackDepositSnap.forEach((docSnap) => {
+        depositRes.value.forEach((docSnap) => {
           depositList.push({ id: docSnap.id, ...docSnap.data() });
         });
         setDeposits(depositList);
       }
 
-      const sRef = safeDoc("settings", "support");
-      const settingsDoc = sRef ? await getDoc(sRef) : null;
-      if (settingsDoc && settingsDoc.exists()) {
-        const data = settingsDoc.data();
+      if (settingsRes.status === 'fulfilled' && settingsRes.value && settingsRes.value.exists()) {
+        const data = settingsRes.value.data();
         setSupportLink(data.whatsapp || "");
         setTelegramLink(data.telegram || "");
         if (data.crispWebsiteId) setCrispWebsiteId(data.crispWebsiteId);
@@ -155,34 +185,28 @@ export default function AdminPanel() {
         if (data.supportEmail) setSupportEmail(data.supportEmail);
       }
 
-      // ইনভেস্ট প্যাকেজ লোড
-      try {
-        const pkgList = await getLivePackages();
-        setPackages(pkgList);
-      } catch (pkgErr) {
-        console.warn("প্যাকেজ লোডে সমস্যা:", pkgErr);
+      if (packagesRes.status === 'fulfilled' && Array.isArray(packagesRes.value)) {
+        setPackages(packagesRes.value);
       }
 
-      // রেফারেল কমিশন রেট লোড
-      try {
-        const rates = await loadCommissionRatesFromFirestore();
-        if (rates) {
-          setTier1Percent(Math.round(rates.tier1 * 100));
-          setTier2Percent(Math.round(rates.tier2 * 100));
-          setTier3Percent(Math.round(rates.tier3 * 100));
+      if (ratesRes.status === 'fulfilled' && ratesRes.value) {
+        setTier1Percent(Math.round(ratesRes.value.tier1 * 100));
+        setTier2Percent(Math.round(ratesRes.value.tier2 * 100));
+        setTier3Percent(Math.round(ratesRes.value.tier3 * 100));
+      }
+
+      if (bannersRes.status === 'fulfilled' && bannersRes.value && Array.isArray(bannersRes.value.banners)) {
+        setCharityBannersList(bannersRes.value.banners);
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('nvt_charity_banners', JSON.stringify(bannersRes.value.banners.filter(b => b.isActive !== false)));
         }
-      } catch (rateErr) {
-        console.warn("রেফার কমিশন লোডে সমস্যা:", rateErr);
       }
-
-      // ব্যানার তালিকা লোড
-      await fetchCharityBanners();
-
     } catch (error) {
       console.error("ডেটা লোড সমস্যা:", error);
       setStatusMsg("Firestore থেকে ডেটা আনতে সমস্যা হয়েছে।");
+    } finally {
+      if (!silent) setLoading(false);
     }
-    setLoading(false);
   };
 
   const fetchCharityBanners = async () => {
@@ -537,14 +561,7 @@ export default function AdminPanel() {
       );
       const targetUserId = targetUser?.id || targetUser?.uid || userId;
 
-      await updateFirestoreWithdrawalStatus(
-        targetUserId,
-        cleanWId,
-        isApprove ? "Approved" : "Rejected",
-        Number(amount) || 0
-      );
-
-      // Immediately update local state for responsive UI
+      // Immediately update local state for instantaneous UI feedback
       setWithdrawals((prev) =>
         prev.map((w) =>
           w.id === cleanWId
@@ -557,12 +574,19 @@ export default function AdminPanel() {
         )
       );
 
+      await updateFirestoreWithdrawalStatus(
+        targetUserId,
+        cleanWId,
+        isApprove ? "Approved" : "Rejected",
+        Number(amount) || 0
+      );
+
       setStatusMsg(
         isApprove
           ? "✅ উইথড্র সফলভাবে এপ্রুভ করা হয়েছে! ইউজার হিস্ট্রিতে এটি 'এপ্রুভ' হিসেবে দেখাবে।"
           : "❌ উইথড্র রিজেক্ট করা হয়েছে এবং ব্যালেন্স ব্যবহারকারীর ওয়ালেটে ফেরত দেওয়া হয়েছে।"
       );
-      fetchAllData();
+      fetchAllData(true);
     } catch (error) {
       console.error("উইথড্র আপডেট এরর:", error);
       setStatusMsg("উইথড্র স্ট্যাটাস পরিবর্তন করা যায়নি: " + error.message);
@@ -572,40 +596,75 @@ export default function AdminPanel() {
   const handleDepositAction = async (depositId, userId, amount, action, trxId) => {
     const cleanDId = cleanDocId(depositId, '');
     if (!cleanDId) return;
-    try {
-      const depositRef = safeDoc("deposits", cleanDId);
-      const isApprove = action === "approve";
-      const newStatus = isApprove ? "Approved" : "Rejected";
+    const isApprove = action === "approve";
+    const newStatus = isApprove ? "Approved" : "Rejected";
+    const numAmount = Number(amount) || 0;
 
+    // 1. Instant optimistic local UI update (zero latency)
+    setDeposits((prev) =>
+      prev.map((d) =>
+        d.id === depositId || d.id === cleanDId || (d.trxId && d.trxId === (trxId || cleanDId))
+          ? {
+              ...d,
+              status: newStatus,
+            }
+          : d
+      )
+    );
+
+    try {
+      // 2. Update status in global deposits collection
+      const depositRef = safeDoc("deposits", cleanDId);
       if (depositRef) {
         await safeSetDoc(depositRef, {
           status: newStatus,
+          isApproved: isApprove,
           updatedAt: new Date().toISOString(),
         }, { merge: true });
       }
 
+      // 3. Resolve target user document by multiple matching strategies
       const cleanUId = cleanDocId(userId, '');
-      if (cleanUId) {
+      const targetUser = users.find(
+        (u) =>
+          u.id === cleanUId ||
+          u.uid === cleanUId ||
+          (u.memberId && String(u.memberId).toLowerCase() === String(cleanUId).toLowerCase()) ||
+          (u.phone && String(u.phone).slice(-10) === String(cleanUId).slice(-10))
+      );
+      const effectiveDocId = targetUser?.id || targetUser?.uid || cleanUId;
+
+      if (effectiveDocId) {
+        // Update user deposit transaction record & user document balance
         await updateFirestoreDepositStatus(
-          cleanUId,
+          effectiveDocId,
           trxId || cleanDId,
           isApprove ? "completed" : "cancelled",
-          Number(amount) || 0,
+          numAmount,
           cleanDId
         );
 
-        if (isApprove) {
+        if (isApprove && numAmount > 0) {
           try {
-            const targetUser = users.find((u) => u.id === userId || u.uid === userId || (u.phone && String(u.phone).slice(-10) === String(cleanUId).slice(-10)));
-            const userRefCode = targetUser?.referralCode || targetUser?.memberId || targetUser?.phone || userId;
-
-            // Update deposit status in Firestore
-            const targetUserDoc = safeDoc("users", cleanUId);
+            // Direct atomic credit to ensure balance reflects 100% on the user's profile
+            const targetUserDoc = safeDoc("users", effectiveDocId);
             if (targetUserDoc) {
               await safeSetDoc(targetUserDoc, {
+                walletBalance: increment(numAmount),
+                balance: increment(numAmount),
                 hasDeposited: true,
-                totalDeposited: increment(Number(amount) || 0),
+                totalDeposited: increment(numAmount),
                 updatedAt: new Date().toISOString()
+              }, { merge: true });
+            }
+
+            // Also update in user's deposits subcollection
+            const uDep = safeDoc("users", effectiveDocId, "deposits", cleanDId);
+            if (uDep) {
+              await safeSetDoc(uDep, {
+                status: "Approved",
+                isApproved: true,
+                updatedAt: new Date().toISOString(),
               }, { merge: true });
             }
           } catch (commErr) {
@@ -614,6 +673,21 @@ export default function AdminPanel() {
         }
       }
 
+      // 4. Notify open client tabs via custom event & localStorage for 0ms cross-tab reflection
+      try {
+        const payload = {
+          depositId: cleanDId,
+          userId: effectiveDocId,
+          amount: numAmount,
+          status: newStatus,
+          trxId: trxId || cleanDId,
+          timestamp: Date.now(),
+        };
+        localStorage.setItem('nvt_last_deposit_approval', JSON.stringify(payload));
+        window.dispatchEvent(new CustomEvent('nvt_deposit_approved', { detail: payload }));
+      } catch (_) {}
+
+      // 5. Server sync / webhook callback
       try {
         if (isApprove) {
           await fetch('/api/payments/gateway-callback', {
@@ -622,7 +696,7 @@ export default function AdminPanel() {
             body: JSON.stringify({
               orderNo: depositId,
               trxId: trxId || depositId,
-              amount: Number(amount),
+              amount: numAmount,
               status: 'COMPLETED',
             }),
           });
@@ -641,14 +715,14 @@ export default function AdminPanel() {
       }
 
       if (isApprove) {
-        setStatusMsg("✅ ডিপোজিট সফলভাবে অনুমোদন (Approve) করা হয়েছে এবং ইউজারের একাউন্টে ব্যালেন্স যোগ হয়েছে!");
+        setStatusMsg(`✅ ডিপোজিট (৳${numAmount.toLocaleString()}) সফলভাবে অনুমোদন করা হয়েছে এবং ইউজারের একাউন্টে ব্যালেন্স যোগ হয়েছে!`);
       } else {
         setStatusMsg("❌ ভুয়া/ভুল ডিপোজিট বাতিল (Reject) করা হয়েছে এবং ট্রানজেকশনে 'বাতিল' স্ট্যাটাস সেট হয়েছে।");
       }
-      fetchAllData();
+      fetchAllData(true);
     } catch (error) {
       console.error("ডিপোজিট আপডেট এরর:", error);
-      setStatusMsg("ডিপোজিট স্ট্যাটাস পরিবর্তন করা যায়নি।");
+      setStatusMsg("ডিপোজিট স্ট্যাটাস পরিবর্তন করা যায়নি: " + error.message);
     }
   };
 
@@ -903,12 +977,29 @@ export default function AdminPanel() {
 
   // ইউজার ফিল্টার বা সার্চ করার জন্য লজিক
   const filteredUsers = users.filter((u) => {
-    const queryStr = userSearchQuery.toLowerCase();
+    // ১. ট্যাব ফিল্টারিং
+    const isUserActive = (Array.isArray(u.activeInvestments) && u.activeInvestments.length > 0) || Number(u.totalInvested || 0) > 0;
+    if (userFilterTab === "active" && !isUserActive) return false;
+    if (userFilterTab === "free" && isUserActive) return false;
+    if (userFilterTab === "referral" && !u.canRefer) return false;
+
+    // ২. সার্চ ফিল্টারিং
+    if (!userSearchQuery.trim()) return true;
+    const queryStr = userSearchQuery.toLowerCase().trim();
     const name = (u.name || "").toLowerCase();
     const phone = (u.phone || "").toLowerCase();
     const email = (u.email || "").toLowerCase();
     const id = (u.id || "").toLowerCase();
-    return name.includes(queryStr) || phone.includes(queryStr) || email.includes(queryStr) || id.includes(queryStr);
+    const memberId = (u.memberId || "").toLowerCase();
+    const refCode = (u.referralCode || "").toLowerCase();
+    return (
+      name.includes(queryStr) ||
+      phone.includes(queryStr) ||
+      email.includes(queryStr) ||
+      id.includes(queryStr) ||
+      memberId.includes(queryStr) ||
+      refCode.includes(queryStr)
+    );
   });
 
   if (!isAuthenticated) {
@@ -1842,109 +1933,132 @@ export default function AdminPanel() {
           </div>
         )}
 
-        {/* ৭. ইউজার ও নেটওয়ার্ক ট্যাব (সার্চ এবং ইউজার আইডি রিমুভ অপশন সহ) */}
+        {/* ৭. ইউজার ও নেটওয়ার্ক ট্যাব (সার্চ, ফিল্টার এবং গোছানো কম্প্যাক্ট টেবিল) */}
         {activeTab === "users" && (
           <div>
-            {/* সরাসরি ইউজার আইডি দিয়ে রিমুভ করার কার্ড */}
-            <div style={{ background: "rgba(220, 38, 38, 0.08)", border: "1px solid rgba(239, 68, 68, 0.4)", borderRadius: "8px", padding: "16px", marginBottom: "20px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
-                <span style={{ fontSize: "18px" }}>🗑️</span>
-                <h4 style={{ margin: 0, color: "#f87171", fontSize: "15px" }}>ইউজার আইডি দিয়ে সরাসরি রিমুভ করুন (User ID Remover)</h4>
+            {/* Top KPI Metrics Bento Box */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "10px", marginBottom: "16px" }}>
+              <div style={{ background: "#0b1322", border: "1px solid #1e293b", borderRadius: "8px", padding: "10px 14px", display: "flex", alignItems: "center", gap: "10px" }}>
+                <span style={{ fontSize: "20px" }}>👥</span>
+                <div>
+                  <div style={{ fontSize: "11px", color: "#94a3b8", fontWeight: "bold" }}>মোট রেজিস্টার্ড ইউজার</div>
+                  <div style={{ fontSize: "17px", fontWeight: "bold", color: "#38bdf8" }}>{users.length} জন</div>
+                </div>
               </div>
-              <p style={{ margin: "0 0 12px 0", fontSize: "12px", color: "#cbd5e1", lineHeight: "1.5" }}>
-                নিচের বক্সে যেকোনো ইউজার আইডি (Firebase UID বা Member ID) পেস্ট করে <strong>&ldquo;ইউজার রিমুভ করুন&rdquo;</strong> বাটনে ক্লিক করলে ইউজারের সম্পূর্ণ ডেটা ডাটাবেজ থেকে স্থায়ীভাবে রিমুভ হয়ে যাবে।
-              </p>
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  if (!manualUserIdToDelete.trim()) {
-                    alert("দয়া করে একটি ইউজার আইডি লিখুন বা পেস্ট করুন!");
-                    return;
-                  }
-                  const inputVal = manualUserIdToDelete.trim();
-                  const targetUser = users.find(
-                    (u) =>
-                      u.id === inputVal ||
-                      u.uid === inputVal ||
-                      (u.memberId && u.memberId.toUpperCase() === inputVal.toUpperCase()) ||
-                      (u.phone && (u.phone === inputVal || u.phone.includes(inputVal) || u.phone.replace(/\D/g, '').endsWith(inputVal.replace(/\D/g, '')))) ||
-                      (u.email && u.email.toLowerCase() === inputVal.toLowerCase())
-                  );
-                  const actualId = targetUser ? (targetUser.id || targetUser.uid) : inputVal;
-                  handleDeleteUser(actualId, targetUser?.name || targetUser?.phone || inputVal, targetUser);
-                }}
-                style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}
-              >
-                <input
-                  type="text"
-                  placeholder="ইউজার আইডি পেস্ট করুন (যেমন: 8t9Xz1... বা NVT123456)"
-                  value={manualUserIdToDelete}
-                  onChange={(e) => setManualUserIdToDelete(e.target.value)}
-                  style={{
-                    flex: "1",
-                    minWidth: "260px",
-                    padding: "10px 12px",
-                    borderRadius: "6px",
-                    border: "1px solid #ef4444",
-                    backgroundColor: "#0b0f19",
-                    color: "#fff",
-                    fontFamily: "monospace",
-                    fontSize: "13px",
-                    boxSizing: "border-box"
-                  }}
-                />
-                <button
-                  type="submit"
-                  disabled={deletingUserId !== null || !manualUserIdToDelete.trim()}
-                  style={{
-                    padding: "10px 20px",
-                    backgroundColor: deletingUserId ? "#4b5563" : "#dc2626",
-                    color: "#fff",
-                    border: "none",
-                    borderRadius: "6px",
-                    fontWeight: "bold",
-                    fontSize: "13px",
-                    cursor: deletingUserId ? "not-allowed" : "pointer",
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "6px"
-                  }}
-                >
-                  {deletingUserId ? "মুছে ফেলা হচ্ছে..." : "🗑️ ইউজার রিমুভ করুন"}
-                </button>
-                {manualUserIdToDelete && (
-                  <button
-                    type="button"
-                    onClick={() => setManualUserIdToDelete("")}
-                    style={{
-                      padding: "10px 14px",
-                      background: "#334155",
-                      color: "#cbd5e1",
-                      border: "none",
-                      borderRadius: "6px",
-                      cursor: "pointer",
-                      fontSize: "13px"
-                    }}
-                  >
-                    ক্লিয়ার
-                  </button>
-                )}
-              </form>
+
+              <div style={{ background: "#062215", border: "1px solid #14532d", borderRadius: "8px", padding: "10px 14px", display: "flex", alignItems: "center", gap: "10px" }}>
+                <span style={{ fontSize: "20px" }}>⚡</span>
+                <div>
+                  <div style={{ fontSize: "11px", color: "#86efac", fontWeight: "bold" }}>সক্রিয় প্যাকেজ হোল্ডার</div>
+                  <div style={{ fontSize: "17px", fontWeight: "bold", color: "#4ade80" }}>
+                    {users.filter(u => (Array.isArray(u.activeInvestments) && u.activeInvestments.length > 0) || Number(u.totalInvested || 0) > 0).length} জন
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ background: "#1f1807", border: "1px solid #713f12", borderRadius: "8px", padding: "10px 14px", display: "flex", alignItems: "center", gap: "10px" }}>
+                <span style={{ fontSize: "20px" }}>🆓</span>
+                <div>
+                  <div style={{ fontSize: "11px", color: "#fde047", fontWeight: "bold" }}>ফ্রি অ্যাকাউন্ট</div>
+                  <div style={{ fontSize: "17px", fontWeight: "bold", color: "#facc15" }}>
+                    {users.filter(u => !(Array.isArray(u.activeInvestments) && u.activeInvestments.length > 0) && Number(u.totalInvested || 0) <= 0).length} জন
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ background: "#180d26", border: "1px solid #581c87", borderRadius: "8px", padding: "10px 14px", display: "flex", alignItems: "center", gap: "10px" }}>
+                <span style={{ fontSize: "20px" }}>🎁</span>
+                <div>
+                  <div style={{ fontSize: "11px", color: "#d8b4fe", fontWeight: "bold" }}>রেফার পারমিশন প্রাপ্ত</div>
+                  <div style={{ fontSize: "17px", fontWeight: "bold", color: "#c084fc" }}>
+                    {users.filter(u => !!u.canRefer).length} জন
+                  </div>
+                </div>
+              </div>
             </div>
 
-            {/* ইউজার সার্চ ও হেডার বার */}
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px", marginBottom: "15px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
-                <h3 style={{ margin: 0 }}>👥 ইউজার তালিকা ও নেটওয়ার্ক</h3>
-                <span style={{ fontSize: "12px", padding: "3px 8px", background: "#1e293b", color: "#38bdf8", borderRadius: "12px", border: "1px solid #334155" }}>
-                  মোট: {users.length} জন
-                </span>
+            {/* Quick Actions & Filter Pills */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px", marginBottom: "12px" }}>
+              {/* Filter Pills */}
+              <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
                 <button
                   type="button"
-                  onClick={handlePurgeAllAccounts}
+                  onClick={() => setUserFilterTab("all")}
                   style={{
                     padding: "5px 12px",
-                    background: "rgba(220, 38, 38, 0.2)",
+                    borderRadius: "20px",
+                    fontSize: "12px",
+                    fontWeight: "bold",
+                    cursor: "pointer",
+                    border: "1px solid",
+                    borderColor: userFilterTab === "all" ? "#38bdf8" : "#334155",
+                    background: userFilterTab === "all" ? "#0284c7" : "#0f172a",
+                    color: "#fff"
+                  }}
+                >
+                  সকল ({users.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setUserFilterTab("active")}
+                  style={{
+                    padding: "5px 12px",
+                    borderRadius: "20px",
+                    fontSize: "12px",
+                    fontWeight: "bold",
+                    cursor: "pointer",
+                    border: "1px solid",
+                    borderColor: userFilterTab === "active" ? "#4ade80" : "#334155",
+                    background: userFilterTab === "active" ? "#15803d" : "#0f172a",
+                    color: "#fff"
+                  }}
+                >
+                  সক্রিয় ({users.filter(u => (Array.isArray(u.activeInvestments) && u.activeInvestments.length > 0) || Number(u.totalInvested || 0) > 0).length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setUserFilterTab("free")}
+                  style={{
+                    padding: "5px 12px",
+                    borderRadius: "20px",
+                    fontSize: "12px",
+                    fontWeight: "bold",
+                    cursor: "pointer",
+                    border: "1px solid",
+                    borderColor: userFilterTab === "free" ? "#facc15" : "#334155",
+                    background: userFilterTab === "free" ? "#a16207" : "#0f172a",
+                    color: "#fff"
+                  }}
+                >
+                  ফ্রি আইডি ({users.filter(u => !(Array.isArray(u.activeInvestments) && u.activeInvestments.length > 0) && Number(u.totalInvested || 0) <= 0).length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setUserFilterTab("referral")}
+                  style={{
+                    padding: "5px 12px",
+                    borderRadius: "20px",
+                    fontSize: "12px",
+                    fontWeight: "bold",
+                    cursor: "pointer",
+                    border: "1px solid",
+                    borderColor: userFilterTab === "referral" ? "#c084fc" : "#334155",
+                    background: userFilterTab === "referral" ? "#7e22ce" : "#0f172a",
+                    color: "#fff"
+                  }}
+                >
+                  রেফার অনুমোদিত ({users.filter(u => !!u.canRefer).length})
+                </button>
+              </div>
+
+              {/* Utility Buttons */}
+              <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                <button
+                  type="button"
+                  onClick={() => setShowIdRemover(!showIdRemover)}
+                  style={{
+                    padding: "6px 12px",
+                    background: showIdRemover ? "#b91c1c" : "rgba(220, 38, 38, 0.15)",
                     color: "#fca5a5",
                     border: "1px solid rgba(239, 68, 68, 0.4)",
                     borderRadius: "6px",
@@ -1955,37 +2069,176 @@ export default function AdminPanel() {
                     alignItems: "center",
                     gap: "4px"
                   }}
-                  title="ফায়ারবেস ও ডাটাবেজের সকল অ্যাকাউন্ট এবং রেফারেল কোড রিসেট করুন"
                 >
-                  ⚠️ সকল অ্যাকাউন্ট রিমুভ (Reset All)
+                  🗑️ কুইক আইডি রিমুভার {showIdRemover ? "▲" : "▼"}
+                </button>
+                <button
+                  type="button"
+                  onClick={handlePurgeAllAccounts}
+                  style={{
+                    padding: "6px 12px",
+                    background: "rgba(220, 38, 38, 0.1)",
+                    color: "#fca5a5",
+                    border: "1px solid rgba(239, 68, 68, 0.3)",
+                    borderRadius: "6px",
+                    fontSize: "12px",
+                    fontWeight: "bold",
+                    cursor: "pointer"
+                  }}
+                  title="সকল অ্যাকাউন্ট রিসেট করুন"
+                >
+                  ⚠️ সকল রিসেট
                 </button>
               </div>
-              <input
-                type="text"
-                placeholder="🔍 নাম, ফোন বা আইডি দিয়ে সার্চ করুন..."
-                value={userSearchQuery}
-                onChange={(e) => setUserSearchQuery(e.target.value)}
-                style={{ padding: "8px 12px", borderRadius: "6px", border: "1px solid #3b476c", backgroundColor: "#0b0f19", color: "#fff", width: "260px", fontSize: "13px" }}
-              />
             </div>
 
-            {loading ? <p>লোড হচ্ছে...</p> : filteredUsers.length === 0 ? (
-              <p style={{ color: "#94a3b8", textAlign: "center", padding: "20px" }}>কোনো ইউজার পাওয়া যায়নি।</p>
+            {/* Collapsible Slim Quick Remover Form */}
+            {showIdRemover && (
+              <div style={{ background: "rgba(220, 38, 38, 0.08)", border: "1px solid rgba(239, 68, 68, 0.35)", borderRadius: "8px", padding: "10px 14px", marginBottom: "14px" }}>
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (!manualUserIdToDelete.trim()) {
+                      alert("দয়া করে একটি ইউজার আইডি বা মেম্বার আইডি লিখুন!");
+                      return;
+                    }
+                    const inputVal = manualUserIdToDelete.trim();
+                    const targetUser = users.find(
+                      (u) =>
+                        u.id === inputVal ||
+                        u.uid === inputVal ||
+                        (u.memberId && u.memberId.toUpperCase() === inputVal.toUpperCase()) ||
+                        (u.phone && (u.phone === inputVal || u.phone.includes(inputVal) || u.phone.replace(/\D/g, '').endsWith(inputVal.replace(/\D/g, '')))) ||
+                        (u.email && u.email.toLowerCase() === inputVal.toLowerCase())
+                    );
+                    const actualId = targetUser ? (targetUser.id || targetUser.uid) : inputVal;
+                    handleDeleteUser(actualId, targetUser?.name || targetUser?.phone || inputVal, targetUser);
+                  }}
+                  style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}
+                >
+                  <span style={{ fontSize: "13px", color: "#fca5a5", fontWeight: "bold" }}>আইডি দিয়ে মুছুন:</span>
+                  <input
+                    type="text"
+                    placeholder="Firebase UID বা Member ID দিন (যেমন: NVT123456 বা 8t9Xz1...)"
+                    value={manualUserIdToDelete}
+                    onChange={(e) => setManualUserIdToDelete(e.target.value)}
+                    style={{
+                      flex: "1",
+                      minWidth: "220px",
+                      padding: "6px 10px",
+                      borderRadius: "6px",
+                      border: "1px solid #ef4444",
+                      backgroundColor: "#0b0f19",
+                      color: "#fff",
+                      fontFamily: "monospace",
+                      fontSize: "12px",
+                      boxSizing: "border-box"
+                    }}
+                  />
+                  <button
+                    type="submit"
+                    disabled={deletingUserId !== null || !manualUserIdToDelete.trim()}
+                    style={{
+                      padding: "6px 14px",
+                      backgroundColor: deletingUserId ? "#4b5563" : "#dc2626",
+                      color: "#fff",
+                      border: "none",
+                      borderRadius: "6px",
+                      fontWeight: "bold",
+                      fontSize: "12px",
+                      cursor: deletingUserId ? "not-allowed" : "pointer"
+                    }}
+                  >
+                    {deletingUserId ? "মুছে ফেলা হচ্ছে..." : "🗑️ নিশ্চিত রিমুভ"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setManualUserIdToDelete(""); setShowIdRemover(false); }}
+                    style={{ padding: "6px 10px", background: "#334155", color: "#cbd5e1", border: "none", borderRadius: "6px", cursor: "pointer", fontSize: "12px" }}
+                  >
+                    বন্ধ
+                  </button>
+                </form>
+              </div>
+            )}
+
+            {/* Search Bar & Count */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px", marginBottom: "12px" }}>
+              <div style={{ fontSize: "13px", color: "#94a3b8" }}>
+                প্রদর্শন হচ্ছে: <strong style={{ color: "#38bdf8" }}>{filteredUsers.length}</strong> / {users.length} জন
+              </div>
+              <div style={{ position: "relative", width: "100%", maxWidth: "340px" }}>
+                <input
+                  type="text"
+                  placeholder="🔍 নাম, ফোন, মেম্বার আইডি বা UID দিয়ে সার্চ..."
+                  value={userSearchQuery}
+                  onChange={(e) => setUserSearchQuery(e.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "7px 30px 7px 12px",
+                    borderRadius: "6px",
+                    border: "1px solid #3b476c",
+                    backgroundColor: "#0b0f19",
+                    color: "#fff",
+                    fontSize: "13px",
+                    boxSizing: "border-box"
+                  }}
+                />
+                {userSearchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setUserSearchQuery("")}
+                    style={{
+                      position: "absolute",
+                      right: "8px",
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                      background: "transparent",
+                      border: "none",
+                      color: "#94a3b8",
+                      cursor: "pointer",
+                      fontSize: "12px",
+                      fontWeight: "bold"
+                    }}
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Compact, Organized Table */}
+            {loading ? (
+              <p style={{ color: "#94a3b8", textAlign: "center", padding: "20px" }}>লোড হচ্ছে...</p>
+            ) : filteredUsers.length === 0 ? (
+              <div style={{ color: "#94a3b8", textAlign: "center", padding: "30px 20px", background: "#0b0f19", borderRadius: "8px", border: "1px solid #1e293b" }}>
+                <p style={{ margin: 0, fontSize: "14px" }}>কোনো ইউজার পাওয়া যায়নি।</p>
+                {userSearchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => { setUserSearchQuery(""); setUserFilterTab("all"); }}
+                    style={{ marginTop: "10px", padding: "5px 12px", background: "#1e293b", color: "#38bdf8", border: "1px solid #334155", borderRadius: "4px", cursor: "pointer", fontSize: "12px" }}
+                  >
+                    সার্চ ও ফিল্টার ক্লিয়ার করুন
+                  </button>
+                )}
+              </div>
             ) : (
-              <div style={{ overflowX: "auto" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "14px" }}>
+              <div style={{ overflowX: "auto", borderRadius: "8px", border: "1px solid #2e3856" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "13px" }}>
                   <thead>
-                    <tr style={{ borderBottom: "1px solid #2e3856", color: "#94a3b8" }}>
-                      <th style={{ padding: "10px" }}>নাম / ফোন / স্ট্যাটাস</th>
-                      <th style={{ padding: "10px" }}>ব্যালেন্স</th>
-                      <th style={{ padding: "10px" }}>রেফার / আপলাইনার</th>
-                      <th style={{ padding: "10px" }}>রেফার পারমিশন ও লিমিট</th>
-                      <th style={{ padding: "10px" }}>ইউজার আইডি (UID)</th>
-                      <th style={{ padding: "10px", textAlign: "center" }}>অ্যাকশন</th>
+                    <tr style={{ background: "#0f172a", borderBottom: "1px solid #2e3856", color: "#94a3b8", whiteSpace: "nowrap" }}>
+                      <th style={{ padding: "8px 10px", width: "40px", textAlign: "center" }}>#</th>
+                      <th style={{ padding: "8px 10px", minWidth: "170px" }}>ইউজার / মেম্বার</th>
+                      <th style={{ padding: "8px 10px", width: "110px" }}>ব্যালেন্স</th>
+                      <th style={{ padding: "8px 10px", width: "110px" }}>আপলাইনার</th>
+                      <th style={{ padding: "8px 10px", minWidth: "190px" }}>রেফার পারমিশন ও লিমিট</th>
+                      <th style={{ padding: "8px 10px", width: "130px" }}>ইউজার আইডি (UID)</th>
+                      <th style={{ padding: "8px 10px", width: "80px", textAlign: "center" }}>অ্যাকশন</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredUsers.map((u) => {
+                    {filteredUsers.map((u, idx) => {
                       const isBeingDeleted = deletingUserId === u.id;
                       const isIdCopied = copiedId === u.id;
                       const userCanRefer = !!u.canRefer;
@@ -1999,68 +2252,88 @@ export default function AdminPanel() {
                          (u.phone && x.referredBy === u.phone))
                       ).length;
 
+                      const shortId = u.id ? (u.id.length > 12 ? `${u.id.slice(0, 5)}...${u.id.slice(-4)}` : u.id) : "N/A";
+
                       return (
-                        <tr key={u.id} style={{ borderBottom: "1px solid #1e293b", backgroundColor: isBeingDeleted ? "rgba(220, 38, 38, 0.15)" : "transparent" }}>
-                          <td style={{ padding: "10px" }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                              <span style={{ fontWeight: "bold", color: "#00d2ff" }}>{u.name || "N/A"}</span>
+                        <tr
+                          key={u.id}
+                          style={{
+                            borderBottom: "1px solid #1e293b",
+                            backgroundColor: isBeingDeleted ? "rgba(220, 38, 38, 0.15)" : idx % 2 === 0 ? "rgba(11, 15, 25, 0.4)" : "transparent",
+                            verticalAlign: "middle"
+                          }}
+                        >
+                          {/* 0. Index */}
+                          <td style={{ padding: "7px 10px", textAlign: "center", color: "#64748b", fontSize: "11px", fontWeight: "bold" }}>
+                            {idx + 1}
+                          </td>
+
+                          {/* 1. Name & Contact */}
+                          <td style={{ padding: "7px 10px" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "6px", lineHeight: "1.2" }}>
+                              <span style={{ fontWeight: "bold", color: "#38bdf8", fontSize: "13px" }}>
+                                {u.name || "N/A"}
+                              </span>
                               {isUserActive ? (
-                                <span style={{ padding: "1px 6px", borderRadius: "4px", fontSize: "10px", fontWeight: "bold", background: "#052e16", color: "#4ade80", border: "1px solid #166534" }}>
-                                  একটিভ
+                                <span style={{ padding: "1px 5px", borderRadius: "3px", fontSize: "9px", fontWeight: "bold", background: "#052e16", color: "#4ade80", border: "1px solid #166534" }}>
+                                  সক্রিয়
                                 </span>
                               ) : (
-                                <span style={{ padding: "1px 6px", borderRadius: "4px", fontSize: "10px", fontWeight: "bold", background: "#3b2204", color: "#facc15", border: "1px solid #854d0e" }}>
-                                  ফ্রি আইডি
+                                <span style={{ padding: "1px 5px", borderRadius: "3px", fontSize: "9px", fontWeight: "bold", background: "#2e2105", color: "#facc15", border: "1px solid #713f12" }}>
+                                  ফ্রি
                                 </span>
                               )}
                             </div>
-                            <div style={{ fontSize: "12px", color: "#94a3b8" }}>{u.phone || u.email || "N/A"}</div>
-                            {u.memberId && (
-                              <div style={{ fontSize: "11px", color: "#64748b" }}>মেম্বার আইডি: {u.memberId}</div>
+                            <div style={{ fontSize: "11px", color: "#94a3b8", marginTop: "2px", display: "flex", alignItems: "center", gap: "5px", whiteSpace: "nowrap" }}>
+                              <span>📱 {u.phone || u.email || "N/A"}</span>
+                              {u.memberId && (
+                                <span style={{ color: "#64748b", background: "#0b0f19", padding: "0 4px", borderRadius: "3px", border: "1px solid #1e293b" }}>
+                                  ID: {u.memberId}
+                                </span>
+                              )}
+                            </div>
+                          </td>
+
+                          {/* 2. Balance */}
+                          <td style={{ padding: "7px 10px", whiteSpace: "nowrap" }}>
+                            <span style={{ color: "#4ade80", fontWeight: "bold", fontFamily: "monospace", fontSize: "13px" }}>
+                              ৳ {Math.max(0, Number(u.walletBalance ?? u.balance ?? 0)).toLocaleString("en-US")}
+                            </span>
+                          </td>
+
+                          {/* 3. Upliner */}
+                          <td style={{ padding: "7px 10px", whiteSpace: "nowrap" }}>
+                            {u.referredBy || u.upliner || u.sponsor ? (
+                              <span style={{ color: "#fbbf24", fontSize: "12px", background: "rgba(251, 191, 36, 0.1)", padding: "2px 6px", borderRadius: "4px", border: "1px solid rgba(251, 191, 36, 0.2)" }}>
+                                {u.referredBy || u.upliner || u.sponsor}
+                              </span>
+                            ) : (
+                              <span style={{ color: "#64748b", fontSize: "11px" }}>Direct (সরাসরি)</span>
                             )}
                           </td>
-                          <td style={{ padding: "10px", color: "#22c55e", fontWeight: "bold" }}>
-                            ৳ {Math.max(0, Number(u.walletBalance ?? u.balance ?? 0))}
-                          </td>
-                          <td style={{ padding: "10px", color: "#facc15", fontSize: "13px" }}>
-                            {u.referredBy || u.upliner || u.sponsor || "কেউ না (Direct)"}
-                          </td>
-                          <td style={{ padding: "10px" }}>
-                            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                                <span
-                                  style={{
-                                    padding: "2px 8px",
-                                    borderRadius: "12px",
-                                    fontSize: "11px",
-                                    fontWeight: "bold",
-                                    backgroundColor: userCanRefer ? "rgba(34, 197, 94, 0.15)" : "rgba(239, 68, 68, 0.15)",
-                                    color: userCanRefer ? "#4ade80" : "#f87171",
-                                    border: `1px solid ${userCanRefer ? "rgba(34, 197, 94, 0.4)" : "rgba(239, 68, 68, 0.4)"}`,
-                                  }}
-                                >
-                                  {userCanRefer ? "✓ অনুমোদিত" : "✕ অননুমোদিত"}
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={() => handleToggleReferralPermission(u.id, userCanRefer, userLimit || 5)}
-                                  style={{
-                                    padding: "3px 8px",
-                                    fontSize: "11px",
-                                    borderRadius: "4px",
-                                    border: "none",
-                                    cursor: "pointer",
-                                    fontWeight: "bold",
-                                    backgroundColor: userCanRefer ? "#dc2626" : "#16a34a",
-                                    color: "#fff"
-                                  }}
-                                  title={userCanRefer ? "রেফার পারমিশন বাতিল করুন" : "রেফার পারমিশন অনুমোদন দিন"}
-                                >
-                                  {userCanRefer ? "অনুমতি বাতিল" : "অনুমতি দিন"}
-                                </button>
-                              </div>
 
-                              <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", color: "#cbd5e1" }}>
+                          {/* 4. Referral Permission & Limit (Streamlined Inline Row) */}
+                          <td style={{ padding: "7px 10px" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "nowrap", whiteSpace: "nowrap" }}>
+                              <button
+                                type="button"
+                                onClick={() => handleToggleReferralPermission(u.id, userCanRefer, userLimit || 5)}
+                                style={{
+                                  padding: "2px 6px",
+                                  borderRadius: "4px",
+                                  fontSize: "11px",
+                                  fontWeight: "bold",
+                                  cursor: "pointer",
+                                  border: "none",
+                                  backgroundColor: userCanRefer ? "#166534" : "#7f1d1d",
+                                  color: userCanRefer ? "#86efac" : "#fca5a5"
+                                }}
+                                title={userCanRefer ? "ক্লিক করে পারমিশন বাতিল করুন" : "ক্লিক করে অনুমোদন দিন"}
+                              >
+                                {userCanRefer ? "✓ সক্রিয়" : "✕ বন্ধ"}
+                              </button>
+
+                              <div style={{ display: "inline-flex", alignItems: "center", gap: "3px", fontSize: "11px", color: "#94a3b8" }}>
                                 <span>লিমিট:</span>
                                 <input
                                   type="number"
@@ -2082,73 +2355,83 @@ export default function AdminPanel() {
                                     }
                                   }}
                                   style={{
-                                    width: "55px",
-                                    padding: "2px 6px",
-                                    borderRadius: "4px",
+                                    width: "44px",
+                                    padding: "1px 4px",
+                                    borderRadius: "3px",
                                     backgroundColor: "#0b0f19",
                                     border: "1px solid #3b476c",
-                                    color: "#00d2ff",
-                                    fontSize: "12px",
+                                    color: "#38bdf8",
+                                    fontSize: "11px",
                                     fontWeight: "bold",
                                     textAlign: "center"
                                   }}
-                                  title="লিমিট টাইপ করে বাইরে ক্লিক করুন বা এন্টার চাপুন"
+                                  title="লিমিট লিখে এন্টার চাপুন"
                                 />
-                                <span style={{ fontSize: "11px", color: "#94a3b8" }}>
-                                  (রেফার: <strong style={{ color: userReferredCount >= userLimit && userLimit > 0 ? "#f87171" : "#4ade80" }}>{userReferredCount}</strong>/{userLimit > 0 ? userLimit : "অসীম"})
+                                <span style={{ fontSize: "10px", color: userReferredCount >= userLimit && userLimit > 0 ? "#f87171" : "#4ade80" }}>
+                                  ({userReferredCount}/{userLimit > 0 ? userLimit : "∞"})
                                 </span>
                               </div>
                             </div>
                           </td>
-                          <td style={{ padding: "10px" }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                              <span style={{ fontSize: "12px", fontFamily: "monospace", color: "#94a3b8", wordBreak: "break-all" }}>
-                                {u.id}
+
+                          {/* 5. UID (Compact Truncated with 1-Click Copy) */}
+                          <td style={{ padding: "7px 10px", whiteSpace: "nowrap" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                              <span
+                                title={u.id}
+                                style={{
+                                  fontSize: "11px",
+                                  fontFamily: "monospace",
+                                  color: "#94a3b8",
+                                  background: "#0b0f19",
+                                  padding: "2px 5px",
+                                  borderRadius: "4px",
+                                  border: "1px solid #1e293b",
+                                  cursor: "help"
+                                }}
+                              >
+                                {shortId}
                               </span>
                               <button
                                 type="button"
                                 onClick={() => handleCopyId(u.id)}
                                 style={{
-                                  padding: "2px 6px",
-                                  fontSize: "11px",
+                                  padding: "2px 5px",
+                                  fontSize: "10px",
                                   backgroundColor: isIdCopied ? "#166534" : "#1e293b",
                                   color: isIdCopied ? "#4ade80" : "#94a3b8",
                                   border: "1px solid #334155",
-                                  borderRadius: "4px",
+                                  borderRadius: "3px",
                                   cursor: "pointer",
                                   whiteSpace: "nowrap"
                                 }}
-                                title="ইউজার আইডি কপি করুন"
+                                title="সম্পূর্ণ আইডি কপি করুন"
                               >
-                                {isIdCopied ? "✓ কপিড" : "কপি"}
+                                {isIdCopied ? "✓" : "কপি"}
                               </button>
                             </div>
                           </td>
-                          <td style={{ padding: "10px", textAlign: "center" }}>
-                            <div style={{ display: "flex", gap: "6px", justifyContent: "center" }}>
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteUser(u.id, u.name || u.phone || "", u)}
-                                disabled={isBeingDeleted || deletingUserId !== null}
-                                style={{
-                                  backgroundColor: isBeingDeleted ? "#475569" : "#dc2626",
-                                  color: "#fff",
-                                  border: "none",
-                                  padding: "6px 12px",
-                                  borderRadius: "4px",
-                                  cursor: isBeingDeleted || deletingUserId !== null ? "not-allowed" : "pointer",
-                                  fontSize: "12px",
-                                  fontWeight: "bold",
-                                  display: "inline-flex",
-                                  alignItems: "center",
-                                  gap: "4px",
-                                  transition: "all 0.2s ease"
-                                }}
-                                title="এই ইউজারকে ডাটাবেজ থেকে সম্পূর্ণ মুছে ফেলুন"
-                              >
-                                {isBeingDeleted ? "মুছছে..." : "🗑️ রিমুভ"}
-                              </button>
-                            </div>
+
+                          {/* 6. Action */}
+                          <td style={{ padding: "7px 10px", textAlign: "center", whiteSpace: "nowrap" }}>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteUser(u.id, u.name || u.phone || "", u)}
+                              disabled={isBeingDeleted || deletingUserId !== null}
+                              style={{
+                                backgroundColor: isBeingDeleted ? "#475569" : "#b91c1c",
+                                color: "#fff",
+                                border: "none",
+                                padding: "4px 8px",
+                                borderRadius: "4px",
+                                cursor: isBeingDeleted || deletingUserId !== null ? "not-allowed" : "pointer",
+                                fontSize: "11px",
+                                fontWeight: "bold"
+                              }}
+                              title="ইউজার ডিলিট করুন"
+                            >
+                              {isBeingDeleted ? "..." : "🗑️ রিমুভ"}
+                            </button>
                           </td>
                         </tr>
                       );

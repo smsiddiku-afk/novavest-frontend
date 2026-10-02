@@ -36,7 +36,8 @@ import { PromoBonusScreen } from './PromoBonusScreen';
 
 export interface ReferralMember {
   id: string;
-  phone: string;
+  phone?: string;
+  memberId?: string;
   username?: string;
   level: 1 | 2 | 3;
   date: string;
@@ -55,6 +56,7 @@ interface ReferralPageProps {
   onClaimPromoReward?: (amount: number, level: string) => void;
   showToast?: (msg: string) => void;
   userBalance?: number;
+  referralRewards?: number;
   canRefer?: boolean;
   referralLimit?: number;
   onContactManager?: () => void;
@@ -70,6 +72,7 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
   onClaimPromoReward,
   showToast = (_msg: string) => {},
   userBalance = 0,
+  referralRewards = 0,
   canRefer = true,
   referralLimit = 0,
   onContactManager,
@@ -143,6 +146,7 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
     return (teamTree.members || []).map((m) => ({
       id: m.id,
       phone: m.phone,
+      memberId: m.memberId,
       username: m.username,
       level: m.level,
       date: m.date,
@@ -152,15 +156,20 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
     }));
   }, [teamTree]);
 
-  // Available Cash Rewards state (real commissions waiting to be claimed)
-  const [availableRewards, setAvailableRewards] = useState<number>(() => {
-    return teamTree.availableRewards;
-  });
+  // Available Cash Rewards state: combines Firestore profile referralRewards and real computed tree rewards across all 3 levels
+  const currentAvailableRewards = useMemo(() => {
+    if (typeof referralRewards === 'number' && referralRewards > 0) {
+      return Number(referralRewards.toFixed(2));
+    }
+    return Number((teamTree.availableRewards || 0).toFixed(2));
+  }, [referralRewards, teamTree.availableRewards]);
 
-  // Keep in sync with computed tree available rewards
+  const [availableRewards, setAvailableRewards] = useState<number>(currentAvailableRewards);
+
+  // Keep in sync with computed tree or firestore available rewards
   React.useEffect(() => {
-    setAvailableRewards(teamTree.availableRewards);
-  }, [teamTree.availableRewards]);
+    setAvailableRewards(currentAvailableRewards);
+  }, [currentAvailableRewards]);
 
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -1356,7 +1365,7 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
                       <div>
                         <div className="flex items-center gap-2">
                           <span className="font-mono font-bold text-white text-xs sm:text-sm">
-                            {member.phone}
+                            {member.username || member.memberId || member.id}
                           </span>
                           {member.status === 'active' && (
                             <span className="px-1.5 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-[9px] font-semibold">
@@ -1365,7 +1374,7 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
                           )}
                         </div>
                         <span className="text-[10px] text-emerald-200/70 block mt-0.5">
-                          {member.date} • {currentLang === 'bn' ? 'বিনিয়োগ:' : 'Invest:'} ৳
+                          {member.memberId ? `মেম্বার আইডি: ${member.memberId} • ` : ''}{member.date} • {currentLang === 'bn' ? 'বিনিয়োগ:' : 'Invest:'} ৳
                           {member.investAmount.toLocaleString()}
                         </span>
                       </div>

@@ -34,7 +34,6 @@ import {
   Copy,
   ExternalLink,
   Search,
-  Headphones,
   Radio,
   FileText,
   Clock,
@@ -59,6 +58,7 @@ import {
   Heart,
   MapPin,
   Users,
+  Send,
 } from 'lucide-react';
 import { HOURLY_GENERATION_DATA } from '../data/energyData';
 import { EnergySystem, Language } from '../types';
@@ -71,6 +71,7 @@ import {
 } from '../utils/translations';
 import { HowPowerGridWorksSection } from './HowPowerGridWorksSection';
 import { CompanyProfileModal } from './CompanyProfileModal';
+import { ProjectManagerPage } from './ProjectManagerPage';
 import { resolveImageSrc, handleImageError } from '../utils/imageUtils';
 import { openCrispChat } from '../utils/crispService';
 import { downloadNvtApk } from '../utils/appDownloader';
@@ -131,6 +132,7 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
 
   // Navigation & Drawer
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [isProjectManagerPageOpen, setIsProjectManagerPageOpen] = useState(false);
 
   // Active Modals
   const [activeModal, setActiveModal] = useState<
@@ -743,6 +745,17 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
     setActiveModal('system-details');
   };
 
+  // If user opens Project Manager, render as dedicated full page (no popup modal!)
+  if (isProjectManagerPageOpen) {
+    return (
+      <ProjectManagerPage
+        onBack={() => setIsProjectManagerPageOpen(false)}
+        currentLang={currentLang}
+        showToast={showToast}
+      />
+    );
+  }
+
   return (
     <div className={`w-full flex flex-col space-y-4 pb-6 transition-colors duration-200 ${themeMode === 'day' ? 'text-slate-800' : 'text-slate-100'} animate-in fade-in duration-200`}>
       {/* ───────────────────────────────────────────────────────────
@@ -940,19 +953,32 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
             </div>
             <p className="text-[11px] text-emerald-200/85 font-medium truncate mt-0.5">
               {lang === 'bn'
-                ? 'সৌর বিদ্যুৎ উৎপাদন প্রকল্প ও অফিশিয়াল টেলিগ্রাম চ্যানেল দেখুন'
-                : 'View solar energy projects & join official Telegram'}
+                ? 'সৌর বিদ্যুৎ উৎপাদন প্রকল্প ও অফিশিয়াল টেলিগ্রাম গ্রুপ লিংক'
+                : 'Solar projects & official Telegram Group link'}
             </p>
           </div>
         </div>
 
-        <button
-          type="button"
-          className="shrink-0 px-2.5 py-1 rounded-xl bg-emerald-500/20 group-hover:bg-emerald-500/30 text-emerald-300 text-xs font-bold flex items-center gap-1 border border-emerald-500/30 transition-colors"
-        >
-          <span>{lang === 'bn' ? 'দেখুন' : 'View'}</span>
-          <ChevronRight className="w-3.5 h-3.5 text-emerald-300 group-hover:translate-x-0.5 transition-transform" />
-        </button>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <a
+            href="https://t.me/+Bb9xFhOlIithYzQx"
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="px-2.5 py-1.5 rounded-xl bg-gradient-to-r from-emerald-400 to-teal-400 hover:from-emerald-300 hover:to-teal-300 text-slate-950 text-xs font-black flex items-center gap-1 shadow-md transition-all active:scale-95 cursor-pointer"
+          >
+            <Send className="w-3.5 h-3.5 fill-slate-950 stroke-none" />
+            <span>{lang === 'bn' ? 'গ্রুপ লিংক' : 'Group Link'}</span>
+            <ExternalLink className="w-3 h-3 stroke-[2.5]" />
+          </a>
+          <button
+            type="button"
+            className="px-2 py-1.5 rounded-xl bg-emerald-500/20 group-hover:bg-emerald-500/30 text-emerald-300 text-xs font-bold flex items-center gap-0.5 border border-emerald-500/30 transition-colors"
+          >
+            <span>{lang === 'bn' ? 'নোটিশ' : 'Notice'}</span>
+            <ChevronRight className="w-3.5 h-3.5 text-emerald-300 group-hover:translate-x-0.5 transition-transform" />
+          </button>
+        </div>
       </div>
 
       {/* ───────────────────────────────────────────────────────────
@@ -1015,17 +1041,18 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
             </span>
           </button>
 
-          {/* Card 4: Leadership (Violet/Purple, User) */}
+          {/* Card 4: Project Manager (প্রকল্প ব্যবস্থাপক - ৪টি টেলিগ্রাম ম্যানেজার সাপোর্ট ফুল পেজ) */}
           <button
             type="button"
-            onClick={() => setActiveModal('employee')}
-            className="p-2.5 sm:p-3 rounded-2xl bg-gradient-to-b from-[#7c3aed] to-[#6d28d9] text-white flex flex-col items-center justify-center text-center shadow-md active:scale-95 transition-all cursor-pointer group"
+            id="home-quick-project-manager-btn"
+            onClick={() => setIsProjectManagerPageOpen(true)}
+            className="p-2 sm:p-2.5 rounded-2xl bg-gradient-to-b from-[#059669] via-[#047857] to-[#065f46] hover:from-[#10b981] hover:to-[#059669] text-white flex flex-col items-center justify-center text-center shadow-lg active:scale-95 transition-all cursor-pointer group border border-emerald-400/40"
           >
-            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-white/20 flex items-center justify-center mb-1 group-hover:scale-110 transition-transform">
-              <UserCheck className="w-4.5 h-4.5 text-white" />
+            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-white/20 flex items-center justify-center mb-1 group-hover:scale-110 transition-transform">
+              <UserCheck className="w-4 h-4 text-white" />
             </div>
-            <span className="text-xs sm:text-sm font-bold leading-tight block truncate w-full">
-              {lang === 'bn' ? 'নেতৃত্ব' : 'Leadership'}
+            <span className="text-[10.5px] sm:text-xs font-black leading-[1.15] block text-center break-words w-full px-0.5">
+              {lang === 'bn' ? 'প্রকল্প ব্যবস্থাপক' : 'Project Manager'}
             </span>
           </button>
 

@@ -444,7 +444,7 @@ export const translations: Record<Language, TranslationStrings> = {
     supportModalTitle: '24/7 Customer Support & Helpline',
     supportModalSubtitle: 'Our dedicated team is always ready to assist you with any questions',
     supportEmergency: 'Direct Helpline Hotline',
-    supportTelegram: 'Official Telegram Channel',
+    supportTelegram: 'Official Telegram Group',
     supportEmail: 'Official Support Email',
 
     // Toasts
@@ -672,7 +672,7 @@ export const translations: Record<Language, TranslationStrings> = {
     supportModalTitle: '২৪/৭ কাস্টমার সাপোর্ট ও হেল্পলাইন',
     supportModalSubtitle: 'যেকোনো প্রয়োজনে আমাদের কাস্টমার কেয়ার প্রতিনিধিদের সাথে সরাসরি যোগাযোগ করুন',
     supportEmergency: 'জরুরি কাস্টমার হেল্পলাইন',
-    supportTelegram: 'অফিসিয়াল টেলিগ্রাম চ্যানেল',
+    supportTelegram: 'অফিসিয়াল টেলিগ্রাম গ্রুপ',
     supportEmail: 'অফিসিয়াল সাপোর্ট ইমেইল',
 
     // Toasts

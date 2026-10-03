@@ -19,15 +19,107 @@ export interface SupportSettings {
   crispWebsiteId: string;
   crispEnabled: boolean;
   supportEmail: string;
+  manager1Telegram?: string;
+  manager2Telegram?: string;
+  manager3Telegram?: string;
+  manager4Telegram?: string;
 }
+
+export interface ProjectManagerInfo {
+  id: string;
+  nameBn: string;
+  nameEn: string;
+  personNameBn: string;
+  personNameEn: string;
+  roleBn: string;
+  roleEn: string;
+  telegram: string;
+  username: string;
+  statusBn: string;
+  statusEn: string;
+  avatarImg: string;
+  avatar: string;
+  color: string;
+}
+
+export const DEFAULT_PROJECT_MANAGERS: ProjectManagerInfo[] = [
+  {
+    id: 'pm-1',
+    nameBn: 'সিনিয়র প্রকল্প ব্যবস্থাপক',
+    nameEn: 'Senior Project Manager',
+    personNameBn: 'ইঞ্জি. রাশেদুল ইসলাম',
+    personNameEn: 'Engr. Rashedul Islam',
+    roleBn: 'গ্রিড অপারেশন ও ডিপোজিট ক্লিয়ারেন্স',
+    roleEn: 'Grid Operations & Deposit Clearance',
+    telegram: 'https://t.me/NVT_ProjectManager1',
+    username: '@NVT_ProjectManager1',
+    statusBn: 'সক্রিয় • ২৪/৭ অনলাইন',
+    statusEn: 'Active • 24/7 Online',
+    avatarImg: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=256&h=256&q=80',
+    avatar: '👨‍💼',
+    color: 'from-emerald-600 via-teal-600 to-emerald-800',
+  },
+  {
+    id: 'pm-2',
+    nameBn: 'প্রকল্প ব্যবস্থাপক',
+    nameEn: 'Project Manager',
+    personNameBn: 'ফারহানা হক',
+    personNameEn: 'Farhana Haque',
+    roleBn: 'উইথড্রল অনুমোদন ও আর্থিক সহায়তা',
+    roleEn: 'Withdrawal Approval & Finance Support',
+    telegram: 'https://t.me/NVT_ProjectManager2',
+    username: '@NVT_ProjectManager2',
+    statusBn: 'সক্রিয় • দ্রুত রেসপন্স',
+    statusEn: 'Active • Fast Response',
+    avatarImg: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=256&h=256&q=80',
+    avatar: '👩‍💼',
+    color: 'from-teal-600 via-emerald-600 to-emerald-900',
+  },
+  {
+    id: 'pm-3',
+    nameBn: 'টেকনিক্যাল প্রকল্প ব্যবস্থাপক',
+    nameEn: 'Technical Project Manager',
+    personNameBn: 'তানভীর আহমেদ',
+    personNameEn: 'Tanveer Ahmed',
+    roleBn: 'সোলার পাওয়ার প্যাকেজ ও দৈনিক মুনাফা গাইড',
+    roleEn: 'Solar Power Packages & Daily Yields',
+    telegram: 'https://t.me/NVT_ProjectManager3',
+    username: '@NVT_ProjectManager3',
+    statusBn: 'সক্রিয় • ২৪/৭ অনলাইন',
+    statusEn: 'Active • 24/7 Online',
+    avatarImg: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=256&h=256&q=80',
+    avatar: '👨‍💼',
+    color: 'from-emerald-700 via-emerald-850 to-teal-900',
+  },
+  {
+    id: 'pm-4',
+    nameBn: 'ভিআইপি ও টিম রিলেশনস ম্যানেজার',
+    nameEn: 'VIP & Team Relations Manager',
+    personNameBn: 'সাবরিনা চৌধুরী',
+    personNameEn: 'Sabrina Chowdhury',
+    roleBn: 'টিম কমিশন ও ভিআইপি মেম্বার রিওয়ার্ড',
+    roleEn: 'Team Commission & VIP Rewards',
+    telegram: 'https://t.me/NVT_ProjectManager4',
+    username: '@NVT_ProjectManager4',
+    statusBn: 'সক্রিয় • ২৪/৭ অনলাইন',
+    statusEn: 'Active • 24/7 Online',
+    avatarImg: 'https://images.unsplash.com/photo-1580489944761-15a19d654956?auto=format&fit=crop&w=256&h=256&q=80',
+    avatar: '👩‍💼',
+    color: 'from-emerald-600 via-teal-700 to-[#042c20]',
+  },
+];
 
 export const DEFAULT_SUPPORT_SETTINGS: SupportSettings = {
   whatsapp: 'https://chat.whatsapp.com/G4YxR5kXqZ01',
-  telegram: 'https://t.me/NVTEnergySupport',
+  telegram: 'https://t.me/+Bb9xFhOlIithYzQx',
   hotline: '+880 9612-345678',
   crispWebsiteId: DEFAULT_CRISP_WEBSITE_ID,
   crispEnabled: true,
   supportEmail: 'support@novaterraenergy.io',
+  manager1Telegram: 'https://t.me/NVT_ProjectManager1',
+  manager2Telegram: 'https://t.me/NVT_ProjectManager2',
+  manager3Telegram: 'https://t.me/NVT_ProjectManager3',
+  manager4Telegram: 'https://t.me/NVT_ProjectManager4',
 };
 
 /**
@@ -46,6 +138,10 @@ export const fetchSupportSettings = async (): Promise<SupportSettings> => {
         crispWebsiteId: data.crispWebsiteId || DEFAULT_CRISP_WEBSITE_ID,
         crispEnabled: data.crispEnabled !== false,
         supportEmail: data.supportEmail || DEFAULT_SUPPORT_SETTINGS.supportEmail,
+        manager1Telegram: data.manager1Telegram || DEFAULT_SUPPORT_SETTINGS.manager1Telegram,
+        manager2Telegram: data.manager2Telegram || DEFAULT_SUPPORT_SETTINGS.manager2Telegram,
+        manager3Telegram: data.manager3Telegram || DEFAULT_SUPPORT_SETTINGS.manager3Telegram,
+        manager4Telegram: data.manager4Telegram || DEFAULT_SUPPORT_SETTINGS.manager4Telegram,
       };
     }
   } catch (err) {

@@ -85,7 +85,7 @@ export const NvtPromoBannerModal: React.FC<NvtPromoBannerModalProps> = ({
   if (!isOpen) return null;
 
   const handleJoinChannel = () => {
-    const targetUrl = telegramUrl || 'https://t.me/NVTEnergySupport';
+    const targetUrl = telegramUrl || 'https://t.me/+Bb9xFhOlIithYzQx';
     try {
       window.open(targetUrl, '_blank', 'noopener,noreferrer');
     } catch (_) {
@@ -236,9 +236,9 @@ export const NvtPromoBannerModal: React.FC<NvtPromoBannerModalProps> = ({
 
         {/* Bottom Actions Bar - Centered & Prominent */}
         <div className="p-4 sm:p-5 bg-[#021812] border-t border-emerald-500/30 flex flex-col items-center gap-2.5">
-          {/* "Join Now Official Channel" button as specifically requested */}
+          {/* "Join Official Group" button as requested */}
           <button
-            id="join-now-official-channel-btn"
+            id="join-official-group-btn"
             type="button"
             onClick={handleJoinChannel}
             className="w-full py-4 px-6 rounded-2xl bg-gradient-to-r from-emerald-400 via-[#00e676] to-teal-400 hover:from-emerald-300 hover:to-teal-300 text-slate-950 font-black text-base sm:text-lg tracking-wide flex items-center justify-center gap-2.5 transition-all shadow-[0_8px_30px_rgba(0,230,118,0.45)] active:scale-[0.98] cursor-pointer"
@@ -246,8 +246,8 @@ export const NvtPromoBannerModal: React.FC<NvtPromoBannerModalProps> = ({
             <Send className="w-5 h-5 fill-slate-950 stroke-none" />
             <span>
               {currentLang === 'bn'
-                ? 'অফিসিয়াল চ্যানেলে যুক্ত হোন (Join Now)'
-                : 'Join Now Official Channel'}
+                ? 'অফিসিয়াল গ্রুপে যুক্ত হোন (Join Group)'
+                : 'Join Official Group'}
             </span>
             <ExternalLink className="w-5 h-5 stroke-[2.5]" />
           </button>

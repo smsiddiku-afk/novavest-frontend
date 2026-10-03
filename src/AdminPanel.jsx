@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { collection, getDocs, doc, setDoc, getDoc, query, orderBy, increment, deleteDoc, onSnapshot } from "firebase/firestore";
-import { db, updateFirestoreDepositStatus, updateFirestoreWithdrawalStatus, updateFirestoreReferralPermission, sanitizeFirestoreData, cleanDocId, safeDoc, safeSetDoc, safeDeleteDoc, deleteFirestoreUserProfile } from "./lib/firebase";
+import { deleteUser, signOut } from "firebase/auth";
+import { db, auth, updateFirestoreDepositStatus, updateFirestoreWithdrawalStatus, updateFirestoreReferralPermission, sanitizeFirestoreData, cleanDocId, safeDoc, safeSetDoc, safeDeleteDoc, deleteFirestoreUserProfile } from "./lib/firebase";
 import {
   loadCommissionRatesFromFirestore,
   saveCommissionRatesToFirestore,
@@ -67,6 +68,10 @@ export default function AdminPanel() {
   const [crispEnabled, setCrispEnabled] = useState(true);
   const [hotline, setHotline] = useState("+880 9612-345678");
   const [supportEmail, setSupportEmail] = useState("support@novaterraenergy.io");
+  const [manager1Telegram, setManager1Telegram] = useState("https://t.me/NVT_ProjectManager1");
+  const [manager2Telegram, setManager2Telegram] = useState("https://t.me/NVT_ProjectManager2");
+  const [manager3Telegram, setManager3Telegram] = useState("https://t.me/NVT_ProjectManager3");
+  const [manager4Telegram, setManager4Telegram] = useState("https://t.me/NVT_ProjectManager4");
 
   // রেফার বোনাস / কমিশন রেট স্টেট (টায়ার ১, ২, ৩)
   const [tier1Percent, setTier1Percent] = useState(6);
@@ -183,6 +188,10 @@ export default function AdminPanel() {
         if (data.crispEnabled !== undefined) setCrispEnabled(data.crispEnabled);
         if (data.hotline) setHotline(data.hotline);
         if (data.supportEmail) setSupportEmail(data.supportEmail);
+        if (data.manager1Telegram) setManager1Telegram(data.manager1Telegram);
+        if (data.manager2Telegram) setManager2Telegram(data.manager2Telegram);
+        if (data.manager3Telegram) setManager3Telegram(data.manager3Telegram);
+        if (data.manager4Telegram) setManager4Telegram(data.manager4Telegram);
       }
 
       if (packagesRes.status === 'fulfilled' && Array.isArray(packagesRes.value)) {
@@ -518,6 +527,10 @@ export default function AdminPanel() {
         crispEnabled: Boolean(crispEnabled),
         hotline: (hotline || "").trim(),
         supportEmail: (supportEmail || "").trim(),
+        manager1Telegram: (manager1Telegram || "").trim(),
+        manager2Telegram: (manager2Telegram || "").trim(),
+        manager3Telegram: (manager3Telegram || "").trim(),
+        manager4Telegram: (manager4Telegram || "").trim(),
         updatedAt: new Date().toISOString()
       });
       const supportRef = safeDoc("settings", "support");
@@ -864,6 +877,8 @@ export default function AdminPanel() {
         "registered_phones",
         "phone_index",
         "referral_nodes",
+        "referrals",
+        "registered_accounts",
         "deposits",
         "transactions",
         "withdrawals",
@@ -881,11 +896,23 @@ export default function AdminPanel() {
         } catch (_) {}
       }
 
+      // If active auth user exists, permanently delete from Firebase Auth
+      try {
+        if (auth.currentUser) {
+          await deleteUser(auth.currentUser);
+        }
+      } catch (_) {}
+      try {
+        await signOut(auth);
+      } catch (_) {}
+
       try {
         localStorage.removeItem("novavest_registered_accounts");
         localStorage.removeItem("novaterra_referral_accounts_v3");
         localStorage.removeItem("novavest_user");
         localStorage.removeItem("nvt_user");
+        localStorage.removeItem("nvt_auth_user");
+        localStorage.removeItem("auth_user");
       } catch (_) {}
 
       setUsers([]);
@@ -1828,6 +1855,31 @@ export default function AdminPanel() {
                 <div>
                   <label style={{ display: "block", marginBottom: "6px", fontSize: "13px", fontWeight: "bold" }}>✉️ Official Email:</label>
                   <input type="email" placeholder="support@novaterraenergy.io" value={supportEmail} onChange={(e) => setSupportEmail(e.target.value)} style={{ width: "100%", padding: "10px", borderRadius: "6px", border: "1px solid #3b476c", backgroundColor: "#0b0f19", color: "#fff", boxSizing: "border-box" }} />
+                </div>
+              </div>
+
+              {/* ৪ জন প্রকল্প ব্যবস্থাপক টেলিগ্রাম লিংক */}
+              <div style={{ backgroundColor: "#111827", border: "1px solid #374151", borderRadius: "8px", padding: "14px", marginBottom: "15px" }}>
+                <h4 style={{ margin: "0 0 10px 0", color: "#38bdf8", fontSize: "14px", fontWeight: "bold" }}>👔 ৪ জন প্রকল্প ব্যবস্থাপক টেলিগ্রাম লিংক (Project Managers):</h4>
+                
+                <div style={{ marginBottom: "10px" }}>
+                  <label style={{ display: "block", marginBottom: "4px", fontSize: "12px", color: "#93c5fd" }}>সিনিয়র প্রকল্প ব্যবস্থাপক (গ্রিড ও ডিপোজিট - ইঞ্জি. রাশেদুল ইসলাম):</label>
+                  <input type="text" placeholder="https://t.me/..." value={manager1Telegram} onChange={(e) => setManager1Telegram(e.target.value)} style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #3b476c", backgroundColor: "#0b0f19", color: "#fff", boxSizing: "border-box", fontSize: "13px" }} />
+                </div>
+
+                <div style={{ marginBottom: "10px" }}>
+                  <label style={{ display: "block", marginBottom: "4px", fontSize: "12px", color: "#6ee7b7" }}>প্রকল্প ব্যবস্থাপক (উইথড্রল ও অর্থায়ন - ফারহানা হক):</label>
+                  <input type="text" placeholder="https://t.me/..." value={manager2Telegram} onChange={(e) => setManager2Telegram(e.target.value)} style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #3b476c", backgroundColor: "#0b0f19", color: "#fff", boxSizing: "border-box", fontSize: "13px" }} />
+                </div>
+
+                <div style={{ marginBottom: "10px" }}>
+                  <label style={{ display: "block", marginBottom: "4px", fontSize: "12px", color: "#fcd34d" }}>টেকনিক্যাল প্রকল্প ব্যবস্থাপক (সোলার প্যাকেজ - তানভীর আহমেদ):</label>
+                  <input type="text" placeholder="https://t.me/..." value={manager3Telegram} onChange={(e) => setManager3Telegram(e.target.value)} style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #3b476c", backgroundColor: "#0b0f19", color: "#fff", boxSizing: "border-box", fontSize: "13px" }} />
+                </div>
+
+                <div>
+                  <label style={{ display: "block", marginBottom: "4px", fontSize: "12px", color: "#f472b6" }}>ভিআইপি ও টিম রিলেশনস ম্যানেজার (সাবরিনা চৌধুরী):</label>
+                  <input type="text" placeholder="https://t.me/..." value={manager4Telegram} onChange={(e) => setManager4Telegram(e.target.value)} style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #3b476c", backgroundColor: "#0b0f19", color: "#fff", boxSizing: "border-box", fontSize: "13px" }} />
                 </div>
               </div>
 

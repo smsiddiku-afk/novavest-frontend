@@ -7,6 +7,7 @@ import {
   signInWithEmailAndPassword,
   sendPasswordResetEmail,
   signOut,
+  deleteUser,
   updateProfile,
   onAuthStateChanged as onFirebaseAuthChanged,
   User as FirebaseUser,
@@ -486,6 +487,14 @@ export const deleteFirestoreUserProfile = async (
     if (userDocRef) {
       await deleteDoc(userDocRef);
     }
+
+    // 6.5 If the active Firebase Auth user matches the deleted account, delete immediately from Firebase Auth
+    try {
+      if (auth.currentUser && (auth.currentUser.uid === cleanUid || (email && auth.currentUser.email?.toLowerCase() === email.toLowerCase()))) {
+        console.log('[Firebase] Purging active user from Firebase Auth:', cleanUid);
+        await deleteUser(auth.currentUser);
+      }
+    } catch (_) {}
 
     // 7. Purge from server-side registry (/api/admin/delete-user)
     try {

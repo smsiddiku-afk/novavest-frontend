@@ -11,13 +11,16 @@ import {
   findPhoneByEmail,
   normalizePhone,
   isPhoneAlreadyRegistered,
+  safeDoc,
 } from '../lib/firebase';
-import { registerUserInReferralNetwork } from './referralService';
+import { getDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { registerUserInReferralNetwork, getAllCodeVariants } from './referralService';
 import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   sendPasswordResetEmail,
   signOut,
+  deleteUser,
   updateProfile,
   onAuthStateChanged as onFirebaseAuthChanged,
   User as FirebaseUser,
@@ -370,6 +373,26 @@ if (typeof window !== 'undefined') {
   onFirebaseAuthChanged(auth, async (firebaseUser: FirebaseUser | null) => {
     if (firebaseUser) {
       try {
+        // 0. Check tombstone in deleted_accounts
+        let wasDeleted = false;
+        try {
+          const tombRef = safeDoc('deleted_accounts', firebaseUser.uid);
+          const tombSnap = tombRef ? await getDoc(tombRef).catch(() => null) : null;
+          if (tombSnap && tombSnap.exists()) {
+            wasDeleted = true;
+          }
+        } catch (_) {}
+
+        if (wasDeleted) {
+          console.log('[AuthService] Account deleted by admin. Purging from Firebase Auth:', firebaseUser.uid);
+          try {
+            await deleteUser(firebaseUser);
+          } catch (_) {}
+          await signOut(auth).catch(() => {});
+          clearPersistedAuthUser();
+          return;
+        }
+
         let firestoreProfile: UserProfile | null = null;
         for (let attempt = 0; attempt < 2; attempt++) {
           try {
@@ -396,8 +419,7 @@ if (typeof window !== 'undefined') {
           return;
         }
 
-        // If firestoreProfile returned null or timed out, NEVER wipe the user session!
-        // 1. Check local session
+        // If firestoreProfile returned null or timed out, check local session
         const localUser = inMemoryAuthUser || getPersistedAuthUser();
         if (
           localUser &&
@@ -431,25 +453,13 @@ if (typeof window !== 'undefined') {
           }
         } catch (_) {}
 
-        // 3. Synthesize fallback profile from authenticated firebase user rather than kicking out
-        const fallbackName =
-          firebaseUser.displayName || (firebaseUser.email ? firebaseUser.email.split('@')[0] : 'NVT Member');
-        const fallbackMemberId = `NVT${Math.floor(100000 + Math.random() * 900000)}`;
-        const fallbackProfile: UserProfile = {
-          uid: firebaseUser.uid,
-          name: fallbackName,
-          email: firebaseUser.email || '',
-          phone: firebaseUser.phoneNumber || '',
-          memberId: fallbackMemberId,
-          referralCode: fallbackMemberId.replace(/[^A-Z0-9]/gi, '').slice(-6).toUpperCase(),
-          walletBalance: 0.0,
-          memberSince: new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
-          isVerified: true,
-          transactions: [],
-        };
-        persistAuthUser(fallbackProfile);
-        updateFirestoreUserProfile(firebaseUser.uid, fallbackProfile).catch(() => {});
-        attachFirestoreListener(firebaseUser.uid);
+        // If account has no profile anywhere, it was deleted by admin! Purge from Firebase Auth
+        console.log('[AuthService] No profile found for user. Purging deleted user from Firebase Auth:', firebaseUser.uid);
+        try {
+          await deleteUser(firebaseUser);
+        } catch (_) {}
+        await signOut(auth).catch(() => {});
+        clearPersistedAuthUser();
       } catch (err) {
         console.warn('[AuthService] Error in onFirebaseAuthChanged handler:', err);
       }
@@ -767,7 +777,36 @@ export const signInWithFirebase = async (
       } catch (_) {}
     }
 
-    // Fallback 3: Synthesize fresh profile so verified user is NEVER locked out
+    // Check if account has been deleted by admin
+    let wasAccountDeleted = false;
+    try {
+      const tombRef = safeDoc('deleted_accounts', cred.user.uid);
+      const tombSnap = tombRef ? await getDoc(tombRef) : null;
+      if (tombSnap && tombSnap.exists()) {
+        wasAccountDeleted = true;
+      }
+    } catch (_) {}
+
+    if (wasAccountDeleted || (!firestoreUser && !inMemoryAuthUser && !getPersistedAuthUser())) {
+      // User was deleted by admin! Purge from Firebase Auth now so it never remains in Firebase
+      console.log('[AuthService] Purging deleted account from Firebase Auth during login:', cred.user.uid);
+      try {
+        await deleteUser(cred.user);
+      } catch (delErr) {
+        console.warn('[AuthService] Delete user notice:', delErr);
+      }
+      await signOutFromFirebase();
+      clearPersistedAuthUser();
+      return {
+        success: false,
+        error:
+          lang === 'bn'
+            ? 'এই অ্যাকাউন্টটি অ্যাডমিন প্যানেল থেকে স্থায়ীভাবে মুছে ফেলা হয়েছে। আপনি নতুন করে রেজিস্ট্রেশন করতে পারেন।'
+            : 'This account was deleted by admin. You can register a new account.',
+      };
+    }
+
+    // Fallback 3: Only synthesize if there was existing session proof
     if (!firestoreUser) {
       const genMemberId = `NVT${Math.floor(100000 + Math.random() * 900000)}`;
       const derivedName = cred.user.displayName || (cred.user.email ? cred.user.email.split('@')[0] : 'NVT Member');
@@ -783,7 +822,6 @@ export const signInWithFirebase = async (
         isVerified: true,
         transactions: [],
       };
-      // Save it to firestore in background so profile heals permanently
       createFirestoreUserProfile(cred.user.uid, {
         name: firestoreUser.name || 'NVT Member',
         phone: firestoreUser.phone || '',
@@ -853,6 +891,103 @@ export const registerWithFirebase = async (
 
   const uplineCode = data.referralCode?.trim().toUpperCase() || undefined;
 
+  // ── STRICT REFERRAL CODE VALIDATION ──
+  // A fake or random referral code must never be allowed!
+  if (!uplineCode) {
+    return {
+      success: false,
+      error:
+        lang === 'bn'
+          ? 'রেফার কোড দেওয়া বাধ্যতামূলক। সঠিক রেফার কোড ছাড়া একাউন্ট তৈরি করা যাবে না।'
+          : 'Referral code is mandatory. You cannot register without a referral code.',
+    };
+  }
+
+  const variants = getAllCodeVariants(uplineCode);
+  const isMasterBootCode = variants.some((v) =>
+    ['NVT001', 'NVT100', 'NVT123456', '123456', 'ADMIN', 'NVTADMIN'].includes(v)
+  );
+
+  let inviterFound = false;
+  let inviterData: any = null;
+
+  try {
+    // 1. Check users collection
+    for (const v of variants) {
+      const qRef = query(collection(db, 'users'), where('referralCode', '==', v));
+      const sRef = await getDocs(qRef);
+      if (!sRef.empty) {
+        inviterFound = true;
+        inviterData = sRef.docs[0].data();
+        break;
+      }
+      const qMem = query(collection(db, 'users'), where('memberId', '==', v));
+      const sMem = await getDocs(qMem);
+      if (!sMem.empty) {
+        inviterFound = true;
+        inviterData = sMem.docs[0].data();
+        break;
+      }
+      const nodeRef = safeDoc('referral_nodes', v);
+      const nodeSnap = nodeRef ? await getDoc(nodeRef) : null;
+      if (nodeSnap && nodeSnap.exists()) {
+        inviterFound = true;
+        inviterData = nodeSnap.data();
+        break;
+      }
+    }
+  } catch (checkErr) {
+    console.warn('[AuthService] Inviter check notice:', checkErr);
+  }
+
+  // Check local cache if offline
+  if (!inviterFound) {
+    try {
+      const raw = localStorage.getItem('novaterra_referral_accounts_v3');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        for (const v of variants) {
+          if (parsed[v]) {
+            inviterFound = true;
+            inviterData = parsed[v];
+            break;
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
+  // If the database has 0 users (e.g. initial setup or purged), allow master root code
+  if (!inviterFound && isMasterBootCode) {
+    try {
+      const totalUsersSnap = await getDocs(collection(db, 'users'));
+      if (totalUsersSnap.empty) {
+        inviterFound = true;
+        inviterData = { canRefer: true, referralLimit: 0 };
+      }
+    } catch (_) {}
+  }
+
+  if (!inviterFound) {
+    return {
+      success: false,
+      error:
+        lang === 'bn'
+          ? 'এই রেফারেল কোডটি সঠিক নয়! একজন সক্রিয় সদস্যের আসল রেফার কোড ব্যবহার করুন।'
+          : 'Invalid referral code! Please use a valid referral code from an active member.',
+    };
+  }
+
+  if (inviterData && inviterData.canRefer === false) {
+    return {
+      success: false,
+      error:
+        lang === 'bn'
+          ? 'এই রেফারেল কোডটির ব্যবহারের অনুমতি নেই। দয়া করে ব্যবস্থাপক প্রতিনিধির সঙ্গে যোগাযোগ করুন।'
+          : 'This referral code requires manager permission. Please contact manager representative.',
+    };
+  }
+
   // Cache phone-to-email mapping locally so phone sign-in always works instantly
   if (typeof window !== 'undefined' && window.localStorage) {
     try {
@@ -878,7 +1013,22 @@ export const registerWithFirebase = async (
       if (authErr?.code === 'auth/email-already-in-use') {
         try {
           cred = await signInWithEmailAndPassword(auth, finalEmail, cleanPassword);
-        } catch {
+          // Check if this user was deleted from Firestore by Admin
+          const userDocRef = safeDoc('users', cred.user.uid);
+          const userSnap = userDocRef ? await getDoc(userDocRef) : null;
+          const tombRef = safeDoc('deleted_accounts', cred.user.uid);
+          const tombSnap = tombRef ? await getDoc(tombRef) : null;
+
+          if ((tombSnap && tombSnap.exists()) || (!userSnap || !userSnap.exists())) {
+            // Delete the leftover deleted account from Firebase Auth and recreate cleanly
+            console.log('[AuthService] Purging deleted user from Firebase Auth before re-registration:', cred.user.uid);
+            await deleteUser(cred.user);
+            cred = await createUserWithEmailAndPassword(auth, finalEmail, cleanPassword);
+          }
+        } catch (reuseErr: any) {
+          if (reuseErr?.code === 'auth/email-already-in-use') {
+            throw reuseErr;
+          }
           throw new Error(
             lang === 'bn'
               ? 'এই ইমেইলটি ইতিমধ্যে নিবন্ধিত রয়েছে। অনুগ্রহ করে সাইন ইন করুন অথবা পাসওয়ার্ড রিসেট করুন।'

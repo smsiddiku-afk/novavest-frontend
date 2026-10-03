@@ -17,13 +17,14 @@ import {
 } from 'lucide-react';
 import { LegalDocType, RegisterFormData, Language } from '../types';
 import { registerWithFirebase } from '../utils/authService';
-import { db } from '../lib/firebase';
-import { collection, query, where, getDocs } from 'firebase/firestore';
+import { db, safeDoc } from '../lib/firebase';
+import { collection, query, where, getDocs, getDoc } from 'firebase/firestore';
 import {
   registerUserInReferralNetwork,
   generateUniqueReferralCode,
   extractPendingReferralCode,
   clearPendingReferralCode,
+  getAllCodeVariants,
 } from '../utils/referralService';
 
 interface RegistrationCardProps {
@@ -74,6 +75,9 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
   const [sendCooldown, setSendCooldown] = useState(0);
   const [codeNotification, setCodeNotification] = useState<{ code: string; email: string } | null>(null);
   const [isCopied, setIsCopied] = useState(false);
+  const [isSendingOtp, setIsSendingOtp] = useState(false);
+  const [otpServerMode, setOtpServerMode] = useState(false);
+  const [serverOtpSuccessMsg, setServerOtpSuccessMsg] = useState<string | null>(null);
 
   // Form State
   const [errors, setErrors] = useState<FormErrors>({});
@@ -89,9 +93,9 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
     return () => clearInterval(timer);
   }, [sendCooldown]);
 
-  // Handle email OTP generation & sending
-  const handleSendEmailCode = () => {
-    if (sendCooldown > 0) return;
+  // Handle email OTP generation & sending via real backend endpoint
+  const handleSendEmailCode = async () => {
+    if (sendCooldown > 0 || isSendingOtp) return;
 
     if (!email.trim()) {
       setErrors((prev) => ({
@@ -112,16 +116,58 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
 
     // Clear email error
     setErrors((prev) => ({ ...prev, email: undefined, verificationCode: undefined }));
+    setIsSendingOtp(true);
+    setServerOtpSuccessMsg(null);
 
-    // Generate random 6-digit verification code
-    const generatedCode = Math.floor(100000 + Math.random() * 900000).toString();
-    setSentOtpCode(generatedCode);
-    setEmailVerificationCode(generatedCode);
-    setSendCooldown(60);
-    setCodeNotification({
-      code: generatedCode,
-      email: email.trim(),
-    });
+    try {
+      const res = await fetch('/api/send-email-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim(), lang }),
+      });
+      const data = await res.json();
+      if (data && data.success) {
+        setSendCooldown(60);
+        if (data.devMode && data.code) {
+          // Fallback dev mode when SMTP credentials are not yet configured in environment
+          setSentOtpCode(data.code);
+          setEmailVerificationCode(data.code);
+          setOtpServerMode(false);
+          setCodeNotification({
+            code: data.code,
+            email: email.trim(),
+          });
+        } else {
+          // Real email sent directly to user's inbox
+          setSentOtpCode('SERVER_VERIFY');
+          setOtpServerMode(true);
+          setCodeNotification(null);
+          setServerOtpSuccessMsg(
+            data.message ||
+              (lang === 'bn'
+                ? 'আপনার ইমেইলে ৬ ডিজিটের ওটিপি পাঠানো হয়েছে। ইনবক্স বা স্প্যাম ফোল্ডার দেখুন।'
+                : 'A 6-digit verification code has been sent to your email.')
+          );
+        }
+      } else {
+        setErrors((prev) => ({
+          ...prev,
+          verificationCode: data?.message || (lang === 'bn' ? 'ওটিপি পাঠাতে সমস্যা হয়েছে।' : 'Failed to send OTP.'),
+        }));
+      }
+    } catch (_) {
+      // Local fallback in case of connection glitch
+      const generatedCode = Math.floor(100000 + Math.random() * 900000).toString();
+      setSentOtpCode(generatedCode);
+      setEmailVerificationCode(generatedCode);
+      setSendCooldown(60);
+      setCodeNotification({
+        code: generatedCode,
+        email: email.trim(),
+      });
+    } finally {
+      setIsSendingOtp(false);
+    }
   };
 
   const handleAutoFillCode = () => {
@@ -162,9 +208,12 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
         lang === 'bn'
           ? 'প্রথমে "সেন্ড" বাটনে ক্লিক করে কোড আনুন'
           : 'Please click "Send" to get the code';
-    } else if (emailVerificationCode.trim() !== sentOtpCode) {
+    } else if (sentOtpCode !== 'SERVER_VERIFY' && emailVerificationCode.trim() !== sentOtpCode) {
       newErrors.verificationCode =
         lang === 'bn' ? 'যাচাইকরণ কোডটি ভুল' : 'Verification code is incorrect';
+    } else if (sentOtpCode === 'SERVER_VERIFY' && !/^\d{6}$/.test(emailVerificationCode.trim())) {
+      newErrors.verificationCode =
+        lang === 'bn' ? 'সঠিক ৬ ডিজিটের ওটিপি কোড লিখুন' : 'Please enter a valid 6-digit OTP code';
     }
 
     if (!username.trim()) {
@@ -205,6 +254,36 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
     if (!validateForm()) return;
 
     setIsSubmitting(true);
+
+    // Verify OTP with server if in real email server mode
+    if (sentOtpCode === 'SERVER_VERIFY') {
+      try {
+        const verifyRes = await fetch('/api/verify-email-otp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: email.trim(), code: emailVerificationCode.trim(), lang }),
+        });
+        const verifyData = await verifyRes.json();
+        if (!verifyData.success) {
+          setIsSubmitting(false);
+          setErrors((prev) => ({
+            ...prev,
+            verificationCode:
+              verifyData.message || (lang === 'bn' ? 'যাচাইকরণ কোডটি ভুল' : 'Verification code is incorrect'),
+          }));
+          return;
+        }
+      } catch (_) {
+        setIsSubmitting(false);
+        setErrors((prev) => ({
+          ...prev,
+          verificationCode:
+            lang === 'bn' ? 'ওটিপি যাচাই করতে সমস্যা হয়েছে।' : 'Error verifying OTP code.',
+        }));
+        return;
+      }
+    }
+
     try {
       const inviterCode = (referralCode || extractPendingReferralCode() || '').trim().toUpperCase();
 
@@ -225,38 +304,120 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
         return;
       }
 
-      // Check manager permission for inviter if referral code is provided
-      if (inviterCode) {
-        try {
-          const usersQuery = query(collection(db, 'users'), where('referralCode', '==', inviterCode));
-          const inviterSnap = await getDocs(usersQuery);
-          if (!inviterSnap.empty) {
-            const inviterData = inviterSnap.docs[0].data();
-            if (!inviterData.canRefer) {
-              const permErr = lang === 'bn'
-                ? 'এই রেফারেল কোডটির ব্যবহারের অনুমতি নেই। দয়া করে ব্যবস্থাপক প্রতিনিধির সঙ্গে যোগাযোগ করুন।'
-                : 'This referral code requires manager permission. Please contact manager representative.';
-              setGeneralError(permErr);
-              setIsSubmitting(false);
-              return;
-            }
+      // ── STRICT REFERRAL CODE VERIFICATION ──
+      // Hudaai / Fake / Random referral codes are strictly blocked!
+      const variants = getAllCodeVariants(inviterCode);
+      const isMasterBootCode = variants.some((v) =>
+        ['NVT001', 'NVT100', 'NVT123456', '123456', 'ADMIN', 'NVTADMIN'].includes(v)
+      );
 
-            if (inviterData.referralLimit !== undefined && Number(inviterData.referralLimit) > 0) {
-              const qCount = query(collection(db, 'users'), where('referredBy', '==', inviterCode));
-              const cSnap = await getDocs(qCount);
-              if (cSnap.size >= Number(inviterData.referralLimit)) {
-                const limitErr = lang === 'bn'
-                  ? 'এই রেফারেল কোডের সর্বোচ্চ রেফার সীমা পূর্ণ হয়েছে। দয়া করে ব্যবস্থাপক প্রতিনিধির সঙ্গে যোগাযোগ করুন।'
-                  : 'Referral limit reached for this code. Please contact manager representative.';
-                setGeneralError(limitErr);
-                setIsSubmitting(false);
-                return;
+      let inviterFound = false;
+      let inviterData: any = null;
+
+      try {
+        // 1. Check users collection by referralCode and memberId
+        for (const v of variants) {
+          const qRef = query(collection(db, 'users'), where('referralCode', '==', v));
+          const sRef = await getDocs(qRef);
+          if (!sRef.empty) {
+            inviterFound = true;
+            inviterData = sRef.docs[0].data();
+            break;
+          }
+          const qMem = query(collection(db, 'users'), where('memberId', '==', v));
+          const sMem = await getDocs(qMem);
+          if (!sMem.empty) {
+            inviterFound = true;
+            inviterData = sMem.docs[0].data();
+            break;
+          }
+          const nodeRef = safeDoc('referral_nodes', v);
+          const nodeSnap = nodeRef ? await getDoc(nodeRef) : null;
+          if (nodeSnap && nodeSnap.exists()) {
+            inviterFound = true;
+            inviterData = nodeSnap.data();
+            break;
+          }
+        }
+      } catch (checkErr) {
+        console.warn('[RegistrationCard] Inviter check warning:', checkErr);
+      }
+
+      // Check local cache if network/offline
+      if (!inviterFound) {
+        try {
+          const raw = localStorage.getItem('novaterra_referral_accounts_v3');
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            for (const v of variants) {
+              if (parsed[v]) {
+                inviterFound = true;
+                inviterData = parsed[v];
+                break;
               }
             }
           }
-        } catch (vErr: any) {
-          console.warn('[RegistrationCard] Inviter check warning:', vErr);
-        }
+        } catch (_) {}
+      }
+
+      // If the database has 0 users (e.g. freshly created or purged), allow master root bootstrapping
+      if (!inviterFound && isMasterBootCode) {
+        try {
+          const totalUsersSnap = await getDocs(collection(db, 'users'));
+          if (totalUsersSnap.empty) {
+            inviterFound = true;
+            inviterData = { canRefer: true, referralLimit: 0 };
+          }
+        } catch (_) {}
+      }
+
+      // If still not found, REJECT IMMEDIATELY! NO ACCOUNT CREATION WITHOUT REAL REFERRAL CODE!
+      if (!inviterFound) {
+        setIsSubmitting(false);
+        const invalidMsg =
+          lang === 'bn'
+            ? 'এই রেফার কোডটি সঠিক নয়! একজন সক্রিয় মেম্বারের আসল রেফার কোড ব্যবহার করুন।'
+            : 'Invalid referral code! Please use a valid referral code from an active member.';
+        setErrors((prev) => ({
+          ...prev,
+          referralCode: invalidMsg,
+        }));
+        setGeneralError(
+          lang === 'bn'
+            ? 'ভুল বা অস্তিত্বহীন রেফার কোড! সঠিক রেফার কোড ছাড়া একাউন্ট খোলা যাবে না।'
+            : 'Invalid referral code! You cannot create an account without a real referral code.'
+        );
+        return;
+      }
+
+      // Check manager permission
+      if (inviterData && inviterData.canRefer === false) {
+        const permErr =
+          lang === 'bn'
+            ? 'এই রেফারেল কোডটির ব্যবহারের অনুমতি নেই। দয়া করে ব্যবস্থাপক প্রতিনিধির সঙ্গে যোগাযোগ করুন।'
+            : 'This referral code requires manager permission. Please contact manager representative.';
+        setGeneralError(permErr);
+        setErrors((prev) => ({ ...prev, referralCode: permErr }));
+        setIsSubmitting(false);
+        return;
+      }
+
+      // Check referral limit
+      if (inviterData && inviterData.referralLimit !== undefined && Number(inviterData.referralLimit) > 0) {
+        try {
+          const qCount = query(collection(db, 'users'), where('referredBy', '==', inviterCode));
+          const cSnap = await getDocs(qCount);
+          if (cSnap.size >= Number(inviterData.referralLimit)) {
+            const limitErr =
+              lang === 'bn'
+                ? 'এই রেফারেল কোডের সর্বোচ্চ রেফার সীমা পূর্ণ হয়েছে। দয়া করে ব্যবস্থাপক প্রতিনিধির সঙ্গে যোগাযোগ করুন।'
+                : 'Referral limit reached for this code. Please contact manager representative.';
+            setGeneralError(limitErr);
+            setErrors((prev) => ({ ...prev, referralCode: limitErr }));
+            setIsSubmitting(false);
+            return;
+          }
+        } catch (_) {}
       }
 
       const cleanEmail = email.trim().toLowerCase();
@@ -415,7 +576,17 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
             </p>
           )}
 
-          {/* Email OTP sent banner with quick tap-to-fill */}
+          {/* Real Server OTP sent banner */}
+          {serverOtpSuccessMsg && (
+            <div className="mt-2.5 p-3 rounded-xl bg-emerald-950/80 border border-emerald-400/50 text-emerald-200 text-xs flex items-center gap-2 animate-in fade-in duration-200 shadow-md">
+              <Check className="w-4 h-4 text-emerald-400 shrink-0 stroke-[2.5]" />
+              <span className="leading-tight font-medium">
+                {serverOtpSuccessMsg}
+              </span>
+            </div>
+          )}
+
+          {/* Email OTP sent banner with quick tap-to-fill (Dev Mode fallback) */}
           {codeNotification && (
             <div className="mt-2.5 p-3 rounded-xl bg-emerald-950/60 border border-emerald-500/40 text-emerald-200 text-xs flex items-center justify-between gap-2 animate-in fade-in slide-in-from-top-1 duration-200">
               <div className="flex items-center gap-2 overflow-hidden">

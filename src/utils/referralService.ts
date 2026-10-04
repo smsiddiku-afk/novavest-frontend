@@ -446,6 +446,18 @@ export function getReferralTreeForUser(
     const primaryPhone = (acc.phone ? acc.phone.replace(/\D/g, '').slice(-10) : '').trim();
     const primaryCode = (acc.userCode || acc.memberId || '').toString().trim().toUpperCase();
 
+    // Exclude simulated test accounts from real referral network
+    if (
+      primaryUid.startsWith('TEST_') ||
+      primaryCode.startsWith('NVL1_') ||
+      primaryCode.startsWith('NVL2_') ||
+      primaryCode.startsWith('NV1_') ||
+      primaryCode.startsWith('NV2_') ||
+      primaryCode.startsWith('NV3_')
+    ) {
+      return;
+    }
+
     // Composite unique key prevents merging distinct users that lack a uid
     const uniqueKey =
       primaryUid ||
@@ -761,11 +773,16 @@ export function getReferralTreeForUser(
   let savedRewards = 0;
   try {
     const userSpecificKey = `${STORAGE_KEY_REWARDS}_${cleanUserCode}`;
-    const rawRewards = localStorage.getItem(userSpecificKey) || localStorage.getItem(STORAGE_KEY_REWARDS);
-    if (rawRewards) {
-      savedRewards = Number(rawRewards);
+    const rawRewards = localStorage.getItem(userSpecificKey);
+    if (rawRewards !== null && rawRewards !== undefined) {
+      savedRewards = Math.max(0, Number(rawRewards) || 0);
     } else {
-      savedRewards = totalEarnings;
+      const globalRaw = localStorage.getItem(STORAGE_KEY_REWARDS);
+      if (globalRaw !== null && globalRaw !== undefined) {
+        savedRewards = Math.max(0, Number(globalRaw) || 0);
+      } else {
+        savedRewards = totalEarnings;
+      }
     }
   } catch {
     savedRewards = totalEarnings;
@@ -1459,8 +1476,7 @@ export function clearTestReferralMembers(rootCode?: string, rootMemberId?: strin
  */
 export function computeVipLevelFromLevels(
   activeLevel1Count: number,
-  totalActiveIn3Levels?: number,
-  baseVipLevel: number = 0
+  totalActiveIn3Levels?: number
 ): number {
   const l1 = Math.max(0, Number(activeLevel1Count) || 0);
   const total = totalActiveIn3Levels !== undefined ? Math.max(0, Number(totalActiveIn3Levels) || 0) : l1;
@@ -1472,13 +1488,14 @@ export function computeVipLevelFromLevels(
   else if (total >= 80) earnedLevel = 6;
   else if (total >= 40) earnedLevel = 5;
   // VIP 1-4: strictly evaluate Level 1 (direct) active members
+  // VIP 1 REQUIRES AT LEAST 3 ACTIVE MEMBERS IN LEVEL 1
   else if (l1 >= 20) earnedLevel = 4;
   else if (l1 >= 10) earnedLevel = 3;
   else if (l1 >= 5) earnedLevel = 2;
   else if (l1 >= 3) earnedLevel = 1;
   else earnedLevel = 0;
 
-  return Math.max(earnedLevel, Number(baseVipLevel) || 0);
+  return earnedLevel;
 }
 
 // Auto-sync global referral network from Firestore & clean any old test simulations

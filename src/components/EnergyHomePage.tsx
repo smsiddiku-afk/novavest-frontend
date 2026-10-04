@@ -35,11 +35,13 @@ import {
   Wind,
   BarChart3,
   Award,
-  Globe
+  Globe,
+  Gift
 } from 'lucide-react';
 import { ENERGY_SYSTEMS, HOURLY_GENERATION_DATA, MONTHLY_PRODUCTION_DATA, ENERGY_FAQS } from '../data/energyData';
 import { EnergySystem } from '../types';
 import { WithdrawModal } from './WithdrawModal';
+import { TreasureModal } from './TreasureModal';
 import { resolveImageSrc, handleImageError } from '../utils/imageUtils';
 
 interface EnergyHomePageProps {
@@ -81,6 +83,7 @@ export function EnergyHomePage({
 
   // Referral Copy State
   const [referralCopied, setReferralCopied] = useState(false);
+  const [isTreasureModalOpen, setIsTreasureModalOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // Live Telemetry Simulation
@@ -475,18 +478,20 @@ export function EnergyHomePage({
               </span>
             </button>
 
-            {/* 5. New Projects */}
-            <a
-              href="#energy-systems"
-              className="group p-2.5 rounded-xl hover:bg-[#161c28] transition-all flex flex-col items-center text-center active:scale-95"
+            {/* 5. Treasure (ট্রেজার) */}
+            <button
+              type="button"
+              id="home-quick-treasure-btn"
+              onClick={() => setIsTreasureModalOpen(true)}
+              className="group p-2.5 rounded-xl hover:bg-[#161c28] transition-all flex flex-col items-center text-center cursor-pointer active:scale-95"
             >
-              <div className="w-10 h-10 rounded-full bg-purple-500/15 flex items-center justify-center text-purple-400 mb-1.5 transition-transform group-hover:scale-105">
-                <Layers className="w-5 h-5" />
+              <div className="w-10 h-10 rounded-full bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400 mb-1.5 transition-transform group-hover:scale-105 shadow-inner">
+                <Gift className="w-5 h-5 text-amber-300 animate-bounce" />
               </div>
-              <span className="text-[11px] sm:text-xs font-semibold text-slate-200 group-hover:text-purple-300 transition-colors truncate w-full">
-                New Projects
+              <span className="text-[11px] sm:text-xs font-semibold text-amber-300 group-hover:text-amber-200 transition-colors truncate w-full">
+                {currentLang === 'bn' ? 'ট্রেজার' : 'Treasure'}
               </span>
-            </a>
+            </button>
 
             {/* 6. Invitation Link */}
             <button
@@ -1811,6 +1816,15 @@ export function EnergyHomePage({
           </div>
         </div>
       )}
+
+      {/* Treasure Modal (ট্রেজার) */}
+      <TreasureModal
+        isOpen={isTreasureModalOpen}
+        onClose={() => setIsTreasureModalOpen(false)}
+        currentLang={currentLang}
+        themeMode="night"
+        showToast={showToast}
+      />
     </div>
   );
 }

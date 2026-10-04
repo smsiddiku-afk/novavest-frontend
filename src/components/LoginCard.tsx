@@ -28,7 +28,13 @@ export const LoginCard: React.FC<LoginCardProps> = ({
   onToggleLang,
 }) => {
   const [lang, setLang] = useState<Language>(currentLang);
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(() => {
+    try {
+      return localStorage.getItem('nvt_remembered_email') || '';
+    } catch {
+      return '';
+    }
+  });
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
@@ -52,15 +58,7 @@ export const LoginCard: React.FC<LoginCardProps> = ({
     if (!cleanEmail) {
       newErrors.email = lang === 'bn' ? 'আপনার নিবন্ধিত ইমেইল এড্রেস লিখুন' : 'Please enter your registered email address';
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
-      if (/^[0-9+() -]{6,}$/.test(cleanEmail)) {
-        newErrors.email =
-          lang === 'bn'
-            ? 'ফোন নম্বর দিয়ে লগইন প্রযোজ্য নয়। রেজিস্ট্রেশনের সময় ব্যবহৃত ইমেইল এড্রেস দিয়ে লগইন করুন।'
-            : 'Phone login is disabled. Please sign in with your registered email address.';
-      } else {
-        newErrors.email =
-          lang === 'bn' ? 'সঠিক ইমেইল এড্রেস লিখুন' : 'Please enter a valid email address';
-      }
+      newErrors.email = lang === 'bn' ? 'সঠিক ইমেইল এড্রেস লিখুন' : 'Please enter a valid email address';
     }
 
     if (!password) {
@@ -88,6 +86,9 @@ export const LoginCard: React.FC<LoginCardProps> = ({
       const result = await signInWithFirebase(cleanEmail, cleanPassword, lang);
 
       if (result.success && result.user) {
+        try {
+          localStorage.setItem('nvt_remembered_email', cleanEmail);
+        } catch (_) {}
         setGeneralError(null);
         setIsSubmitting(false);
         onLoginSuccess(cleanEmail);
@@ -144,11 +145,11 @@ export const LoginCard: React.FC<LoginCardProps> = ({
     signIn: lang === 'bn' ? 'ইমেইল লগইন' : 'Email Sign In',
     signUp: lang === 'bn' ? 'সাইন আপ' : 'Sign Up',
     langLabel: lang === 'bn' ? 'English' : 'বাংলা',
-    emailLabel: lang === 'bn' ? 'ইমেইল' : 'Email',
-    emailPlaceholder: lang === 'bn' ? 'ইমেইল' : 'Email',
+    emailLabel: lang === 'bn' ? 'ইমেইল এড্রেস' : 'Email Address',
+    emailPlaceholder: lang === 'bn' ? 'আপনার ইমেইল লিখুন' : 'Enter your email',
     passwordLabel: lang === 'bn' ? 'পাসওয়ার্ড' : 'Password',
-    passwordPlaceholder: lang === 'bn' ? 'পাসওয়ার্ড' : 'Password',
-    loginBtn: lang === 'bn' ? 'সাইন ইন করুন' : 'Sign In',
+    passwordPlaceholder: lang === 'bn' ? 'আপনার পাসওয়ার্ড লিখুন' : 'Enter your password',
+    loginBtn: lang === 'bn' ? 'লগইন করুন' : 'Sign In',
     forgotPassword: lang === 'bn' ? 'পাসওয়ার্ড ভুলে গেছেন?' : 'Forgot password?',
   };
 

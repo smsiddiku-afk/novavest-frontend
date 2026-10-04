@@ -239,31 +239,24 @@ export async function sendOtpEmail(
       };
     } catch (sendErr: any) {
       console.error(`[EmailOTP] Error sending real email to ${email}:`, sendErr?.message || sendErr);
-      // Fallback response with code so the user is not locked out if SMTP provider has temporary network failure
       return {
-        success: true,
-        devMode: true,
-        code,
+        success: false,
         message:
           lang === 'bn'
-            ? `ইমেইল গেটওয়েতে সমস্যা দেখা দেওয়ায় কোডটি সরাসরি প্রদান করা হলো: ${code}`
-            : `Email delivery encountered an issue. Code provided: ${code}`,
-        expiresInSeconds: 300,
+            ? 'ইমেইল পাঠাতে সমস্যা হয়েছে। দয়া করে সঠিক ইমেইল দিন অথবা কিছুক্ষণ পর চেষ্টা করুন।'
+            : 'Failed to send email. Please verify your email address or try again.',
       };
     }
   }
 
   // If SMTP is not configured in .env yet
-  console.log(`[EmailOTP] [DEV MODE] SMTP credentials not set in .env. Generated OTP for ${email}: ${code}`);
+  console.log(`[EmailOTP] SMTP credentials not set in .env for: ${email}`);
   return {
-    success: true,
-    devMode: true,
-    code,
+    success: false,
     message:
       lang === 'bn'
-        ? 'আপনার ইমেলে কোড পাঠানো হয়েছে (SMTP সেটআপ সম্পন্ন হলে সরাসরি জিমেইলে যাবে)।'
-        : 'Verification code generated (Will be delivered to inbox once SMTP is configured in .env).',
-    expiresInSeconds: 300,
+        ? 'ইমেইল গেটওয়ে কনফিগার করা নেই। অনুগ্রহ করে জিমেইল অ্যাপ পাসওয়ার্ড সেট করুন।'
+        : 'Email gateway not configured. Please configure SMTP in environment variables.',
   };
 }
 

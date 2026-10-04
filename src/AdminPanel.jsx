@@ -2222,7 +2222,7 @@ export default function AdminPanel() {
               <div style={{ position: "relative", width: "100%", maxWidth: "340px" }}>
                 <input
                   type="text"
-                  placeholder="🔍 নাম, ফোন, মেম্বার আইডি বা UID দিয়ে সার্চ..."
+                  placeholder="🔍 নাম, ইমেইল, মেম্বার আইডি বা UID দিয়ে সার্চ..."
                   value={userSearchQuery}
                   onChange={(e) => setUserSearchQuery(e.target.value)}
                   style={{
@@ -2336,12 +2336,18 @@ export default function AdminPanel() {
                                 </span>
                               )}
                             </div>
-                            <div style={{ fontSize: "11px", color: "#94a3b8", marginTop: "2px", display: "flex", alignItems: "center", gap: "5px", whiteSpace: "nowrap" }}>
-                              <span>📱 {u.phone || u.email || "N/A"}</span>
-                              {u.memberId && (
-                                <span style={{ color: "#64748b", background: "#0b0f19", padding: "0 4px", borderRadius: "3px", border: "1px solid #1e293b" }}>
-                                  ID: {u.memberId}
+                            <div style={{ fontSize: "11px", color: "#94a3b8", marginTop: "2px", display: "flex", flexDirection: "column", gap: "2px" }}>
+                              {u.email && (
+                                <span style={{ color: "#38bdf8", fontWeight: "500", fontSize: "11px" }}>
+                                  ✉️ {u.email}
                                 </span>
+                              )}
+                              {u.memberId && (
+                                <div style={{ display: "flex", alignItems: "center", gap: "6px", whiteSpace: "nowrap" }}>
+                                  <span style={{ color: "#64748b", background: "#0b0f19", padding: "0 4px", borderRadius: "3px", border: "1px solid #1e293b" }}>
+                                    ID: {u.memberId}
+                                  </span>
+                                </div>
                               )}
                             </div>
                           </td>

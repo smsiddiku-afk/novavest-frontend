@@ -481,7 +481,9 @@ export const PositionsTabContent: React.FC<PositionsTabContentProps> = ({
 
                   <div className="flex items-center gap-2">
                     <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-400 border border-amber-500/30">
-                      {currentLang === 'bn' ? `প্যাকেজ স্তর ${pos.vipLevel || 1}` : `Package Tier ${pos.vipLevel || 1}`}
+                      {pos.vipLevel && pos.vipLevel >= 1
+                        ? (currentLang === 'bn' ? `VIP ${pos.vipLevel} প্যাকেজ` : `VIP ${pos.vipLevel} Plan`)
+                        : (currentLang === 'bn' ? 'বেসিক প্ল্যান (VIP 0)' : 'Basic Plan (VIP 0)')}
                     </span>
                     <span className="text-[11px] text-slate-400 hidden sm:inline">
                       {pos.date || 'Active'}

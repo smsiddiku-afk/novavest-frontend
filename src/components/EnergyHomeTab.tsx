@@ -67,11 +67,11 @@ import {
   getEnergySystems,
   getFaqItems,
   getHowItWorksSteps,
-  getNewProjects,
 } from '../utils/translations';
 import { HowPowerGridWorksSection } from './HowPowerGridWorksSection';
 import { CompanyProfileModal } from './CompanyProfileModal';
 import { ProjectManagerPage } from './ProjectManagerPage';
+import { TreasureModal } from './TreasureModal';
 import { resolveImageSrc, handleImageError } from '../utils/imageUtils';
 import { openCrispChat } from '../utils/crispService';
 import { downloadNvtApk } from '../utils/appDownloader';
@@ -103,6 +103,10 @@ interface EnergyHomeTabProps {
   onClaimDailyBonus: () => void;
   hasClaimedBonus: boolean;
   showToast: (msg: string) => void;
+  userId?: string;
+  memberId?: string;
+  onClaimTreasureReward?: (amount: number, description: string) => void;
+  onOpenProjectManager?: () => void;
 }
 
 export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
@@ -122,21 +126,25 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
   onClaimDailyBonus,
   hasClaimedBonus,
   showToast,
+  userId,
+  memberId,
+  onClaimTreasureReward,
+  onOpenProjectManager,
 }) => {
   const lang: Language = (currentLang as Language) || 'en';
   const t = translations[lang];
   const systems = getEnergySystems(lang);
   const faqList = getFaqItems(lang);
   const howItWorksList = getHowItWorksSteps(lang);
-  const newProjectsList = getNewProjects(lang);
 
   // Navigation & Drawer
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isProjectManagerPageOpen, setIsProjectManagerPageOpen] = useState(false);
+  const [isTreasureModalOpen, setIsTreasureModalOpen] = useState(false);
 
   // Active Modals
   const [activeModal, setActiveModal] = useState<
-    'company' | 'employee' | 'video' | 'system-details' | 'new-projects' | 'supply' | null
+    'company' | 'employee' | 'video' | 'system-details' | 'supply' | null
   >(null);
   const [selectedSystem, setSelectedSystem] = useState<EnergySystem | null>(null);
   const [selectedCharityImage, setSelectedCharityImage] = useState<string | null>(null);
@@ -1056,17 +1064,19 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
             </span>
           </button>
 
-          {/* Card 5: New Projects (Teal, Gift) */}
+          {/* Card 5: Treasure (ট্রেজার - লাকি ট্রেজার বক্স ও রিডিম কোড) */}
           <button
             type="button"
-            onClick={() => setActiveModal('new-projects')}
-            className="p-2.5 sm:p-3 rounded-2xl bg-gradient-to-b from-[#0d9488] to-[#0f766e] text-white flex flex-col items-center justify-center text-center shadow-md active:scale-95 transition-all cursor-pointer group"
+            id="home-quick-treasure-btn"
+            onClick={() => setIsTreasureModalOpen(true)}
+            className="p-2.5 sm:p-3 rounded-2xl bg-gradient-to-b from-[#b45309] via-[#d97706] to-[#78350f] hover:from-[#f59e0b] hover:to-[#b45309] text-white flex flex-col items-center justify-center text-center shadow-lg active:scale-95 transition-all cursor-pointer group border border-amber-400/40 relative overflow-hidden"
           >
-            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-white/20 flex items-center justify-center mb-1 group-hover:scale-110 transition-transform">
-              <Gift className="w-4.5 h-4.5 text-white" />
+            <div className="absolute -top-6 -right-6 w-12 h-12 bg-yellow-400/20 rounded-full blur-md pointer-events-none" />
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-white/20 flex items-center justify-center mb-1 group-hover:scale-110 transition-transform shadow-inner">
+              <Gift className="w-4.5 h-4.5 text-amber-200 animate-bounce" />
             </div>
-            <span className="text-xs sm:text-sm font-bold leading-tight block truncate w-full">
-              {lang === 'bn' ? 'নতুন প্রজেক্ট' : 'New Projects'}
+            <span className="text-xs sm:text-sm font-bold leading-tight block truncate w-full text-amber-100">
+              {lang === 'bn' ? 'ট্রেজার' : 'Treasure'}
             </span>
           </button>
 
@@ -1510,6 +1520,19 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
 
                 <button
                   type="button"
+                  id="drawer-treasure-btn"
+                  onClick={() => {
+                    setIsTreasureModalOpen(true);
+                    setIsDrawerOpen(false);
+                  }}
+                  className="w-full p-2.5 rounded-xl hover:bg-slate-800/80 text-amber-300 hover:text-amber-200 flex items-center gap-3 transition-colors text-left"
+                >
+                  <Gift className="w-4 h-4 text-amber-400 animate-bounce" />
+                  <span className="font-bold">{lang === 'bn' ? 'ট্রেজার বক্স ও কোড' : 'Treasure Box & Code'}</span>
+                </button>
+
+                <button
+                  type="button"
                   onClick={() => {
                     const el = document.getElementById('ai-energy-video');
                     if (el) {
@@ -1818,61 +1841,31 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
       )}
 
       {/* ───────────────────────────────────────────────────────────
-          MODAL: NEW PROJECTS (🆕)
+          MODAL: TREASURE (🎁 ট্রেজার বক্স ও রিডিম কোড)
       ─────────────────────────────────────────────────────────── */}
-      {activeModal === 'new-projects' && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
-          <div className="w-full max-w-md bg-[#0a1020] border border-emerald-500/40 rounded-3xl p-5 text-white space-y-4 max-h-[85vh] overflow-y-auto">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-800">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400">
-                  <Sparkles className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold">{t.newProjectsTitle}</h3>
-                  <span className="text-[10px] text-emerald-400 font-mono">{t.newProjectsSubtitle}</span>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setActiveModal(null)}
-                className="p-1 text-slate-400 hover:text-white cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="space-y-3 text-xs">
-              {newProjectsList.map((proj) => (
-                <div key={proj.id} className="p-3 rounded-xl bg-[#10182f] border border-slate-800 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <h4 className="font-bold text-white">{proj.name}</h4>
-                    <span className="px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-300 text-[10px] font-bold">{proj.expectedDate}</span>
-                  </div>
-                  <p className="text-slate-300 text-[11px] leading-relaxed">
-                    {proj.description}
-                  </p>
-                  <div className="flex items-center justify-between text-[10px] text-slate-400">
-                    <span>{proj.location}</span>
-                    <span className="text-cyan-300 font-mono font-bold">{proj.capacity}</span>
-                  </div>
-                  <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
-                    <div className="bg-cyan-400 h-full rounded-full" style={{ width: `${proj.progressPercent}%` }} />
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setActiveModal(null)}
-              className="w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs cursor-pointer"
-            >
-              {t.closeBtn}
-            </button>
-          </div>
-        </div>
-      )}
+      <TreasureModal
+        isOpen={isTreasureModalOpen}
+        onClose={() => setIsTreasureModalOpen(false)}
+        currentLang={lang}
+        themeMode={themeMode}
+        userId={userId}
+        memberId={memberId}
+        onClaimReward={(amt, desc) => {
+          if (onClaimTreasureReward) {
+            onClaimTreasureReward(amt, desc);
+          } else {
+            showToast(desc);
+          }
+        }}
+        showToast={showToast}
+        onOpenProjectManager={() => {
+          if (onOpenProjectManager) {
+            onOpenProjectManager();
+          } else {
+            setIsProjectManagerPageOpen(true);
+          }
+        }}
+      />
 
       {/* ───────────────────────────────────────────────────────────
           CHARITY PHOTO LIGHTBOX PREVIEW MODAL (Pure Photo Viewer, No Extra Text)

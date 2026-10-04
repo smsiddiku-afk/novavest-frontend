@@ -73,8 +73,6 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
   // OTP State
   const [sentOtpCode, setSentOtpCode] = useState<string | null>(null);
   const [sendCooldown, setSendCooldown] = useState(0);
-  const [codeNotification, setCodeNotification] = useState<{ code: string; email: string } | null>(null);
-  const [isCopied, setIsCopied] = useState(false);
   const [isSendingOtp, setIsSendingOtp] = useState(false);
   const [otpServerMode, setOtpServerMode] = useState(false);
   const [serverOtpSuccessMsg, setServerOtpSuccessMsg] = useState<string | null>(null);
@@ -114,8 +112,9 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
       return;
     }
 
-    // Clear email error
+    // Clear email error and ensure verification code input is clean
     setErrors((prev) => ({ ...prev, email: undefined, verificationCode: undefined }));
+    setEmailVerificationCode(''); // Keep blank so user types their real email OTP
     setIsSendingOtp(true);
     setServerOtpSuccessMsg(null);
 
@@ -128,27 +127,14 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
       const data = await res.json();
       if (data && data.success) {
         setSendCooldown(60);
-        if (data.devMode && data.code) {
-          // Fallback dev mode when SMTP credentials are not yet configured in environment
-          setSentOtpCode(data.code);
-          setEmailVerificationCode(data.code);
-          setOtpServerMode(false);
-          setCodeNotification({
-            code: data.code,
-            email: email.trim(),
-          });
-        } else {
-          // Real email sent directly to user's inbox
-          setSentOtpCode('SERVER_VERIFY');
-          setOtpServerMode(true);
-          setCodeNotification(null);
-          setServerOtpSuccessMsg(
-            data.message ||
-              (lang === 'bn'
-                ? 'আপনার ইমেইলে ৬ ডিজিটের ওটিপি পাঠানো হয়েছে। ইনবক্স বা স্প্যাম ফোল্ডার দেখুন।'
-                : 'A 6-digit verification code has been sent to your email.')
-          );
-        }
+        setSentOtpCode('SERVER_VERIFY');
+        setOtpServerMode(true);
+        setServerOtpSuccessMsg(
+          data.message ||
+            (lang === 'bn'
+              ? 'আপনার ইমেইলে ৬ ডিজিটের ওটিপি পাঠানো হয়েছে। ইনবক্স বা স্প্যাম ফোল্ডার চেক করে কোডটি লিখুন।'
+              : 'A 6-digit verification code has been sent to your email. Please check your inbox.')
+        );
       } else {
         setErrors((prev) => ({
           ...prev,
@@ -156,28 +142,15 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
         }));
       }
     } catch (_) {
-      // Local fallback in case of connection glitch
-      const generatedCode = Math.floor(100000 + Math.random() * 900000).toString();
-      setSentOtpCode(generatedCode);
-      setEmailVerificationCode(generatedCode);
-      setSendCooldown(60);
-      setCodeNotification({
-        code: generatedCode,
-        email: email.trim(),
-      });
+      setErrors((prev) => ({
+        ...prev,
+        verificationCode:
+          lang === 'bn'
+            ? 'সার্ভারের সাথে সংযোগ করা যায়নি। দয়া করে আবার চেষ্টা করুন।'
+            : 'Connection error. Please try again.',
+      }));
     } finally {
       setIsSendingOtp(false);
-    }
-  };
-
-  const handleAutoFillCode = () => {
-    if (codeNotification) {
-      setEmailVerificationCode(codeNotification.code);
-      setIsCopied(true);
-      if (errors.verificationCode) {
-        setErrors((prev) => ({ ...prev, verificationCode: undefined }));
-      }
-      setTimeout(() => setIsCopied(false), 2000);
     }
   };
 
@@ -583,39 +556,6 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
               <span className="leading-tight font-medium">
                 {serverOtpSuccessMsg}
               </span>
-            </div>
-          )}
-
-          {/* Email OTP sent banner with quick tap-to-fill (Dev Mode fallback) */}
-          {codeNotification && (
-            <div className="mt-2.5 p-3 rounded-xl bg-emerald-950/60 border border-emerald-500/40 text-emerald-200 text-xs flex items-center justify-between gap-2 animate-in fade-in slide-in-from-top-1 duration-200">
-              <div className="flex items-center gap-2 overflow-hidden">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
-                <span className="truncate">
-                  {lang === 'bn' ? 'ইমেলে কোড পাঠানো হয়েছে:' : 'Verification code sent:'}{' '}
-                  <strong className="font-mono text-sm text-emerald-300 font-bold tracking-wider">
-                    {codeNotification.code}
-                  </strong>
-                </span>
-              </div>
-
-              <button
-                type="button"
-                onClick={handleAutoFillCode}
-                className="shrink-0 px-3 py-1.5 rounded-lg bg-emerald-500/20 border border-emerald-500/40 hover:bg-emerald-500/30 text-emerald-200 font-semibold flex items-center gap-1 text-xs shadow-xs active:scale-95 cursor-pointer"
-              >
-                {isCopied ? (
-                  <>
-                    <Check className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>{lang === 'bn' ? 'বসানো হয়েছে' : 'Pasted'}</span>
-                  </>
-                ) : (
-                  <>
-                    <Copy className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>{lang === 'bn' ? 'কোড বসান' : 'Paste'}</span>
-                  </>
-                )}
-              </button>
             </div>
           )}
         </div>

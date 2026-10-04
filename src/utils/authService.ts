@@ -494,8 +494,8 @@ export const getFriendlyFirebaseError = (error: any, lang: 'bn' | 'en' = 'bn'): 
     case 'auth/wrong-password':
     case 'auth/invalid-credential':
       return lang === 'bn'
-        ? 'ইমেইল/ফোন নম্বর অথবা পাসওয়ার্ড সঠিক নয়।'
-        : 'Invalid email/phone or password.';
+        ? 'ইমেইল অথবা পাসওয়ার্ড সঠিক নয়।'
+        : 'Invalid email or password.';
     case 'auth/network-request-failed':
       return lang === 'bn'
         ? 'ইন্টারনেট সংযোগ বিচ্ছিন্ন। সংযোগটি পরীক্ষা করুন।'
@@ -534,287 +534,92 @@ export const getFriendlyFirebaseError = (error: any, lang: 'bn' | 'en' = 'bn'): 
 };
 
 /**
- * Sign in user with Firebase Authentication & Firestore
+ * Sign in user with Firebase Authentication & Firestore (Pure exact email only)
  */
 export const signInWithFirebase = async (
-  emailOrPhone: string,
+  emailInput: string,
   pass: string,
   lang: 'bn' | 'en' = 'bn'
 ): Promise<{ success: boolean; user?: UserProfile; error?: string }> => {
   try {
-    const rawInput = emailOrPhone.trim();
-    if (!rawInput) {
+    const cleanEmail = (emailInput || '').trim().toLowerCase();
+    const rawPass = pass || '';
+    const cleanPassword = rawPass.trim();
+
+    if (!cleanEmail) {
       return {
         success: false,
-        error: lang === 'bn' ? 'অনুগ্রহ করে ইমেইল বা ফোন নম্বর দিন।' : 'Please enter email or phone number.',
+        error: lang === 'bn' ? 'অনুগ্রহ করে আপনার ইমেইল এড্রেস লিখুন।' : 'Please enter your email address.',
       };
     }
 
-    const digits = normalizePhone(rawInput);
-    const last10 = digits.length >= 10 ? digits.slice(-10) : digits;
-
-    const emailCandidates: string[] = [];
-    const passwordsToTry: string[] = [pass];
-    if (pass.trim() && pass.trim() !== pass) {
-      passwordsToTry.push(pass.trim());
+    if (!cleanEmail.includes('@') || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+      return {
+        success: false,
+        error: lang === 'bn' ? 'সঠিক ইমেইল এড্রেস লিখুন।' : 'Please enter a valid email address.',
+      };
     }
 
-    let phoneLookupDone = false;
-    let foundEmailFromPhone: string | null = null;
-
-    if (rawInput.includes('@')) {
-      // 1. User typed an email
-      emailCandidates.push(rawInput);
-      emailCandidates.push(rawInput.toLowerCase());
-
-      // If user originally registered with phone, look up if this email has an associated phone doc
-      try {
-        const associatedPhone = await findPhoneByEmail(rawInput);
-        if (associatedPhone) {
-          const pDigits = normalizePhone(associatedPhone);
-          const pLast10 = pDigits.length >= 10 ? pDigits.slice(-10) : pDigits;
-          if (pLast10) {
-            emailCandidates.push(`${pLast10}@novavest.local`);
-            emailCandidates.push(`880${pLast10}@novavest.local`);
-            emailCandidates.push(`0${pLast10}@novavest.local`);
-          }
-          if (pDigits) {
-            emailCandidates.push(`${pDigits}@novavest.local`);
-          }
-        }
-      } catch {
-        // continue
-      }
-    } else {
-      // 2. User typed a phone number, username, or memberId
-      phoneLookupDone = true;
-
-      // Check synchronous local storage mapping first (0ms instant lookup)
-      if (typeof window !== 'undefined' && window.localStorage) {
-        try {
-          const keysToTry = [
-            `nvt_phone_email_${digits}`,
-            `nvt_phone_email_${last10}`,
-            `nvt_phone_email_880${last10}`,
-            `nvt_phone_email_0${last10}`,
-            `nvt_phone_email_${rawInput.trim()}`,
-          ];
-          for (const k of keysToTry) {
-            const cached = localStorage.getItem(k);
-            if (cached && cached.includes('@')) {
-              emailCandidates.push(cached.trim().toLowerCase());
-              emailCandidates.push(cached.trim());
-              foundEmailFromPhone = cached.trim();
-              break;
-            }
-          }
-        } catch {
-          // ignore
-        }
-      }
-
-      // Fast check from server-side registry (persistent & sub-20ms)
-      if (!foundEmailFromPhone && last10) {
-        try {
-          const srvRes = await fetch(`/api/auth/phone-to-email?phone=${encodeURIComponent(last10)}`, {
-            signal: AbortSignal.timeout(800),
-          });
-          if (srvRes.ok) {
-            const srvData = await srvRes.json();
-            if (srvData && srvData.found && srvData.email) {
-              foundEmailFromPhone = srvData.email;
-            }
-          }
-        } catch {
-          // continue
-        }
-      }
-
-      // Fast Firestore check if server didn't have it
-      if (!foundEmailFromPhone) {
-        try {
-          const remoteFound = await Promise.race([
-            findEmailByPhone(rawInput),
-            new Promise<null>((res) => setTimeout(() => res(null), 1200)),
-          ]);
-          if (remoteFound) {
-            foundEmailFromPhone = remoteFound;
-          }
-        } catch {
-          // continue with deterministic candidates
-        }
-      }
-
-      // Build target email list: if real email was found, ONLY use that email!
-      if (foundEmailFromPhone) {
-        emailCandidates.push(foundEmailFromPhone.trim());
-      } else {
-        // Fall back to canonical deterministic patterns
-        if (last10 && last10.length === 10) {
-          emailCandidates.push(`880${last10}@novavest.local`);
-          emailCandidates.push(`${last10}@novavest.local`);
-          emailCandidates.push(`0${last10}@novavest.local`);
-        } else if (digits && digits.length >= 6) {
-          emailCandidates.push(`880${digits}@novavest.local`);
-          emailCandidates.push(`${digits}@novavest.local`);
-        }
-        const sanitizedUsername = rawInput.trim().replace(/[^a-zA-Z0-9._-]/g, '');
-        if (sanitizedUsername && sanitizedUsername.length >= 3 && !rawInput.includes(' ') && !rawInput.includes('+')) {
-          emailCandidates.push(`${sanitizedUsername.toLowerCase()}@novavest.local`);
-        }
-      }
+    if (!cleanPassword) {
+      return {
+        success: false,
+        error: lang === 'bn' ? 'পাসওয়ার্ড প্রদান করুন।' : 'Please enter your password.',
+      };
     }
 
-    // Helper: validate strictly that the email candidate has a valid format before sending to Firebase
-    const isValidEmail = (em: string): boolean => {
-      if (!em || typeof em !== 'string') return false;
-      const trimmed = em.trim();
-      return /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(trimmed);
-    };
-
-    // Deduplicate candidate emails while strictly maintaining order and valid format
-    const uniqueCandidates = Array.from(new Set(emailCandidates.map((e) => e.trim()))).filter(isValidEmail);
-
+    // Direct authentic sign in with this exact email only
     let cred: any = null;
-    let lastAuthErr: any = null;
-    let successfulEmail = uniqueCandidates[0] || '';
-
-    // Iteratively attempt login across candidates and password variants
-    for (const candEmail of uniqueCandidates) {
-      for (const p of passwordsToTry) {
+    try {
+      cred = await signInWithEmailAndPassword(auth, cleanEmail, cleanPassword);
+    } catch (authErr: any) {
+      if (rawPass !== cleanPassword) {
         try {
-          cred = await signInWithEmailAndPassword(auth, candEmail, p);
-          successfulEmail = candEmail;
-          break;
-        } catch (err: any) {
-          lastAuthErr = err;
-          if (err?.code === 'auth/network-request-failed') {
-            throw err;
-          }
-        }
+          cred = await signInWithEmailAndPassword(auth, cleanEmail, rawPass);
+        } catch (_) {}
       }
-      if (cred) break;
-    }
-
-    if (!cred) {
-      // If user typed a phone number, give immediate precise feedback
-      if (phoneLookupDone) {
-        if (foundEmailFromPhone) {
-          // Phone exists in registry, password was definitely wrong
-          return {
-            success: false,
-            error:
-              lang === 'bn'
-                ? 'পাসওয়ার্ডটি সঠিক নয়। অনুগ্রহ করে সঠিক পাসওয়ার্ড দিন অথবা "পাসওয়ার্ড ভুলে গেছেন" ব্যবহার করুন।'
-                : 'Incorrect password. Please enter the correct password or reset your password.',
-          };
-        }
-
-        // Fast phone check
-        const phoneCheck = await isPhoneAlreadyRegistered(rawInput);
-        if (phoneCheck.registered) {
-          return {
-            success: false,
-            error:
-              lang === 'bn'
-                ? 'পাসওয়ার্ডটি সঠিক নয়। অনুগ্রহ করে সঠিক পাসওয়ার্ড দিন অথবা "পাসওয়ার্ড ভুলে গেছেন" ব্যবহার করুন।'
-                : 'Incorrect password. Please enter the correct password or reset your password.',
-          };
-        } else {
-          return {
-            success: false,
-            error:
-              lang === 'bn'
-                ? 'এই ফোন নম্বরে কোনো অ্যাকাউন্ট পাওয়া যায়নি। সঠিক নম্বর দিন অথবা নতুন অ্যাকাউন্ট তৈরি করুন।'
-                : 'No account found for this phone number. Please check the number or sign up.',
-          };
-        }
-      }
-      throw lastAuthErr;
-    }
-
-    // Firestore profile retrieval with retry & multi-tier fallbacks
-    let firestoreUser: UserProfile | null = null;
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        firestoreUser = await Promise.race([
-          getFirestoreUserProfile(cred.user.uid),
-          new Promise<null>((res) => setTimeout(() => res(null), 3500)),
-        ]);
-        if (firestoreUser) break;
-      } catch (_) {}
-      if (attempt === 0 && !firestoreUser) {
-        await new Promise((r) => setTimeout(r, 400));
+      if (!cred) {
+        throw authErr;
       }
     }
 
-    // Fallback 1: Local storage user
+    // Retrieve Firestore profile for this authenticated user
+    let firestoreUser: UserProfile | null = await getFirestoreUserProfile(cred.user.uid);
+
+    // Fallback: Local storage cache
     if (!firestoreUser) {
       const local = inMemoryAuthUser || getPersistedAuthUser();
-      if (
-        local &&
-        (local.uid === cred.user.uid ||
-          (cred.user.email && local.email?.toLowerCase() === cred.user.email.toLowerCase()))
-      ) {
+      if (local && (local.uid === cred.user.uid || local.email?.toLowerCase() === cleanEmail)) {
         firestoreUser = local;
       }
     }
 
-    // Fallback 2: Server backup
-    if (!firestoreUser) {
+    // Check if account has been deleted by admin
+    if (firestoreUser) {
       try {
-        const srvRes = await fetch(
-          `/api/auth/get-user-profile?uid=${encodeURIComponent(cred.user.uid)}&email=${encodeURIComponent(
-            cred.user.email || ''
-          )}`
-        );
-        if (srvRes.ok) {
-          const srvData = await srvRes.json();
-          if (srvData && srvData.found && srvData.user) {
-            firestoreUser = { ...srvData.user, uid: cred.user.uid };
-          }
+        const tombRef = safeDoc('deleted_accounts', cred.user.uid);
+        const tombSnap = tombRef ? await getDoc(tombRef) : null;
+        if (tombSnap && tombSnap.exists()) {
+          await deleteUser(cred.user).catch(() => {});
+          await signOutFromFirebase();
+          clearPersistedAuthUser();
+          return {
+            success: false,
+            error:
+              lang === 'bn'
+                ? 'এই অ্যাকাউন্টটি অ্যাডমিন প্যানেল থেকে মুছে ফেলা হয়েছে।'
+                : 'This account was deleted by admin.',
+          };
         }
       } catch (_) {}
     }
 
-    // Check if account has been deleted by admin
-    let wasAccountDeleted = false;
-    try {
-      const tombRef = safeDoc('deleted_accounts', cred.user.uid);
-      const tombSnap = tombRef ? await getDoc(tombRef) : null;
-      if (tombSnap && tombSnap.exists()) {
-        wasAccountDeleted = true;
-      }
-    } catch (_) {}
-
-    if (wasAccountDeleted || (!firestoreUser && !inMemoryAuthUser && !getPersistedAuthUser())) {
-      // User was deleted by admin! Purge from Firebase Auth now so it never remains in Firebase
-      console.log('[AuthService] Purging deleted account from Firebase Auth during login:', cred.user.uid);
-      try {
-        await deleteUser(cred.user);
-      } catch (delErr) {
-        console.warn('[AuthService] Delete user notice:', delErr);
-      }
-      await signOutFromFirebase();
-      clearPersistedAuthUser();
-      return {
-        success: false,
-        error:
-          lang === 'bn'
-            ? 'এই অ্যাকাউন্টটি অ্যাডমিন প্যানেল থেকে স্থায়ীভাবে মুছে ফেলা হয়েছে। আপনি নতুন করে রেজিস্ট্রেশন করতে পারেন।'
-            : 'This account was deleted by admin. You can register a new account.',
-      };
-    }
-
-    // Fallback 3: Only synthesize if there was existing session proof
     if (!firestoreUser) {
       const genMemberId = `NVT${Math.floor(100000 + Math.random() * 900000)}`;
-      const derivedName = cred.user.displayName || (cred.user.email ? cred.user.email.split('@')[0] : 'NVT Member');
       firestoreUser = {
         uid: cred.user.uid,
-        name: derivedName,
-        email: cred.user.email || successfulEmail || '',
-        phone: cred.user.phoneNumber || (rawInput.match(/^\+?[0-9]{8,15}$/) ? rawInput : ''),
+        name: cred.user.displayName || cleanEmail.split('@')[0],
+        email: cleanEmail,
+        phone: '',
         memberId: genMemberId,
         referralCode: genMemberId.replace(/[^A-Z0-9]/gi, '').slice(-6).toUpperCase(),
         walletBalance: 0.0,
@@ -824,42 +629,35 @@ export const signInWithFirebase = async (
       };
       createFirestoreUserProfile(cred.user.uid, {
         name: firestoreUser.name || 'NVT Member',
-        phone: firestoreUser.phone || '',
-        email: firestoreUser.email || successfulEmail || '',
+        phone: '',
+        email: cleanEmail,
         memberId: firestoreUser.memberId,
         referralCode: firestoreUser.referralCode,
-        walletBalance: firestoreUser.walletBalance || 0.0,
+        walletBalance: 0.0,
       }).catch(() => {});
     }
 
     const user: UserProfile = {
       ...firestoreUser,
       uid: cred.user.uid,
+      email: cleanEmail,
     };
-
-    // Cache phone to email mapping in localStorage for instant 0ms future lookups
-    if (user.phone && user.email && typeof window !== 'undefined' && window.localStorage) {
-      try {
-        const norm = normalizePhone(user.phone);
-        const norm10 = norm.slice(-10);
-        localStorage.setItem(`nvt_phone_email_${norm}`, user.email);
-        if (norm10) {
-          localStorage.setItem(`nvt_phone_email_${norm10}`, user.email);
-          localStorage.setItem(`nvt_phone_email_0${norm10}`, user.email);
-          localStorage.setItem(`nvt_phone_email_880${norm10}`, user.email);
-          localStorage.setItem(`nvt_phone_email_8800${norm10}`, user.email);
-        }
-      } catch {
-        // ignore
-      }
-    }
 
     persistAuthUser(user);
     attachFirestoreListener(user.uid!);
 
     return { success: true, user };
   } catch (err: any) {
-    console.error('[AuthService] signInWithFirebase error:', err);
+    if (
+      err?.code === 'auth/invalid-credential' ||
+      err?.code === 'auth/user-not-found' ||
+      err?.code === 'auth/wrong-password' ||
+      err?.code === 'auth/invalid-email'
+    ) {
+      console.warn('[AuthService] signInWithFirebase credential mismatch:', err?.code);
+    } else {
+      console.error('[AuthService] signInWithFirebase unexpected error:', err);
+    }
     return {
       success: false,
       error: getFriendlyFirebaseError(err, lang),

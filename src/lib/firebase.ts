@@ -2639,7 +2639,7 @@ export const transferReferralRewardsInFirestore = async (
 ): Promise<boolean> => {
   const cleanId = cleanDocId(uidOrCode, '');
   const amt = Number(amount);
-  if (!cleanId || amt < 200) return false;
+  if (!cleanId || amt <= 0) return false;
 
   try {
     const userDocRef = safeDoc('users', cleanId);

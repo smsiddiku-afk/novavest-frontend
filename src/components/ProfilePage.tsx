@@ -63,6 +63,8 @@ import { openCrispChat } from '../utils/crispService';
 import { downloadNvtApk } from '../utils/appDownloader';
 import { AppDownloadModal } from './AppDownloadModal';
 import { NvtPromoBannerModal } from './NvtPromoBannerModal';
+import { TreasureModal } from './TreasureModal';
+import { ProjectManagerPage } from './ProjectManagerPage';
 import { EnergyHomeTab } from './EnergyHomeTab';
 import { InvestTabContent, INVESTMENT_PLANS } from './InvestTabContent';
 import { getPlanDailyReturnBdt } from '../utils/packageService';
@@ -99,6 +101,7 @@ import {
   updateFirestoreUserProfile,
   getFirestoreUserProfile,
   transferReferralRewardsInFirestore,
+  subscribeToReferralNetwork,
   auth,
 } from '../lib/firebase';
 import { ManualDepositDetails, PaymentChannelType } from './CleanWalletScreen';
@@ -371,7 +374,13 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     }
   });
 
+  // Real-time synchronization with Firestore users & referral nodes
   useEffect(() => {
+    const unsub = subscribeToReferralNetwork((streamedAccounts) => {
+      setLiveAccounts(streamedAccounts || {});
+      setReferralRefreshTick((t) => t + 1);
+    });
+
     const handleReferralUpdate = () => {
       try {
         const raw = localStorage.getItem('novavest_registered_accounts');
@@ -384,6 +393,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     window.addEventListener('storage', handleReferralUpdate);
 
     return () => {
+      unsub();
       window.removeEventListener('referral_rewards_updated', handleReferralUpdate);
       window.removeEventListener('storage', handleReferralUpdate);
     };
@@ -395,14 +405,26 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
   }, [user.referralCode, user.memberId, liveAccounts, referralRefreshTick]);
 
   // VIP Level is determined dynamically from Promo Bonus conditions:
-  // VIP 1-4 strictly evaluate Level 1 (direct) active referrals (3 active in L1 -> VIP 1, 5 -> VIP 2, etc.)
-  // VIP 5-8 evaluate 1-3 levels active members (40 -> VIP 5, 80 -> VIP 6, etc.)
+  // VIP 1-4 strictly evaluate Level 1 (direct) active referrals:
+  // 3 active members in Level 1 -> VIP 1
+  // 5 active members in Level 1 -> VIP 2
   // Purchasing packages or recharging wallet alone does NOT give VIP 1.
+  // VIP 1 REQUIRES STRICTLY AT LEAST 3 ACTIVE MEMBERS IN LEVEL 1.
   const activeLevel1Count = referralTree.activeLevel1Count || referralTree.level1ActiveCount || 0;
   const totalActiveMembersInLevels = referralTree.totalActiveCount || 0;
-  const promoVip = computeVipLevelFromLevels(activeLevel1Count, totalActiveMembersInLevels, 0);
-  const computedVipLevel = Math.max(promoVip, Number(user.vipLevel) || 0);
+  const computedVipLevel = computeVipLevelFromLevels(activeLevel1Count, totalActiveMembersInLevels);
   const isVip1Unlocked = computedVipLevel >= 1;
+
+  // Auto-sync VIP level if it mismatches the real active referral count
+  useEffect(() => {
+    if (user.vipLevel !== computedVipLevel && (user.uid || user.memberId)) {
+      updateUser((prev) => ({ ...prev, vipLevel: computedVipLevel }));
+      const persistentUid = user.uid || user.memberId;
+      if (persistentUid) {
+        updateFirestoreUserProfile(persistentUid, { vipLevel: computedVipLevel }).catch(() => {});
+      }
+    }
+  }, [computedVipLevel, user.vipLevel, user.uid, user.memberId]);
 
   // Auto-check and recover any pending gateway deposit (WatchPay / Nekpay) when returning to the app
   useEffect(() => {
@@ -535,6 +557,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
   >(initialTab || 'home');
   const currentTab = initialTab || localTab;
   const [isWalletHistoryModalOpen, setIsWalletHistoryModalOpen] = useState(false);
+  const [isTreasureModalOpen, setIsTreasureModalOpen] = useState(false);
+  const [isProjectManagerOpen, setIsProjectManagerOpen] = useState(false);
   const [isManagerReferralModalOpen, setIsManagerReferralModalOpen] = useState(false);
   const [referralBlockReason, setReferralBlockReason] = useState<'no_permission' | 'limit_reached'>('no_permission');
 
@@ -1711,6 +1735,32 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     showToast(t.toastBonusClaimed);
   };
 
+  const handleClaimTreasureReward = (amount: number, description: string) => {
+    if (amount <= 0) return;
+    const persistentUid = user.uid || user.memberId;
+    const nowTime = Date.now();
+    const treasureTrx = {
+      id: `TREASURE-${nowTime.toString().slice(-6)}`,
+      type: 'reward',
+      title: currentLang === 'bn' ? 'ট্রেজার ক্যাশ বোনাস' : 'Treasure Cash Reward',
+      desc: description,
+      amount,
+      status: currentLang === 'bn' ? 'সফল' : 'Completed',
+      time: `আজ, ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`,
+      date: new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }),
+      channel: 'Treasure Reward',
+      isCredit: true,
+    };
+    updateUser((prev) => ({
+      ...prev,
+      walletBalance: Number((prev.walletBalance + amount).toFixed(2)),
+      transactions: [treasureTrx, ...(prev.transactions || [])],
+    }));
+    if (persistentUid) {
+      updateFirestoreWalletBalance(persistentUid, user.walletBalance + amount).catch(() => {});
+    }
+  };
+
   const handleInvestProject = (projectName: string, amount: number) => {
     if (user.walletBalance < amount) {
       showToast(
@@ -1761,13 +1811,13 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     }
 
     // VIP requirement check (VIP 1 required for packages larger than Basic Plan 1200 BDT)
-    const effectiveVip = Math.max(user.vipLevel || 0, computedVipLevel);
+    const effectiveVip = computedVipLevel;
     const isLargerPackage = matchedPlan && (matchedPlan.minInvestmentBdt > 1200 || matchedPlan.requiredVipLevel >= 1);
     if (isLargerPackage && effectiveVip < 1) {
       showToast(
         currentLang === 'bn'
-          ? 'VIP 1 ছাড়া বড় প্যাকেজগুলো কিনতে পারবেন না! অনুগ্রহ করে প্রথমে VIP 1 সক্রিয় করুন।'
-          : 'VIP 1 is required to buy larger packages! Please activate VIP 1 first.'
+          ? 'VIP 1 ছাড়া বড় প্যাকেজগুলো কিনতে পারবেন না! ১ম লেভেলে ৩ জন সক্রিয় রেফারেল যুক্ত করে VIP 1 সক্রিয় করুন।'
+          : 'VIP 1 is required to buy larger packages! Please activate VIP 1 with 3 active Level 1 referrals first.'
       );
       return;
     }
@@ -1780,7 +1830,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       return;
     }
 
-    const pkgVip = matchedPlan ? Math.max(matchedPlan.requiredVipLevel, 1) : 1;
+    const pkgVip = matchedPlan ? (matchedPlan.requiredVipLevel || 0) : 0;
     const dailyEarned = matchedPlan
       ? getPlanDailyReturnBdt(matchedPlan)
       : Math.round(amount * 0.02);
@@ -1813,7 +1863,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     }
 
     // Purchasing a package does NOT change VIP level. VIP 1 strictly requires 3 active Level 1 referrals.
-    const currentVip = user.vipLevel || 0;
+    const currentVip = computedVipLevel;
     const totalDaily = updatedInvestments.reduce((acc: number, curr: any) => acc + (curr.dailyYield || 0), 0);
 
     const invTxn = {
@@ -2167,6 +2217,10 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             onClaimDailyBonus={handleClaimDailyBonus}
             hasClaimedBonus={hasClaimedBonus}
             showToast={showToast}
+            userId={user.uid}
+            memberId={user.memberId}
+            onClaimTreasureReward={handleClaimTreasureReward}
+            onOpenProjectManager={() => setIsProjectManagerOpen(true)}
           />
         )}
 
@@ -2535,18 +2589,18 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 );
               }}
             onClaimReward={(amt) => {
-              if (amt < 200) {
+              if (amt <= 0) {
                 showToast(
                   currentLang === 'bn'
-                    ? 'মিনিমাম ২০০.০০ টাকা এর নিচে রেফার বোনাস ট্রান্সফার করা যাবে না।'
-                    : 'Cannot transfer referral bonus below minimum ৳200.00.'
+                    ? 'স্থানান্তর করার মতো কোনো রেফারেল রিওয়ার্ড ব্যালেন্স নেই।'
+                    : 'No referral rewards available to transfer.'
                 );
                 return;
               }
               const persistentUid = user.uid || user.memberId;
               updateUser((prev) => ({
                 ...prev,
-                walletBalance: prev.walletBalance + amt,
+                walletBalance: Number((prev.walletBalance + amt).toFixed(2)),
                 referralRewards: 0,
                 transactions: [
                   {
@@ -2563,8 +2617,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                     status: 'completed',
                     description:
                       currentLang === 'bn'
-                        ? 'রেফারেল কমিশন রিওয়ার্ড স্থানান্তর (৳২০০+ ট্রান্সফার)'
-                        : 'Referral Commission Transfer (৳200+)',
+                        ? `রেফারেল কমিশন রিওয়ার্ড স্থানান্তর (৳${amt.toFixed(2)})`
+                        : `Referral Commission Transfer (৳${amt.toFixed(2)})`,
                     hash: `TXN-${Date.now().toString().slice(-6)}`,
                     isCredit: true,
                   },
@@ -2757,14 +2811,14 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                       if (computedVipLevel >= 1) {
                         showToast(
                           currentLang === 'bn'
-                            ? `প্রমো বোনাস থেকে VIP ${computedVipLevel} সক্রিয়! (৩ লেভেলে মোট ${totalActiveMembersInLevels} জন সক্রিয় সদস্য)`
-                            : `VIP ${computedVipLevel} Active via Promo Bonus! (${totalActiveMembersInLevels} active members across 3 levels)`
+                            ? `প্রমো বোনাস থেকে VIP ${computedVipLevel} সক্রিয়! (১ম লেভেলে ${activeLevel1Count} জন এবং মোট ${totalActiveMembersInLevels} জন সক্রিয় সদস্য)`
+                            : `VIP ${computedVipLevel} Active via Promo Bonus! (${activeLevel1Count} active in L1, ${totalActiveMembersInLevels} active total)`
                         );
                       } else {
                         showToast(
                           currentLang === 'bn'
-                            ? `প্রমো বোনাস অপশন থেকে VIP 1 সক্রিয় করতে ৩ লেভেলে ৩ জন সক্রিয় সদস্য প্রয়োজন (${totalActiveMembersInLevels}/৩ জন সক্রিয়)`
-                            : `VIP 1 unlocks from Promo Bonus when 3 members are active in 3 levels (${totalActiveMembersInLevels}/3 active)`
+                            ? `VIP 1 সক্রিয় করতে ১ম লেভেলে অন্তত ৩ জন সক্রিয় সদস্য প্রয়োজন (বর্তমানে: ${activeLevel1Count}/৩ জন সক্রিয়)`
+                            : `VIP 1 unlocks when at least 3 members are active in Level 1 (Current: ${activeLevel1Count}/3 active)`
                         );
                       }
                     }}
@@ -3084,6 +3138,41 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 <ChevronRight className={`w-4.5 h-4.5 transition-colors ${
                   themeMode === 'day' ? 'text-slate-400 group-hover:text-slate-700' : 'text-slate-500 group-hover:text-emerald-300'
                 }`} />
+              </button>
+
+              {/* 7. Treasure / ট্রেজার (Lucky Chest & Redeem Code) */}
+              <button
+                id="profile-treasure-btn"
+                type="button"
+                onClick={() => setIsTreasureModalOpen(true)}
+                className={`w-full px-4 sm:px-5 py-3.5 flex items-center justify-between transition-colors cursor-pointer text-left group ${
+                  themeMode === 'day' ? 'hover:bg-amber-50/60' : 'hover:bg-amber-500/10'
+                }`}
+              >
+                <div className="flex items-center gap-3.5">
+                  <div className="w-9 h-9 rounded-full bg-amber-500/20 border border-amber-500/35 flex items-center justify-center text-amber-400 group-hover:scale-105 transition-transform shrink-0 shadow-inner">
+                    <Gift className="w-4.5 h-4.5 text-amber-300 animate-bounce" />
+                  </div>
+                  <div>
+                    <span className={`text-[15px] font-semibold tracking-tight transition-colors block ${
+                      themeMode === 'day' ? 'text-slate-800 group-hover:text-amber-600' : 'text-slate-100 group-hover:text-amber-300'
+                    }`}>
+                      {currentLang === 'bn' ? 'ট্রেজার বক্স ও রিডিম কোড' : 'Treasure Box & Redeem Code'}
+                    </span>
+                    <span className="text-[11px] text-amber-400/80 block">
+                      {currentLang === 'bn' ? 'দৈনিক লাকি বক্স ও গিফট কোড রিডিম করুন' : 'Daily lucky chest & redeem exclusive gift codes'}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/35 shadow-xs">
+                    <Sparkles className="w-3 h-3 text-amber-400" />
+                    <span>{currentLang === 'bn' ? 'পুরস্কার' : 'Reward'}</span>
+                  </span>
+                  <ChevronRight className={`w-4.5 h-4.5 transition-colors ${
+                    themeMode === 'day' ? 'text-slate-400 group-hover:text-slate-700' : 'text-slate-500 group-hover:text-amber-300'
+                  }`} />
+                </div>
               </button>
 
               {/* 8. Live Chat & Support */}
@@ -3625,7 +3714,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                   </div>
                   <p className="text-xs text-slate-300 font-mono mt-0.5">{user.email || user.memberId}</p>
                   <p className="text-[11px] text-emerald-300 mt-0.5">
-                    {currentLang === 'bn' ? `ভিআইপি স্তর: VIP ${user.vipLevel || 0}` : `VIP Status: VIP ${user.vipLevel || 0}`}
+                    {currentLang === 'bn' ? `ভিআইপি স্তর: VIP ${computedVipLevel}` : `VIP Status: VIP ${computedVipLevel}`}
                   </p>
                 </div>
               </div>
@@ -3655,7 +3744,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
                 <div className="p-3 rounded-2xl bg-[#042018] border border-emerald-500/20 flex justify-between items-center">
                   <span className="text-slate-300">{currentLang === 'bn' ? 'ভিআইপি স্তর' : 'VIP Level'}</span>
-                  <span className="font-bold text-amber-400">VIP {user.vipLevel || 0}</span>
+                  <span className="font-bold text-amber-400">VIP {computedVipLevel}</span>
                 </div>
 
                 <div className="p-3 rounded-2xl bg-[#042018] border border-emerald-500/20 flex justify-between items-center">
@@ -4532,6 +4621,28 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
         reason={referralBlockReason}
         currentLimit={user.referralLimit || 0}
       />
+
+      {/* Treasure Modal (ট্রেজার - লাকি ট্রেজার বক্স ও রিডিম কোড) */}
+      <TreasureModal
+        isOpen={isTreasureModalOpen}
+        onClose={() => setIsTreasureModalOpen(false)}
+        currentLang={currentLang}
+        themeMode={themeMode}
+        userId={user.uid}
+        memberId={user.memberId}
+        onClaimReward={handleClaimTreasureReward}
+        showToast={showToast}
+        onOpenProjectManager={() => setIsProjectManagerOpen(true)}
+      />
+
+      {/* Project Manager Page (প্রকল্প ব্যবস্থাপক টেলিগ্রাম সাপোর্ট) */}
+      {isProjectManagerOpen && (
+        <ProjectManagerPage
+          onBack={() => setIsProjectManagerOpen(false)}
+          currentLang={currentLang}
+          showToast={showToast}
+        />
+      )}
     </div>
   );
 };

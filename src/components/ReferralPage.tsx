@@ -158,8 +158,8 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
 
   // Available Cash Rewards state: combines Firestore profile referralRewards and real computed tree rewards across all 3 levels
   const currentAvailableRewards = useMemo(() => {
-    if (typeof referralRewards === 'number' && referralRewards > 0) {
-      return Number(referralRewards.toFixed(2));
+    if (typeof referralRewards === 'number') {
+      return Number(Math.max(0, referralRewards).toFixed(2));
     }
     return Number((teamTree.availableRewards || 0).toFixed(2));
   }, [referralRewards, teamTree.availableRewards]);
@@ -239,11 +239,11 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
   };
 
   const handleClaim = () => {
-    if (availableRewards < 200) {
+    if (availableRewards <= 0) {
       showToast(
         currentLang === 'bn'
-          ? `মিনিমাম ২০০.০০ টাকা এর নিচে রেফার বোনাস ট্রান্সফার করা যাবে না (বর্তমান: ৳${availableRewards.toFixed(2)})`
-          : `Minimum referral reward transfer is ৳200.00 (Current: ৳${availableRewards.toFixed(2)})`
+          ? 'স্থানান্তর করার মতো কোনো রেফারেল রিওয়ার্ড ব্যালেন্স নেই।'
+          : 'No referral rewards available to transfer.'
       );
       return;
     }
@@ -882,15 +882,15 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
                         : 'Transferable directly to main wallet'}
                     </span>
                     <span className={`text-[10px] font-semibold ${
-                      availableRewards >= 200 ? 'text-emerald-300' : 'text-amber-400'
+                      availableRewards > 0 ? 'text-emerald-300' : 'text-slate-400'
                     }`}>
                       {currentLang === 'bn'
-                        ? (availableRewards >= 200
-                            ? '✓ ট্রান্সফার করার যোগ্য (মিনিমাম ৳২০০ অর্জিত)'
-                            : `• মিনিমাম ট্রান্সফার: ২০০.০০ টাকা (বাকি: ৳${Math.max(0, 200 - availableRewards).toFixed(2)})`)
-                        : (availableRewards >= 200
-                            ? '✓ Eligible to transfer (Min ৳200 reached)'
-                            : `• Min transfer: ৳200.00 (Needed: ৳${Math.max(0, 200 - availableRewards).toFixed(2)})`)}
+                        ? (availableRewards > 0
+                            ? '✓ ট্রান্সফার করার জন্য প্রস্তুত (সরাসরি প্রোফাইল ওয়ালেটে যাবে)'
+                            : '• রেফার কমিশন জমা হলে ট্রান্সফার করুন')
+                        : (availableRewards > 0
+                            ? '✓ Ready to transfer (moves to profile wallet)'
+                            : '• Transfer when rewards accumulate')}
                     </span>
                   </div>
                 </div>
@@ -900,16 +900,16 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
                   id="referral-claim-reward-btn"
                   type="button"
                   onClick={handleClaim}
-                  disabled={availableRewards < 200}
+                  disabled={availableRewards <= 0}
                   className={`px-5 sm:px-6 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all shadow-md active:scale-95 ${
-                    availableRewards >= 200
+                    availableRewards > 0
                       ? 'bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 shadow-amber-500/25 ring-2 ring-amber-400/50 cursor-pointer animate-pulse'
                       : 'bg-[#03261f] text-emerald-400/50 border border-[#0d614f] cursor-not-allowed opacity-75'
                   }`}
                   title={
-                    availableRewards >= 200
-                      ? (currentLang === 'bn' ? '৳২০০+ ক্যাশ রিওয়ার্ড মূল ওয়ালেটে স্থানান্তর করুন' : 'Transfer rewards to main wallet')
-                      : (currentLang === 'bn' ? 'মিনিমাম ২০০.০০ টাকা হলে স্থানান্তর করতে পারবেন' : 'Minimum ৳200 required to transfer')
+                    availableRewards > 0
+                      ? (currentLang === 'bn' ? 'ক্যাশ রিওয়ার্ড মূল ওয়ালেটে স্থানান্তর করুন' : 'Transfer rewards to main wallet')
+                      : (currentLang === 'bn' ? 'রিওয়ার্ড ব্যালেন্স জমা হলে স্থানান্তর করতে পারবেন' : 'No rewards to transfer')
                   }
                 >
                   {currentLang === 'bn' ? 'ট্রান্সফার করুন' : 'Transfer'}

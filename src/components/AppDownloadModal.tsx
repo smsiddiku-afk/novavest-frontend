@@ -7,12 +7,9 @@ import {
   ArrowLeft,
   Sparkles,
   FileCheck,
-  AlertCircle,
-  RefreshCw,
   Cpu,
 } from 'lucide-react';
 import { Language } from '../types';
-import { downloadNvtApk } from '../utils/appDownloader';
 
 interface AppDownloadModalProps {
   isOpen: boolean;
@@ -29,11 +26,22 @@ export const AppDownloadModal: React.FC<AppDownloadModalProps> = ({
   const [downloadCount, setDownloadCount] = useState(1);
   const [hasTriggered, setHasTriggered] = useState(false);
 
+  // Direct APK download function
+  const triggerApkDownload = () => {
+    const apkUrl = '/NVT_Energy_v2.4.2.apk'; // আপনার public ফোল্ডারে রাখা APK ফাইলের সঠিক পাথ
+    const link = document.createElement('a');
+    link.href = apkUrl;
+    link.download = 'NVT_Energy_v2.4.2.apk';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   // Automatically trigger APK download upon opening
   useEffect(() => {
     if (isOpen && !hasTriggered) {
       setHasTriggered(true);
-      downloadNvtApk();
+      triggerApkDownload();
     }
     if (!isOpen) {
       setHasTriggered(false);
@@ -43,7 +51,7 @@ export const AppDownloadModal: React.FC<AppDownloadModalProps> = ({
   if (!isOpen) return null;
 
   const handleManualDownload = () => {
-    downloadNvtApk();
+    triggerApkDownload();
     setDownloadCount((prev) => prev + 1);
   };
 

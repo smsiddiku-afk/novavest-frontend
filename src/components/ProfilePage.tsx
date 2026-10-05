@@ -2589,11 +2589,11 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 );
               }}
             onClaimReward={(amt) => {
-              if (amt <= 0) {
+              if (amt < 200) {
                 showToast(
                   currentLang === 'bn'
-                    ? 'স্থানান্তর করার মতো কোনো রেফারেল রিওয়ার্ড ব্যালেন্স নেই।'
-                    : 'No referral rewards available to transfer.'
+                    ? `নূন্যতম ২০০ টাকা জমা হলে মূল ব্যালেন্সে স্থানান্তর করতে পারবেন। বর্তমান ব্যালেন্স: ৳${amt.toFixed(2)}`
+                    : `Minimum ৳200 required to transfer. Current balance: ৳${amt.toFixed(2)}`
                 );
                 return;
               }
@@ -3138,41 +3138,6 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 <ChevronRight className={`w-4.5 h-4.5 transition-colors ${
                   themeMode === 'day' ? 'text-slate-400 group-hover:text-slate-700' : 'text-slate-500 group-hover:text-emerald-300'
                 }`} />
-              </button>
-
-              {/* 7. Treasure / ট্রেজার (Lucky Chest & Redeem Code) */}
-              <button
-                id="profile-treasure-btn"
-                type="button"
-                onClick={() => setIsTreasureModalOpen(true)}
-                className={`w-full px-4 sm:px-5 py-3.5 flex items-center justify-between transition-colors cursor-pointer text-left group ${
-                  themeMode === 'day' ? 'hover:bg-amber-50/60' : 'hover:bg-amber-500/10'
-                }`}
-              >
-                <div className="flex items-center gap-3.5">
-                  <div className="w-9 h-9 rounded-full bg-amber-500/20 border border-amber-500/35 flex items-center justify-center text-amber-400 group-hover:scale-105 transition-transform shrink-0 shadow-inner">
-                    <Gift className="w-4.5 h-4.5 text-amber-300 animate-bounce" />
-                  </div>
-                  <div>
-                    <span className={`text-[15px] font-semibold tracking-tight transition-colors block ${
-                      themeMode === 'day' ? 'text-slate-800 group-hover:text-amber-600' : 'text-slate-100 group-hover:text-amber-300'
-                    }`}>
-                      {currentLang === 'bn' ? 'ট্রেজার বক্স ও রিডিম কোড' : 'Treasure Box & Redeem Code'}
-                    </span>
-                    <span className="text-[11px] text-amber-400/80 block">
-                      {currentLang === 'bn' ? 'দৈনিক লাকি বক্স ও গিফট কোড রিডিম করুন' : 'Daily lucky chest & redeem exclusive gift codes'}
-                    </span>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/35 shadow-xs">
-                    <Sparkles className="w-3 h-3 text-amber-400" />
-                    <span>{currentLang === 'bn' ? 'পুরস্কার' : 'Reward'}</span>
-                  </span>
-                  <ChevronRight className={`w-4.5 h-4.5 transition-colors ${
-                    themeMode === 'day' ? 'text-slate-400 group-hover:text-slate-700' : 'text-slate-500 group-hover:text-amber-300'
-                  }`} />
-                </div>
               </button>
 
               {/* 8. Live Chat & Support */}

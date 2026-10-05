@@ -72,6 +72,7 @@ export default function AdminPanel() {
   const [manager2Telegram, setManager2Telegram] = useState("https://t.me/NVT_ProjectManager2");
   const [manager3Telegram, setManager3Telegram] = useState("https://t.me/NVT_ProjectManager3");
   const [manager4Telegram, setManager4Telegram] = useState("https://t.me/NVT_ProjectManager4");
+  const [renderBackendUrl, setRenderBackendUrl] = useState("https://nvt-energy-otp-server.onrender.com");
 
   // রেফার বোনাস / কমিশন রেট স্টেট (টায়ার ১, ২, ৩)
   const [tier1Percent, setTier1Percent] = useState(6);
@@ -95,6 +96,15 @@ export default function AdminPanel() {
   const [previewingBannerImg, setPreviewingBannerImg] = useState(null);
   const bannerFileInputRef = useRef(null);
 
+  // রিডিম কোড ম্যানেজমেন্ট স্টেট (১০-১২ টাকা দৈনিক বোনাস ও খাম)
+  const [redeemCodes, setRedeemCodes] = useState([]);
+  const [newRedeemCodeInput, setNewRedeemCodeInput] = useState("");
+  const [newRedeemMode, setNewRedeemMode] = useState("range_10_12"); // "range_10_12" | "fixed"
+  const [newRedeemFixedAmount, setNewRedeemFixedAmount] = useState(11);
+  const [newRedeemDescription, setNewRedeemDescription] = useState("");
+  const [isSavingCode, setIsSavingCode] = useState(false);
+  const [copiedCodeId, setCopiedCodeId] = useState("");
+
   const handleLogin = (e) => {
     e.preventDefault();
     if (passwordInput === ADMIN_SECRET_KEY) {
@@ -106,11 +116,12 @@ export default function AdminPanel() {
     }
   };
 
-  // Real-time synchronization for instant deposits and withdrawals
+  // Real-time synchronization for instant deposits, withdrawals, and redeem codes
   useEffect(() => {
     if (!isAuthenticated) return;
     let unsubDeposits = () => {};
     let unsubWithdrawals = () => {};
+    let unsubCodes = () => {};
     try {
       unsubDeposits = onSnapshot(collection(db, "deposits"), (snap) => {
         const list = [];
@@ -129,9 +140,19 @@ export default function AdminPanel() {
       }, (err) => console.warn("Admin withdrawals listener notice:", err));
     } catch (_) {}
 
+    try {
+      unsubCodes = onSnapshot(collection(db, "treasure_codes"), (snap) => {
+        const list = [];
+        snap.forEach((d) => list.push({ id: d.id, ...d.data() }));
+        list.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+        setRedeemCodes(list);
+      }, (err) => console.warn("Admin treasure codes listener notice:", err));
+    } catch (_) {}
+
     return () => {
       unsubDeposits();
       unsubWithdrawals();
+      unsubCodes();
     };
   }, [isAuthenticated]);
 
@@ -145,7 +166,8 @@ export default function AdminPanel() {
         settingsRes,
         packagesRes,
         ratesRes,
-        bannersRes
+        bannersRes,
+        codesRes
       ] = await Promise.allSettled([
         getDocs(collection(db, "users")),
         getDocs(query(collection(db, "withdrawals"), orderBy("createdAt", "desc"))).catch(() => getDocs(collection(db, "withdrawals"))),
@@ -154,6 +176,7 @@ export default function AdminPanel() {
         getLivePackages(),
         loadCommissionRatesFromFirestore(),
         fetch('/api/admin/charity-banners').then(r => r.ok ? r.json() : null).catch(() => null),
+        getDocs(collection(db, "treasure_codes")).catch(() => null),
       ]);
 
       if (userSnapRes.status === 'fulfilled' && userSnapRes.value) {
@@ -192,6 +215,7 @@ export default function AdminPanel() {
         if (data.manager2Telegram) setManager2Telegram(data.manager2Telegram);
         if (data.manager3Telegram) setManager3Telegram(data.manager3Telegram);
         if (data.manager4Telegram) setManager4Telegram(data.manager4Telegram);
+        if (data.renderBackendUrl) setRenderBackendUrl(data.renderBackendUrl);
       }
 
       if (packagesRes.status === 'fulfilled' && Array.isArray(packagesRes.value)) {
@@ -210,11 +234,126 @@ export default function AdminPanel() {
           localStorage.setItem('nvt_charity_banners', JSON.stringify(bannersRes.value.banners.filter(b => b.isActive !== false)));
         }
       }
+
+      if (codesRes.status === 'fulfilled' && codesRes.value) {
+        const cList = [];
+        codesRes.value.forEach((d) => {
+          cList.push({ id: d.id, ...d.data() });
+        });
+        if (cList.length === 0) {
+          const starter = {
+            id: 'DAILY12',
+            code: 'DAILY12',
+            amount: 11,
+            minAmount: 10,
+            maxAmount: 12,
+            isRange: true,
+            isActive: true,
+            description: 'দৈনিক স্পেশাল লাকি গিফট খাম (১০-১২ টাকা)',
+            createdAt: new Date().toISOString(),
+          };
+          const ref = safeDoc('treasure_codes', 'DAILY12');
+          if (ref) safeSetDoc(ref, starter).catch(() => {});
+          cList.push(starter);
+        }
+        cList.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+        setRedeemCodes(cList);
+      }
     } catch (error) {
       console.error("ডেটা লোড সমস্যা:", error);
       setStatusMsg("Firestore থেকে ডেটা আনতে সমস্যা হয়েছে।");
     } finally {
       if (!silent) setLoading(false);
+    }
+  };
+
+  // রিডিম কোড সেভ, ডিলিট ও ম্যানেজমেন্ট ফাংশনস
+  const generateRandomDailyCode = () => {
+    const prefixes = ["DAILY", "NVT", "GIFT", "BONUS", "LUCKY"];
+    const pre = prefixes[Math.floor(Math.random() * prefixes.length)];
+    const num = Math.floor(100 + Math.random() * 900);
+    setNewRedeemCodeInput(`${pre}${num}`);
+  };
+
+  const handleSaveRedeemCode = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    const cleanCode = (newRedeemCodeInput || "").trim().toUpperCase();
+    if (!cleanCode) {
+      alert("দয়া করে একটি কোড লিখুন (যেমন: DAILY12 বা NVT11)");
+      return;
+    }
+
+    setIsSavingCode(true);
+    setStatusMsg("");
+    try {
+      const isRange = newRedeemMode === "range_10_12";
+      const fixedVal = Number(newRedeemFixedAmount) || 11;
+      const codeData = {
+        id: cleanCode,
+        code: cleanCode,
+        amount: isRange ? 11 : fixedVal,
+        minAmount: isRange ? 10 : fixedVal,
+        maxAmount: isRange ? 12 : fixedVal,
+        isRange: isRange,
+        isActive: true,
+        description: newRedeemDescription.trim() || (isRange ? "দৈনিক স্পেশাল লাকি গিফট খাম (১০-১২ টাকা)" : `রিডিম কোড (৳${fixedVal})`),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      const ref = safeDoc("treasure_codes", cleanCode);
+      if (ref) {
+        await safeSetDoc(ref, codeData, { merge: true });
+      }
+
+      setRedeemCodes((prev) => {
+        const without = prev.filter((c) => c.code !== cleanCode && c.id !== cleanCode);
+        return [codeData, ...without];
+      });
+
+      setNewRedeemCodeInput("");
+      setNewRedeemDescription("");
+      setStatusMsg(`🎉 রিডিম কোড [${cleanCode}] সফলভাবে সংরক্ষণ করা হয়েছে! ইউজাররা কোড বসালে সুন্দর খাম আকারে ১০-১২ টাকার বোনাস পাবে।`);
+    } catch (err) {
+      console.error("কোড সেভ এরর:", err);
+      setStatusMsg("রিডিম কোড সেভ করতে সমস্যা হয়েছে।");
+    } finally {
+      setIsSavingCode(false);
+    }
+  };
+
+  const handleDeleteRedeemCode = async (codeId) => {
+    if (!window.confirm(`আপনি কি নিশ্চিত যে কোড [${codeId}] মুছে ফেলতে চান?\n\nপ্যানেল থেকে ডিলিট করলে ইউজাররা আর এই কোড দিয়ে বোনাস নিতে পারবে না।`)) {
+      return;
+    }
+    try {
+      const ref = safeDoc("treasure_codes", codeId);
+      if (ref) {
+        await deleteDoc(ref);
+      }
+      setRedeemCodes((prev) => prev.filter((c) => c.code !== codeId && c.id !== codeId));
+      setStatusMsg(`কোড [${codeId}] সফলভাবে মুছে ফেলা হয়েছে! এখন আর কোনো ইউজার এটি দিয়ে রিডিম করতে পারবে না।`);
+    } catch (err) {
+      console.error("কোড ডিলিট করতে সমস্যা:", err);
+      setStatusMsg("কোড ডিলিট করতে সমস্যা হয়েছে।");
+    }
+  };
+
+  const handleToggleCodeStatus = async (item) => {
+    try {
+      const nextStatus = !item.isActive;
+      const ref = safeDoc("treasure_codes", item.code || item.id);
+      if (ref) {
+        await safeSetDoc(ref, { isActive: nextStatus }, { merge: true });
+      }
+      setRedeemCodes((prev) =>
+        prev.map((c) =>
+          c.code === item.code || c.id === item.id ? { ...c, isActive: nextStatus } : c
+        )
+      );
+      setStatusMsg(`কোড [${item.code}] এখন ${nextStatus ? "চালু (Active)" : "বন্ধ (Inactive)"}!`);
+    } catch (err) {
+      console.error("কোড স্ট্যাটাস পরিবর্তন এরর:", err);
     }
   };
 
@@ -531,6 +670,7 @@ export default function AdminPanel() {
         manager2Telegram: (manager2Telegram || "").trim(),
         manager3Telegram: (manager3Telegram || "").trim(),
         manager4Telegram: (manager4Telegram || "").trim(),
+        renderBackendUrl: (renderBackendUrl || "").trim(),
         updatedAt: new Date().toISOString()
       });
       const supportRef = safeDoc("settings", "support");
@@ -1071,6 +1211,7 @@ export default function AdminPanel() {
         <button onClick={() => setActiveTab("referral")} style={{ padding: "10px 18px", borderRadius: "6px", border: "none", cursor: "pointer", fontWeight: "bold", background: activeTab === "referral" ? "#00d2ff" : "#161d2f", color: activeTab === "referral" ? "#000" : "#fff" }}>🎁 রেফার বোনাস সেটাপ</button>
         <button onClick={() => setActiveTab("users")} style={{ padding: "10px 18px", borderRadius: "6px", border: "none", cursor: "pointer", fontWeight: "bold", background: activeTab === "users" ? "#00d2ff" : "#161d2f", color: activeTab === "users" ? "#000" : "#fff" }}>👥 ইউজার ও নেটওয়ার্ক ({users.length})</button>
         <button onClick={() => setActiveTab("banners")} style={{ padding: "10px 18px", borderRadius: "6px", border: "none", cursor: "pointer", fontWeight: "bold", background: activeTab === "banners" ? "#00e676" : "#161d2f", color: activeTab === "banners" ? "#000" : "#fff" }}>🖼️ ছবি ও ব্যানার আপলোড ({charityBannersList.length})</button>
+        <button onClick={() => setActiveTab("redeemCodes")} style={{ padding: "10px 18px", borderRadius: "6px", border: "none", cursor: "pointer", fontWeight: "bold", background: activeTab === "redeemCodes" ? "#f59e0b" : "#161d2f", color: activeTab === "redeemCodes" ? "#000" : "#fff" }}>🎟️ রিডিম কোড ({redeemCodes.length})</button>
       </div>
 
       {/* Tab Content Area */}
@@ -1856,6 +1997,23 @@ export default function AdminPanel() {
                   <label style={{ display: "block", marginBottom: "6px", fontSize: "13px", fontWeight: "bold" }}>✉️ Official Email:</label>
                   <input type="email" placeholder="support@novaterraenergy.io" value={supportEmail} onChange={(e) => setSupportEmail(e.target.value)} style={{ width: "100%", padding: "10px", borderRadius: "6px", border: "1px solid #3b476c", backgroundColor: "#0b0f19", color: "#fff", boxSizing: "border-box" }} />
                 </div>
+              </div>
+
+              {/* Render Backend API URL for Real Email OTP */}
+              <div style={{ backgroundColor: "#064e3b", border: "1px solid #059669", borderRadius: "8px", padding: "12px", marginBottom: "15px" }}>
+                <label style={{ display: "block", marginBottom: "6px", fontSize: "13px", fontWeight: "bold", color: "#6ee7b7" }}>
+                  🚀 Render ব্যাকএন্ড API URL (রিয়েল ইমেইল OTP সার্ভার):
+                </label>
+                <input
+                  type="url"
+                  placeholder="https://nvt-energy-otp-server.onrender.com"
+                  value={renderBackendUrl}
+                  onChange={(e) => setRenderBackendUrl(e.target.value)}
+                  style={{ width: "100%", padding: "10px", borderRadius: "6px", border: "1px solid #10b981", backgroundColor: "#022c22", color: "#fff", boxSizing: "border-box", fontSize: "13px" }}
+                />
+                <span style={{ display: "block", marginTop: "5px", fontSize: "11px", color: "#a7f3d0" }}>
+                  💡 রেন্ডারে (render.com) ব্যাকএন্ড ডিপ্লয় করে প্রাপ্ত URL এখানে বসালে সরাসরি গ্রাহকের ইমেইল ইনবক্সে আসল ওটিপি চলে যাবে।
+                </span>
               </div>
 
               {/* ৪ জন প্রকল্প ব্যবস্থাপক টেলিগ্রাম লিংক */}
@@ -2927,6 +3085,243 @@ export default function AdminPanel() {
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {/* ৯. রিডিম কোড ম্যানেজমেন্ট ও খাম বোনাস ট্যাব */}
+        {activeTab === "redeemCodes" && (
+          <div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "15px", flexWrap: "wrap", gap: "10px" }}>
+              <div>
+                <h3 style={{ margin: "0 0 4px 0", color: "#f59e0b", fontSize: "18px" }}>
+                  🎟️ রিডিম কোড ম্যানেজমেন্ট ও দৈনিক খাম বোনাস (Redeem Codes)
+                </h3>
+                <p style={{ margin: 0, fontSize: "13px", color: "#94a3b8" }}>
+                  এখানে আপনি রিডিম কোড যুক্ত বা পরিবর্তন করতে পারবেন। ইউজাররা কোড বসালে সুন্দর খাম আকারে <strong>১০-১২ টাকার</strong> মধ্যে বোনাস পাবে এবং ক্লাইম করতে পারবে। প্যানেল থেকে কোনো কোড ডিলিট করলে তা আর কোনো ইউজার ব্যবহার করতে পারবে না।
+                </p>
+              </div>
+              <div style={{ display: "flex", gap: "8px" }}>
+                <button
+                  type="button"
+                  onClick={fetchAllData}
+                  style={{ padding: "8px 14px", backgroundColor: "#1e293b", color: "#fff", border: "1px solid #334155", borderRadius: "6px", cursor: "pointer", fontWeight: "bold" }}
+                >
+                  🔄 রিফ্রেশ
+                </button>
+              </div>
+            </div>
+
+            {/* কোড তৈরির ফর্ম কার্ড */}
+            <div style={{ background: "#0b0f19", border: "1px solid #3b476c", borderRadius: "10px", padding: "18px", marginBottom: "20px" }}>
+              <h4 style={{ margin: "0 0 12px 0", color: "#fbbf24", fontSize: "15px", display: "flex", alignItems: "center", gap: "6px" }}>
+                <span>✨ নতুন রিডিম কোড তৈরি / আপডেট করুন</span>
+              </h4>
+
+              <form onSubmit={handleSaveRedeemCode}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "14px", marginBottom: "14px" }}>
+                  {/* কোড নাম */}
+                  <div>
+                    <label style={{ display: "block", fontSize: "12px", color: "#cbd5e1", marginBottom: "6px", fontWeight: "bold" }}>
+                      রিডিম কোড (ইংরেজি বড় হাতের অক্ষরের কোড):
+                    </label>
+                    <div style={{ display: "flex", gap: "6px" }}>
+                      <input
+                        type="text"
+                        value={newRedeemCodeInput}
+                        onChange={(e) => setNewRedeemCodeInput(e.target.value.toUpperCase())}
+                        placeholder="যেমন: DAILY12, NVT10"
+                        style={{ flex: 1, padding: "10px", borderRadius: "6px", border: "1px solid #475569", background: "#161d2f", color: "#fbbf24", fontWeight: "bold", fontSize: "14px", letterSpacing: "1px", outline: "none" }}
+                        required
+                      />
+                      <button
+                        type="button"
+                        onClick={generateRandomDailyCode}
+                        style={{ padding: "8px 12px", background: "#334155", color: "#fff", border: "none", borderRadius: "6px", cursor: "pointer", fontSize: "12px", whiteSpace: "nowrap" }}
+                        title="র্যান্ডম কোড তৈরি করুন"
+                      >
+                        🎲 র‍্যান্ডম
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* বোনাস টাইপ ও রেঞ্জ */}
+                  <div>
+                    <label style={{ display: "block", fontSize: "12px", color: "#cbd5e1", marginBottom: "6px", fontWeight: "bold" }}>
+                      বোনাসের পরিমাণ নির্ধারণ:
+                    </label>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                      <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "13px", color: "#fef08a", cursor: "pointer" }}>
+                        <input
+                          type="radio"
+                          name="redeemMode"
+                          checked={newRedeemMode === "range_10_12"}
+                          onChange={() => setNewRedeemMode("range_10_12")}
+                        />
+                        <span>🎁 <strong>১০ - ১২ টাকা</strong> র‍্যান্ডম খাম বোনাস (১০, ১১ বা ১২ টাকা পাবে)</span>
+                      </label>
+                      <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "13px", color: "#94a3b8", cursor: "pointer" }}>
+                        <input
+                          type="radio"
+                          name="redeemMode"
+                          checked={newRedeemMode === "fixed"}
+                          onChange={() => setNewRedeemMode("fixed")}
+                        />
+                        <span>নির্দিষ্ট টাকার পরিমাণ (নিচে লিখুন)</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  {/* ফিক্সড টাকা ইনপুট (যদি ফিক্সড সিলেক্ট থাকে) */}
+                  {newRedeemMode === "fixed" && (
+                    <div>
+                      <label style={{ display: "block", fontSize: "12px", color: "#cbd5e1", marginBottom: "6px", fontWeight: "bold" }}>
+                        নির্দিষ্ট টাকা (৳):
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="1000"
+                        value={newRedeemFixedAmount}
+                        onChange={(e) => setNewRedeemFixedAmount(e.target.value)}
+                        style={{ width: "100%", padding: "10px", boxSizing: "border-box", borderRadius: "6px", border: "1px solid #475569", background: "#161d2f", color: "#fff", outline: "none" }}
+                      />
+                    </div>
+                  )}
+
+                  {/* বিবরণী বা নোট */}
+                  <div>
+                    <label style={{ display: "block", fontSize: "12px", color: "#cbd5e1", marginBottom: "6px", fontWeight: "bold" }}>
+                      বিবরণী (অপশনাল):
+                    </label>
+                    <input
+                      type="text"
+                      value={newRedeemDescription}
+                      onChange={(e) => setNewRedeemDescription(e.target.value)}
+                      placeholder="যেমন: আজকের টেলিগ্রাম গ্রুপের রিডিম কোড"
+                      style={{ width: "100%", padding: "10px", boxSizing: "border-box", borderRadius: "6px", border: "1px solid #475569", background: "#161d2f", color: "#fff", outline: "none" }}
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isSavingCode}
+                  style={{
+                    padding: "10px 24px",
+                    backgroundColor: isSavingCode ? "#64748b" : "#f59e0b",
+                    color: "#000",
+                    border: "none",
+                    borderRadius: "6px",
+                    cursor: isSavingCode ? "not-allowed" : "pointer",
+                    fontWeight: "bold",
+                    fontSize: "14px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                  }}
+                >
+                  {isSavingCode ? "সেভ হচ্ছে..." : "💾 রিডিম কোড সেভ করুন"}
+                </button>
+              </form>
+            </div>
+
+            {/* বর্তমান সক্রিয় রিডিম কোড তালিকা */}
+            <div style={{ background: "#0b0f19", border: "1px solid #3b476c", borderRadius: "10px", padding: "18px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+                <h4 style={{ margin: 0, color: "#fff", fontSize: "15px" }}>
+                  📋 বর্তমান সক্রিয় ও সেভ করা রিডিম কোড ({redeemCodes.length}টি)
+                </h4>
+              </div>
+
+              {redeemCodes.length === 0 ? (
+                <p style={{ color: "#94a3b8", fontSize: "14px", margin: 0 }}>
+                  এখনো কোনো রিডিম কোড তৈরি করা হয়নি। উপরের ফর্ম থেকে কোড তৈরি করুন।
+                </p>
+              ) : (
+                <div style={{ overflowX: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "13px" }}>
+                    <thead>
+                      <tr style={{ borderBottom: "1px solid #2e3856", color: "#94a3b8" }}>
+                        <th style={{ padding: "10px" }}>রিডিম কোড</th>
+                        <th style={{ padding: "10px" }}>বোনাস রেঞ্জ</th>
+                        <th style={{ padding: "10px" }}>বিবরণ</th>
+                        <th style={{ padding: "10px" }}>স্ট্যাটাস</th>
+                        <th style={{ padding: "10px", textAlign: "right" }}>অ্যাকশন</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {redeemCodes.map((item) => (
+                        <tr key={item.id || item.code} style={{ borderBottom: "1px solid #1e293b" }}>
+                          <td style={{ padding: "10px" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                              <span style={{ fontFamily: "monospace", fontSize: "15px", fontWeight: "bold", color: "#fef08a", background: "#1e293b", padding: "3px 8px", borderRadius: "4px", border: "1px solid #475569" }}>
+                                {item.code}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (navigator.clipboard) {
+                                    navigator.clipboard.writeText(item.code);
+                                    setCopiedCodeId(item.code);
+                                    setTimeout(() => setCopiedCodeId(""), 2000);
+                                  }
+                                }}
+                                style={{ padding: "3px 8px", background: copiedCodeId === item.code ? "#059669" : "#334155", color: "#fff", border: "none", borderRadius: "4px", cursor: "pointer", fontSize: "11px" }}
+                              >
+                                {copiedCodeId === item.code ? "✓ কপিড" : "📋 কপি"}
+                              </button>
+                            </div>
+                          </td>
+                          <td style={{ padding: "10px", color: "#34d399", fontWeight: "bold" }}>
+                            {item.isRange || (item.minAmount && item.maxAmount)
+                              ? `১০ - ১২ টাকা (খাম বোনাস)`
+                              : `৳${item.amount || 11}`}
+                          </td>
+                          <td style={{ padding: "10px", color: "#cbd5e1" }}>
+                            {item.description || "দৈনিক স্পেশাল লাকি রিডিম কোড"}
+                          </td>
+                          <td style={{ padding: "10px" }}>
+                            <span
+                              style={{
+                                display: "inline-block",
+                                padding: "3px 8px",
+                                borderRadius: "12px",
+                                fontSize: "11px",
+                                fontWeight: "bold",
+                                background: item.isActive !== false ? "#064e3b" : "#450a0a",
+                                color: item.isActive !== false ? "#a7f3d0" : "#fecaca",
+                                border: `1px solid ${item.isActive !== false ? "#059669" : "#dc2626"}`
+                              }}
+                            >
+                              {item.isActive !== false ? "🟢 চালু (Active)" : "🔴 বন্ধ (Inactive)"}
+                            </span>
+                          </td>
+                          <td style={{ padding: "10px", textAlign: "right" }}>
+                            <div style={{ display: "flex", gap: "6px", justifyContent: "flex-end" }}>
+                              <button
+                                type="button"
+                                onClick={() => handleToggleCodeStatus(item)}
+                                style={{ padding: "5px 10px", background: item.isActive !== false ? "#475569" : "#059669", color: "#fff", border: "none", borderRadius: "4px", cursor: "pointer", fontSize: "12px" }}
+                              >
+                                {item.isActive !== false ? "বন্ধ করুন" : "চালু করুন"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteRedeemCode(item.code || item.id)}
+                                style={{ padding: "5px 10px", background: "#dc2626", color: "#fff", border: "none", borderRadius: "4px", cursor: "pointer", fontSize: "12px", fontWeight: "bold" }}
+                                title="প্যানেল থেকে মুছে ফেলুন (মুছে ফেললে ইউজাররা আর এটি ব্যবহার করতে পারবে না)"
+                              >
+                                🗑️ ডিলিট
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
           </div>
         )}
 

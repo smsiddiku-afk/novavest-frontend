@@ -49,6 +49,14 @@ export const TreasureModal: React.FC<TreasureModalProps> = ({
   const [redeemCode, setRedeemCode] = useState('');
   const [isRedeeming, setIsRedeeming] = useState(false);
 
+  // Envelope (খাম) Bonus State
+  const [unlockedEnvelope, setUnlockedEnvelope] = useState<{
+    code: string;
+    amount: number;
+    description?: string;
+  } | null>(null);
+  const [isClaimingEnvelope, setIsClaimingEnvelope] = useState(false);
+
   // Daily Free Treasure State
   const activeUserKey = userId || memberId || 'guest_user';
   const todayKey = new Date().toISOString().split('T')[0];
@@ -102,8 +110,8 @@ export const TreasureModal: React.FC<TreasureModalProps> = ({
     setIsOpening(true);
     setOpenedReward(null);
 
-    // Random reward between ৳20 and ৳80
-    const rewards = [20, 25, 30, 40, 50, 60, 80];
+    // Random reward strictly between ৳2 and ৳7
+    const rewards = [2, 3, 4, 5, 6, 7];
     const winAmt = rewards[Math.floor(Math.random() * rewards.length)];
 
     setTimeout(() => {
@@ -151,8 +159,8 @@ export const TreasureModal: React.FC<TreasureModalProps> = ({
     if (!clean) {
       showToast(
         isBn
-          ? 'দয়া করে একটি সঠিক ট্রেজার কোড লিখুন।'
-          : 'Please enter a valid treasure code.'
+          ? 'দয়া করে একটি সঠিক রিডিম কোড লিখুন।'
+          : 'Please enter a valid redeem code.'
       );
       return;
     }
@@ -160,94 +168,144 @@ export const TreasureModal: React.FC<TreasureModalProps> = ({
     if (claimedCodes[clean]) {
       showToast(
         isBn
-          ? 'এই ট্রেজার কোডটি ইতিমধ্যে ব্যবহার করা হয়েছে!'
-          : 'This treasure code has already been redeemed!'
+          ? 'এই রিডিম কোডটি আপনি ইতিমধ্যে ব্যবহার করেছেন!'
+          : 'This redeem code has already been claimed by you!'
       );
       return;
     }
 
     setIsRedeeming(true);
 
-    // Standard pre-defined promo codes
-    const standardCodes: Record<string, number> = {
-      NVT2026: 100,
-      GOLD88: 88,
-      TREASURE: 50,
-      VIP2026: 150,
-      ENERGY: 60,
-      LUCKY50: 50,
-      BONUS100: 100,
-      NOVA77: 77,
-    };
-
-    let rewardAmount = standardCodes[clean] || 0;
-
-    // Check custom dynamic codes in Firestore
-    if (!rewardAmount) {
-      try {
-        const codeDoc = safeDoc('treasure_codes', clean);
-        if (codeDoc) {
-          const snap = await getDoc(codeDoc);
-          if (snap.exists()) {
-            const data = snap.data();
-            if (data && Number(data.amount) > 0 && data.isActive !== false) {
-              rewardAmount = Number(data.amount);
-            }
-          }
-        }
-      } catch {}
-    }
-
-    setIsRedeeming(false);
-
-    if (rewardAmount <= 0) {
-      showToast(
-        isBn
-          ? 'ভুল বা মেয়াদোত্তীর্ণ ট্রেজার কোড! সঠিক কোড পেতে প্রজেক্ট ম্যানেজারের সাথে যোগাযোগ করুন।'
-          : 'Invalid or expired treasure code! Please contact project manager.'
-      );
-      return;
-    }
-
-    const updated = { ...claimedCodes, [clean]: true };
-    setClaimedCodes(updated);
     try {
-      localStorage.setItem(`nvt_treasure_codes_${activeUserKey}`, JSON.stringify(updated));
-    } catch {}
-
-    // Cloud record
-    try {
+      // 1. Check if user already claimed this code in Firestore
       const redRef = safeDoc('treasure_redemptions', `${activeUserKey}_${clean}`);
       if (redRef) {
-        safeSetDoc(redRef, {
-          userId: activeUserKey,
-          code: clean,
-          rewardAmount,
-          redeemedAt: serverTimestamp(),
-        }, { merge: true }).catch(() => {});
+        const redSnap = await getDoc(redRef).catch(() => null);
+        if (redSnap && redSnap.exists()) {
+          setIsRedeeming(false);
+          const updated = { ...claimedCodes, [clean]: true };
+          setClaimedCodes(updated);
+          try {
+            localStorage.setItem(`nvt_treasure_codes_${activeUserKey}`, JSON.stringify(updated));
+          } catch {}
+          showToast(
+            isBn
+              ? 'এই রিডিম কোডটি আপনি ইতিমধ্যে ব্যবহার করেছেন!'
+              : 'This redeem code has already been claimed by you!'
+          );
+          return;
+        }
       }
-    } catch {}
 
-    onClaimReward(
-      rewardAmount,
-      isBn
-        ? `ট্রেজার রিডিম কোড বোনাস [${clean}] (৳${rewardAmount})`
-        : `Treasure Redeem Code Bonus [${clean}] (৳${rewardAmount})`
-    );
+      // 2. Read live dynamic code from Firestore (No hardcoded codes so deleting from Admin Panel immediately disables the code)
+      const codeDoc = safeDoc('treasure_codes', clean);
+      let codeData: any = null;
+      if (codeDoc) {
+        const snap = await getDoc(codeDoc).catch(() => null);
+        if (snap && snap.exists()) {
+          codeData = snap.data();
+        }
+      }
 
-    setRedeemCode('');
-    showToast(
-      isBn
-        ? `🎉 সফলভাবে রিডিম হয়েছে! কোড [${clean}] থেকে ৳${rewardAmount} মূল ব্যালেন্সে যোগ হয়েছে!`
-        : `🎉 Redeemed successfully! ৳${rewardAmount} from code [${clean}] added to wallet!`
-    );
+      setIsRedeeming(false);
+
+      if (!codeData || codeData.isActive === false) {
+        showToast(
+          isBn
+            ? 'ভুল বা মেয়াদোত্তীর্ণ রিডিম কোড! সঠিক কোড পেতে প্রজেক্ট ম্যানেজারের সাথে যোগাযোগ করুন।'
+            : 'Invalid or expired redeem code! Please contact project manager.'
+        );
+        return;
+      }
+
+      // 3. Calculate reward amount strictly in 10-12 Taka range (১০-১২ টাকা)
+      let calculatedAmt = 11;
+      const min = Number(codeData.minAmount) || 10;
+      const max = Number(codeData.maxAmount) || 12;
+
+      if (codeData.isRange || (codeData.minAmount && codeData.maxAmount)) {
+        // Guaranteed random bonus strictly between 10 and 12 Taka
+        const choices = [10, 11, 12].filter((n) => n >= min && n <= max);
+        calculatedAmt =
+          choices.length > 0
+            ? choices[Math.floor(Math.random() * choices.length)]
+            : Math.floor(Math.random() * (max - min + 1)) + min;
+      } else if (Number(codeData.amount) > 0) {
+        calculatedAmt = Number(codeData.amount);
+      } else {
+        const choices = [10, 11, 12];
+        calculatedAmt = choices[Math.floor(Math.random() * choices.length)];
+      }
+
+      // 4. Open the beautiful Gift Envelope (খাম) with "ক্লাইম" button!
+      setUnlockedEnvelope({
+        code: clean,
+        amount: calculatedAmt,
+        description: codeData.description || (isBn ? 'দৈনিক লাকি রিডিম বোনাস' : 'Daily Lucky Redeem Bonus'),
+      });
+    } catch (err) {
+      setIsRedeeming(false);
+      console.error('[TreasureModal] Redeem error:', err);
+      showToast(isBn ? 'কোড যাচাই করতে সমস্যা হয়েছে।' : 'Error verifying redeem code.');
+    }
+  };
+
+  // 3. Handle Claiming the Envelope Bonus
+  const handleClaimEnvelope = () => {
+    if (!unlockedEnvelope || isClaimingEnvelope) return;
+
+    setIsClaimingEnvelope(true);
+    const { code, amount, description } = unlockedEnvelope;
+
+    setTimeout(() => {
+      const updated = { ...claimedCodes, [code]: true };
+      setClaimedCodes(updated);
+      try {
+        localStorage.setItem(`nvt_treasure_codes_${activeUserKey}`, JSON.stringify(updated));
+      } catch {}
+
+      // Cloud record in Firestore
+      try {
+        const redRef = safeDoc('treasure_redemptions', `${activeUserKey}_${code}`);
+        if (redRef) {
+          safeSetDoc(
+            redRef,
+            {
+              userId: activeUserKey,
+              code,
+              rewardAmount: amount,
+              redeemedAt: serverTimestamp(),
+            },
+            { merge: true }
+          ).catch(() => {});
+        }
+      } catch {}
+
+      // Credit wallet balance
+      onClaimReward(
+        amount,
+        isBn
+          ? `ট্রেজার খাম বোনাস [${code}] (৳${amount})`
+          : `Treasure Envelope Bonus [${code}] (৳${amount})`
+      );
+
+      setIsClaimingEnvelope(false);
+      setUnlockedEnvelope(null);
+      setRedeemCode('');
+
+      showToast(
+        isBn
+          ? `🎉 অভিনন্দন! খাম থেকে ৳${amount} সফলভাবে ক্লাইম হয়েছে এবং আপনার ওয়ালেটে যোগ হয়েছে!`
+          : `🎉 Congratulations! ৳${amount} from the gift envelope successfully added to your wallet!`
+      );
+    }, 700);
   };
 
   const fakeWinners = [
-    { id: '1', user: 'NVT127***', amount: 80, time: isBn ? '২ মিনিট আগে' : '2m ago' },
-    { id: '2', user: 'NVT809***', amount: 100, time: isBn ? '৫ মিনিট আগে' : '5m ago' },
-    { id: '3', user: 'NVT160***', amount: 50, time: isBn ? '৯ মিনিট আগে' : '9m ago' },
-    { id: '4', user: 'NVT442***', amount: 88, time: isBn ? '১২ মিনিট আগে' : '12m ago' },
+    { id: '1', user: 'NVT127***', amount: 5, time: isBn ? '২ মিনিট আগে' : '2m ago' },
+    { id: '2', user: 'NVT809***', amount: 7, time: isBn ? '৫ মিনিট আগে' : '5m ago' },
+    { id: '3', user: 'NVT160***', amount: 3, time: isBn ? '৯ মিনিট আগে' : '9m ago' },
+    { id: '4', user: 'NVT442***', amount: 6, time: isBn ? '১২ মিনিট আগে' : '12m ago' },
   ];
 
   return (
@@ -411,8 +469,8 @@ export const TreasureModal: React.FC<TreasureModalProps> = ({
                   <p className="text-[11px] text-emerald-200/80 max-w-xs">
                     {canOpenDaily
                       ? (isBn
-                          ? 'প্রতিদিন ১টি ফ্রি ট্রেজার ড্র করুন এবং জিতে নিন ২০ থেকে ৮০ টাকা পর্যন্ত নিশ্চিত ক্যাশ বোনাস।'
-                          : 'Draw 1 free treasure chest daily to win guaranteed cash rewards.')
+                          ? 'প্রতিদিন ১টি ফ্রি ট্রেজার ড্র করুন এবং জিতে নিন ২ থেকে ৭ টাকা পর্যন্ত নিশ্চিত ক্যাশ বোনাস।'
+                          : 'Draw 1 free treasure chest daily to win ৳2 to ৳7 guaranteed cash rewards.')
                       : (isBn
                           ? 'আপনি আজকের ফ্রি ট্রেজার ইতিমধ্যে পেয়েছেন। পরবর্তী ড্র আগামী কাল আনলক হবে।'
                           : 'You have already opened today\'s free chest. Unlock next draw tomorrow.')}
@@ -453,75 +511,148 @@ export const TreasureModal: React.FC<TreasureModalProps> = ({
           ) : (
             /* TAB 2: REDEEM PROMO / TREASURE CODE */
             <div className="space-y-4 py-2">
-              <div className="p-3.5 rounded-2xl bg-black/30 border border-amber-500/30 space-y-2">
-                <div className="flex items-center gap-2">
-                  <div className="w-7 h-7 rounded-lg bg-amber-400/20 flex items-center justify-center text-amber-300">
-                    <KeyRound className="w-4 h-4" />
+              {/* UNLOCKED GIFT ENVELOPE (🧧 সুন্দর খাম আকারে বোনাস ও ক্লাইম বাটন) */}
+              {unlockedEnvelope ? (
+                <div className="p-4 rounded-3xl bg-gradient-to-b from-[#7f1d1d] via-[#991b1b] to-[#450a0a] border-2 border-amber-400/80 shadow-2xl shadow-red-950/80 text-center animate-in zoom-in-95 duration-300 relative overflow-hidden">
+                  {/* Shimmering Aura */}
+                  <div className="absolute -top-12 -left-12 w-32 h-32 bg-amber-400/25 rounded-full blur-2xl pointer-events-none animate-pulse" />
+                  <div className="absolute -bottom-12 -right-12 w-32 h-32 bg-yellow-500/25 rounded-full blur-2xl pointer-events-none animate-pulse" />
+
+                  {/* Header Badge */}
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-400/20 border border-amber-400/40 text-amber-300 text-[11px] font-extrabold mb-2.5">
+                    <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                    <span>{isBn ? '🧧 লাকি গিফট খাম আনলক হয়েছে!' : '🧧 Lucky Gift Envelope Unlocked!'}</span>
                   </div>
-                  <h4 className="text-xs font-bold text-white">
-                    {isBn ? 'ট্রেজার রিডিম কোড দিন' : 'Enter Treasure Code'}
-                  </h4>
-                </div>
-                <p className="text-[10px] text-emerald-200/80 leading-relaxed">
-                  {isBn
-                    ? 'আমাদের অফিসিয়াল টেলিগ্রাম চ্যানেল বা প্রজেক্ট ম্যানেজারের দেওয়া ট্রেজার কোড দিয়ে সাথে সাথে নগদ বোনাস লুফে নিন।'
-                    : 'Enter official promo codes distributed by management to claim instant wallet cash.'}
-                </p>
 
-                {/* Input box */}
-                <div className="pt-1">
-                  <input
-                    type="text"
-                    value={redeemCode}
-                    onChange={(e) => setRedeemCode(e.target.value.toUpperCase())}
-                    placeholder={isBn ? 'যেমন: NVT2026, GOLD88' : 'e.g. NVT2026, GOLD88'}
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#021f18] border border-emerald-500/40 text-amber-300 placeholder-slate-500 font-mono text-xs sm:text-sm font-bold tracking-widest focus:outline-none focus:border-amber-400"
-                  />
-                </div>
+                  {/* SVG Envelope Graphic (খাম) */}
+                  <div className="relative w-44 h-36 mx-auto my-1 flex items-center justify-center">
+                    <svg viewBox="0 0 160 130" className="w-full h-full drop-shadow-[0_8px_16px_rgba(0,0,0,0.5)]">
+                      <defs>
+                        <linearGradient id="envRed" x1="0%" y1="0%" x2="0%" y2="100%">
+                          <stop offset="0%" stopColor="#dc2626" />
+                          <stop offset="100%" stopColor="#991b1b" />
+                        </linearGradient>
+                        <linearGradient id="envGold" x1="0%" y1="0%" x2="100%" y2="100%">
+                          <stop offset="0%" stopColor="#fef08a" />
+                          <stop offset="50%" stopColor="#f59e0b" />
+                          <stop offset="100%" stopColor="#b45309" />
+                        </linearGradient>
+                      </defs>
 
-                <button
-                  type="button"
-                  id="redeem-treasure-code-btn"
-                  onClick={handleRedeemCode}
-                  disabled={isRedeeming || !redeemCode.trim()}
-                  className={`w-full py-2.5 px-4 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-md active:scale-95 cursor-pointer ${
-                    redeemCode.trim() && !isRedeeming
-                      ? 'bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 font-extrabold shadow-amber-500/25'
-                      : 'bg-[#03261f] text-emerald-400/40 border border-[#0d614f] cursor-not-allowed opacity-75'
-                  }`}
-                >
-                  {isRedeeming ? (
-                    <>
-                      <Sparkles className="w-3.5 h-3.5 animate-spin" />
-                      <span>{isBn ? 'যাচাই করা হচ্ছে...' : 'Verifying...'}</span>
-                    </>
-                  ) : (
-                    <>
-                      <Coins className="w-3.5 h-3.5" />
-                      <span>{isBn ? 'ট্রেজার রিডিম করুন' : 'Redeem Treasure'}</span>
-                    </>
-                  )}
-                </button>
-              </div>
+                      {/* Envelope Back Body */}
+                      <rect x="15" y="30" width="130" height="90" rx="8" fill="url(#envRed)" stroke="url(#envGold)" strokeWidth="2.5" />
 
-              {/* Starter Codes Prompt */}
-              <div className="p-3 rounded-2xl bg-[#03261f] border border-[#0d614f] space-y-1.5">
-                <span className="text-[10px] font-bold text-amber-300 block uppercase tracking-wider">
-                  {isBn ? 'নতুন মেম্বারদের জন্য উপহার কোড:' : 'Special Welcome Codes:'}
-                </span>
-                <div className="flex flex-wrap gap-1.5">
-                  {['NVT2026', 'GOLD88', 'TREASURE'].map((cd) => (
-                    <button
-                      key={cd}
-                      type="button"
-                      onClick={() => setRedeemCode(cd)}
-                      className="px-2.5 py-1 rounded-lg bg-amber-400/10 border border-amber-400/30 text-amber-300 text-[10px] font-mono font-bold hover:bg-amber-400/20 cursor-pointer active:scale-95"
-                    >
-                      {cd}
-                    </button>
-                  ))}
+                      {/* Cash Voucher sliding out of flap */}
+                      <rect x="25" y="14" width="110" height="60" rx="6" fill="#fef08a" stroke="#f59e0b" strokeWidth="2" className="animate-bounce" />
+                      <circle cx="80" cy="40" r="14" fill="#f59e0b" />
+                      <text x="80" y="45" textAnchor="middle" fill="#78350f" fontSize="13" fontWeight="900" fontFamily="sans-serif">৳</text>
+
+                      {/* Envelope Bottom Triangle Flaps */}
+                      <path d="M 15 120 L 80 75 L 145 120 Z" fill="#b91c1c" opacity="0.9" />
+                      <path d="M 15 30 L 80 75 L 145 30" fill="none" stroke="url(#envGold)" strokeWidth="2" />
+
+                      {/* Golden Seal Emblem */}
+                      <circle cx="80" cy="75" r="14" fill="url(#envGold)" stroke="#78350f" strokeWidth="1.5" />
+                      <text x="80" y="80" textAnchor="middle" fill="#451a03" fontSize="12" fontWeight="900" fontFamily="sans-serif">NVT</text>
+                    </svg>
+                  </div>
+
+                  {/* Bonus Amount Display */}
+                  <div className="space-y-1 mb-3">
+                    <span className="text-[11px] font-bold text-amber-200 uppercase tracking-widest block">
+                      {isBn ? 'আপনার প্রাপ্ত খাম বোনাস:' : 'Your Envelope Reward:'}
+                    </span>
+                    <div className="text-3xl font-black text-amber-300 font-mono tracking-tight drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]">
+                      ৳{unlockedEnvelope.amount}.00
+                    </div>
+                    <p className="text-[11px] text-emerald-200/90 font-medium max-w-xs mx-auto">
+                      {isBn
+                        ? `কোড [${unlockedEnvelope.code}] থেকে বরাদ্দকৃত বোনাস। এখনই ক্লাইম করে মূল ব্যালেন্সে যুক্ত করুন!`
+                        : `Bonus assigned from code [${unlockedEnvelope.code}]. Claim now to add to your main balance!`}
+                    </p>
+                  </div>
+
+                  {/* CLAIM BUTTON (ক্লাইম বাটন) */}
+                  <button
+                    type="button"
+                    id="claim-envelope-btn"
+                    onClick={handleClaimEnvelope}
+                    disabled={isClaimingEnvelope}
+                    className="w-full py-3 px-5 rounded-2xl font-black text-sm flex items-center justify-center gap-2 transition-all shadow-xl shadow-amber-500/30 bg-gradient-to-r from-amber-400 via-yellow-300 to-amber-400 hover:from-amber-300 hover:to-yellow-200 text-slate-950 cursor-pointer active:scale-95 animate-pulse"
+                  >
+                    {isClaimingEnvelope ? (
+                      <>
+                        <Sparkles className="w-4 h-4 animate-spin text-slate-950" />
+                        <span>{isBn ? 'ক্লাইম হচ্ছে...' : 'Claiming...'}</span>
+                      </>
+                    ) : (
+                      <>
+                        <Gift className="w-4 h-4 text-slate-950" />
+                        <span>{isBn ? '🎁 ক্লাইম করুন (Claim Now)' : '🎁 Claim Now'}</span>
+                      </>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setUnlockedEnvelope(null)}
+                    className="mt-2 text-[10px] text-amber-200/70 hover:text-white underline cursor-pointer"
+                  >
+                    {isBn ? 'বাতিল করুন' : 'Cancel'}
+                  </button>
                 </div>
-              </div>
+              ) : (
+                <div className="p-3.5 rounded-2xl bg-black/30 border border-amber-500/30 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-lg bg-amber-400/20 flex items-center justify-center text-amber-300">
+                      <KeyRound className="w-4 h-4" />
+                    </div>
+                    <h4 className="text-xs font-bold text-white">
+                      {isBn ? 'ট্রেজার রিডিম কোড দিন' : 'Enter Treasure Code'}
+                    </h4>
+                  </div>
+                  <p className="text-[10px] text-emerald-200/80 leading-relaxed">
+                    {isBn
+                      ? 'আমাদের অফিসিয়াল টেলিগ্রাম চ্যানেল বা প্রজেক্ট ম্যানেজারের দেওয়া ট্রেজার কোড দিয়ে সাথে সাথে নগদ বোনাস লুফে নিন।'
+                      : 'Enter official promo codes distributed by management to claim instant wallet cash.'}
+                  </p>
+
+                  {/* Input box */}
+                  <div className="pt-1">
+                    <input
+                      type="text"
+                      value={redeemCode}
+                      onChange={(e) => setRedeemCode(e.target.value.toUpperCase())}
+                      placeholder={isBn ? 'ট্রেজার রিডিম কোড লিখুন' : 'Enter treasure code'}
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-[#021f18] border border-emerald-500/40 text-amber-300 placeholder-slate-500 font-mono text-xs sm:text-sm font-bold tracking-widest focus:outline-none focus:border-amber-400"
+                    />
+                  </div>
+
+                  <button
+                    type="button"
+                    id="redeem-treasure-code-btn"
+                    onClick={handleRedeemCode}
+                    disabled={isRedeeming || !redeemCode.trim()}
+                    className={`w-full py-2.5 px-4 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-md active:scale-95 cursor-pointer ${
+                      redeemCode.trim() && !isRedeeming
+                        ? 'bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 font-extrabold shadow-amber-500/25'
+                        : 'bg-[#03261f] text-emerald-400/40 border border-[#0d614f] cursor-not-allowed opacity-75'
+                    }`}
+                  >
+                    {isRedeeming ? (
+                      <>
+                        <Sparkles className="w-3.5 h-3.5 animate-spin" />
+                        <span>{isBn ? 'যাচাই করা হচ্ছে...' : 'Verifying...'}</span>
+                      </>
+                    ) : (
+                      <>
+                        <Coins className="w-3.5 h-3.5" />
+                        <span>{isBn ? 'ট্রেজার রিডিম করুন' : 'Redeem Treasure'}</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              )}
 
               {/* Manager Assistance Link */}
               {onOpenProjectManager && (

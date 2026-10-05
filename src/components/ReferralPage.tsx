@@ -238,12 +238,14 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
     }
   };
 
+  const MIN_TRANSFER_AMOUNT = 200;
+
   const handleClaim = () => {
-    if (availableRewards <= 0) {
+    if (availableRewards < MIN_TRANSFER_AMOUNT) {
       showToast(
         currentLang === 'bn'
-          ? 'স্থানান্তর করার মতো কোনো রেফারেল রিওয়ার্ড ব্যালেন্স নেই।'
-          : 'No referral rewards available to transfer.'
+          ? `নূন্যতম ২০০ টাকা জমা হলে মূল ব্যালেন্সে ট্রান্সফার করতে পারবেন। আপনার বর্তমান ব্যালেন্স ৳${availableRewards.toFixed(2)}`
+          : `Minimum ৳200 required to transfer. Your current balance is ৳${availableRewards.toFixed(2)}`
       );
       return;
     }
@@ -268,8 +270,8 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
 
     showToast(
       currentLang === 'bn'
-        ? `অভিনন্দন! ৳${claimAmt.toFixed(2)} ক্যাশ রিওয়ার্ড সফলভাবে মূল ব্যালেন্সে যুক্ত হয়েছে!`
-        : `Congratulations! ৳${claimAmt.toFixed(2)} cash reward transferred to main balance!`
+        ? `🎉 অভিনন্দন! ৳${claimAmt.toFixed(2)} ক্যাশ রিওয়ার্ড সফলভাবে মূল ব্যালেন্সে যুক্ত হয়েছে!`
+        : `🎉 Congratulations! ৳${claimAmt.toFixed(2)} cash reward transferred to main balance!`
     );
   };
 
@@ -731,25 +733,31 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
                 </span>
               </div>
 
-              {/* Col 2: Today's Rewards */}
+              {/* Col 2: Today's Income (২৪ ঘণ্টা চক্র) */}
               <div className="px-1.5 flex flex-col justify-center">
                 <span className="text-[11px] font-medium text-emerald-200/80 block mb-1">
-                  {currentLang === 'bn' ? 'আজকের রিওয়ার্ড' : "Today's Rewards"}
+                  {currentLang === 'bn' ? 'আজকের ইনকাম' : "Today's Income"}
                 </span>
                 <span className="text-xl sm:text-2xl font-black text-amber-400 font-mono tracking-tight flex items-center justify-center gap-0.5">
                   <span className="text-sm text-amber-500">৳</span>
                   <span>{teamTree.todayEarnings.toFixed(2)}</span>
                 </span>
+                <span className="text-[9px] text-emerald-300/70 font-medium">
+                  {currentLang === 'bn' ? '২৪ ঘণ্টা চক্র' : '24h cycle'}
+                </span>
               </div>
 
-              {/* Col 3: Yesterday's Rewards */}
+              {/* Col 3: Yesterday's Income (পূর্ববর্তী ২৪ ঘণ্টা) */}
               <div className="px-1.5 flex flex-col justify-center">
                 <span className="text-[11px] font-medium text-emerald-200/80 block mb-1">
-                  {currentLang === 'bn' ? 'গতকালের রিওয়ার্ড' : "Yesterday's Rewards"}
+                  {currentLang === 'bn' ? 'গতকালের ইনকাম' : "Yesterday's Income"}
                 </span>
                 <span className="text-xl sm:text-2xl font-black text-amber-400 font-mono tracking-tight flex items-center justify-center gap-0.5">
                   <span className="text-sm text-amber-500">৳</span>
                   <span>{teamTree.yesterdayEarnings.toFixed(2)}</span>
+                </span>
+                <span className="text-[9px] text-emerald-300/70 font-medium">
+                  {currentLang === 'bn' ? 'পূর্ববর্তী ২৪ ঘণ্টা' : 'Previous 24h'}
                 </span>
               </div>
             </section>
@@ -859,13 +867,22 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
               className="rounded-2xl bg-[#043228] border border-[#0d614f] p-4 shadow-xl shadow-emerald-950/30 space-y-3"
             >
               {/* Section Header with vertical bar indicator */}
-              <div className="flex items-center gap-2">
-                <span className="w-1 h-4.5 bg-gradient-to-b from-amber-400 to-yellow-500 rounded-full shadow-[0_0_8px_rgba(245,158,11,0.5)]" />
-                <h3 className="text-sm sm:text-[15px] font-bold text-white tracking-wide">
-                  {currentLang === 'bn'
-                    ? 'উত্তোলনযোগ্য ক্যাশ রিওয়ার্ড'
-                    : 'Available Cash Rewards'}
-                </h3>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="w-1 h-4.5 bg-gradient-to-b from-amber-400 to-yellow-500 rounded-full shadow-[0_0_8px_rgba(245,158,11,0.5)]" />
+                  <h3 className="text-sm sm:text-[15px] font-bold text-white tracking-wide">
+                    {currentLang === 'bn'
+                      ? 'উত্তোলনযোগ্য ক্যাশ রিওয়ার্ড (Available Cash)'
+                      : 'Available Cash Rewards'}
+                  </h3>
+                </div>
+                <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold border ${
+                  availableRewards >= 200
+                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                    : 'bg-amber-400/20 text-amber-300 border-amber-400/30'
+                }`}>
+                  {currentLang === 'bn' ? 'নূন্যতম ট্রান্সফার ৳২০০' : 'Min Transfer ৳200'}
+                </span>
               </div>
 
               <div className="flex items-center justify-between gap-3 pt-1">
@@ -878,19 +895,19 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
                   <div className="flex flex-col gap-0.5">
                     <span className="text-[10px] sm:text-[11px] text-emerald-200/80">
                       {currentLang === 'bn'
-                        ? 'সরাসরি ওয়ালেট ব্যালেন্সে নেওয়ার যোগ্য'
-                        : 'Transferable directly to main wallet'}
+                        ? 'রেফারেল কমিশন জমা থাকবে • ২০০ টাকা হলে ট্রান্সফার করতে পারবেন'
+                        : 'Commissions accumulate here • Transfer when ৳200 or more'}
                     </span>
                     <span className={`text-[10px] font-semibold ${
-                      availableRewards > 0 ? 'text-emerald-300' : 'text-slate-400'
+                      availableRewards >= 200 ? 'text-emerald-300' : 'text-amber-400'
                     }`}>
                       {currentLang === 'bn'
-                        ? (availableRewards > 0
-                            ? '✓ ট্রান্সফার করার জন্য প্রস্তুত (সরাসরি প্রোফাইল ওয়ালেটে যাবে)'
-                            : '• রেফার কমিশন জমা হলে ট্রান্সফার করুন')
-                        : (availableRewards > 0
-                            ? '✓ Ready to transfer (moves to profile wallet)'
-                            : '• Transfer when rewards accumulate')}
+                        ? (availableRewards >= 200
+                            ? '✓ ট্রান্সফার করার জন্য প্রস্তুত (২০০ টাকার বেশি হয়েছে)'
+                            : `• নূন্যতম ২০০ টাকা হলে ট্রান্সফার করা যাবে (বাকি ৳${Math.max(0, 200 - availableRewards).toFixed(2)})`)
+                        : (availableRewards >= 200
+                            ? '✓ Ready to transfer (min ৳200 reached)'
+                            : `• Min ৳200 required to transfer (needs ৳${Math.max(0, 200 - availableRewards).toFixed(2)} more)`)}
                     </span>
                   </div>
                 </div>
@@ -900,16 +917,16 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
                   id="referral-claim-reward-btn"
                   type="button"
                   onClick={handleClaim}
-                  disabled={availableRewards <= 0}
+                  disabled={availableRewards < 200}
                   className={`px-5 sm:px-6 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all shadow-md active:scale-95 ${
-                    availableRewards > 0
+                    availableRewards >= 200
                       ? 'bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 shadow-amber-500/25 ring-2 ring-amber-400/50 cursor-pointer animate-pulse'
                       : 'bg-[#03261f] text-emerald-400/50 border border-[#0d614f] cursor-not-allowed opacity-75'
                   }`}
                   title={
-                    availableRewards > 0
+                    availableRewards >= 200
                       ? (currentLang === 'bn' ? 'ক্যাশ রিওয়ার্ড মূল ওয়ালেটে স্থানান্তর করুন' : 'Transfer rewards to main wallet')
-                      : (currentLang === 'bn' ? 'রিওয়ার্ড ব্যালেন্স জমা হলে স্থানান্তর করতে পারবেন' : 'No rewards to transfer')
+                      : (currentLang === 'bn' ? 'নূন্যতম ২০০ টাকা হলে স্থানান্তর করতে পারবেন' : 'Min ৳200 required to transfer')
                   }
                 >
                   {currentLang === 'bn' ? 'ট্রান্সফার করুন' : 'Transfer'}

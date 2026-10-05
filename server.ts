@@ -58,10 +58,22 @@ interface PaymentLog {
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
-  // Middleware - trust first proxy (Cloud Run / GCP load balancer)
+  // Middleware - trust first proxy (Cloud Run / GCP load balancer / Render proxy)
   app.set('trust proxy', 1);
+
+  // Enable CORS for cross-origin frontend hosting (e.g. Firebase Hosting or Vercel calling Render backend)
+  app.use((req, res, next) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept');
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(200);
+    }
+    next();
+  });
+
   app.use(express.json({ limit: '50mb' }));
   app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 

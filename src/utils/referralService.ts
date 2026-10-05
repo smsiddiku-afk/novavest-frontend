@@ -505,6 +505,20 @@ export function getReferralTreeForUser(
     return variants.some((v) => identSet.has(v));
   };
 
+  const getReferredBy = (acc: any): string => {
+    return (
+      acc?.referredByCode ||
+      acc?.referredBy ||
+      acc?.uplineCode ||
+      acc?.inviterCode ||
+      acc?.referrerCode ||
+      ''
+    )
+      .toString()
+      .trim()
+      .toUpperCase();
+  };
+
   const members: TeamMember[] = [];
   const visitedAccountIds = new Set<string>();
 
@@ -539,7 +553,8 @@ export function getReferralTreeForUser(
 
   uniqueAccounts.forEach((acc) => {
     if (isRootUser(acc)) return;
-    if (matchesIdentifiers(acc.referredByCode, rootIdentifiers)) {
+    const refCode = getReferredBy(acc);
+    if (matchesIdentifiers(refCode, rootIdentifiers)) {
       const accId = getAccountId(acc);
       if (!visitedAccountIds.has(accId)) {
         visitedAccountIds.add(accId);
@@ -585,7 +600,8 @@ export function getReferralTreeForUser(
       const accId = getAccountId(acc);
       if (visitedAccountIds.has(accId)) return;
 
-      if (matchesIdentifiers(acc.referredByCode, l1Identifiers)) {
+      const refCode = getReferredBy(acc);
+      if (matchesIdentifiers(refCode, l1Identifiers)) {
         visitedAccountIds.add(accId);
         l2Accounts.push(acc);
         getAccountIdentifiers(acc).forEach((id) => l2Identifiers.add(id));
@@ -593,7 +609,7 @@ export function getReferralTreeForUser(
         // Find parent in L1 for display
         const parentL1 = l1Accounts.find((p) => {
           const pIds = new Set(getAccountIdentifiers(p));
-          return getAllCodeVariants(acc.referredByCode).some((v) => pIds.has(v));
+          return getAllCodeVariants(refCode).some((v) => pIds.has(v));
         });
 
         const invest = Number(
@@ -616,7 +632,7 @@ export function getReferralTreeForUser(
           commissionEarned: comm,
           status: active ? 'active' : 'pending',
           referralCode: acc.userCode,
-          referredBy: parentL1 ? parentL1.userCode : acc.referredByCode,
+          referredBy: parentL1 ? parentL1.userCode : refCode,
           referredByName: l1ParentName,
         });
       }
@@ -635,14 +651,15 @@ export function getReferralTreeForUser(
       const accId = getAccountId(acc);
       if (visitedAccountIds.has(accId)) return;
 
-      if (matchesIdentifiers(acc.referredByCode, l2Identifiers)) {
+      const refCode = getReferredBy(acc);
+      if (matchesIdentifiers(refCode, l2Identifiers)) {
         visitedAccountIds.add(accId);
         l3Accounts.push(acc);
 
         // Find parent in L2 for display
         const parentL2 = l2Accounts.find((p) => {
           const pIds = new Set(getAccountIdentifiers(p));
-          return getAllCodeVariants(acc.referredByCode).some((v) => pIds.has(v));
+          return getAllCodeVariants(refCode).some((v) => pIds.has(v));
         });
 
         const invest = Number(
@@ -665,7 +682,7 @@ export function getReferralTreeForUser(
           commissionEarned: comm,
           status: active ? 'active' : 'pending',
           referralCode: acc.userCode,
-          referredBy: parentL2 ? parentL2.userCode : acc.referredByCode,
+          referredBy: parentL2 ? parentL2.userCode : refCode,
           referredByName: l2ParentName,
         });
       }
@@ -740,8 +757,9 @@ export function getReferralTreeForUser(
       let accLocalDate = '';
       let accIsoDate = '';
       try {
-        if (acc.joinedAt) {
-          const d = new Date(acc.joinedAt);
+        const dateStr = acc.lastInvestAt || acc.investDate || acc.joinedAt;
+        if (dateStr) {
+          const d = new Date(dateStr);
           accLocalDate = getDayKey(d);
           accIsoDate = d.toISOString().split('T')[0];
         }
@@ -750,8 +768,6 @@ export function getReferralTreeForUser(
         todayEarnings += comm;
       } else if (accLocalDate === yesterdayLocal || accIsoDate === yesterdayIso) {
         yesterdayEarnings += comm;
-      } else if (!acc.joinedAt) {
-        todayEarnings += comm;
       }
       return comm;
     };
@@ -766,6 +782,45 @@ export function getReferralTreeForUser(
       l3Earnings += checkDateReward(acc, TIER_COMMISSION_RATES[3]);
     });
   }
+
+  // 24-Hour Rolling Daily Tracker Check
+  // After 24 hours / when calendar day changes, today's income moves to yesterday, and today resets to 0.00 if no new referrals/plans activated
+  const trackerKey = `nvt_referral_daily_tracker_${cleanUserCode}`;
+  try {
+    const rawTracker = localStorage.getItem(trackerKey);
+    let tracker = rawTracker ? JSON.parse(rawTracker) : null;
+    if (!tracker || !tracker.date) {
+      tracker = {
+        date: todayIso,
+        todayEarnings,
+        yesterdayEarnings,
+      };
+      localStorage.setItem(trackerKey, JSON.stringify(tracker));
+    } else if (tracker.date !== todayIso) {
+      // 24 hours has elapsed / date has rolled over to the next day!
+      if (tracker.date === yesterdayIso) {
+        // Move whatever was earned on that day to yesterdayEarnings!
+        yesterdayEarnings = Math.max(yesterdayEarnings, Number(tracker.todayEarnings) || 0);
+      } else {
+        // More than 1 day has passed without referral activity
+        yesterdayEarnings = 0;
+      }
+      // Today resets to 0.00 unless new commissions were generated today
+      tracker = {
+        date: todayIso,
+        todayEarnings,
+        yesterdayEarnings,
+      };
+      localStorage.setItem(trackerKey, JSON.stringify(tracker));
+    } else {
+      // Same day: preserve yesterday's earnings from previous day's record
+      yesterdayEarnings = Math.max(yesterdayEarnings, Number(tracker.yesterdayEarnings) || 0);
+      todayEarnings = Math.max(todayEarnings, Number(tracker.todayEarnings) || 0);
+      tracker.todayEarnings = todayEarnings;
+      tracker.yesterdayEarnings = yesterdayEarnings;
+      localStorage.setItem(trackerKey, JSON.stringify(tracker));
+    }
+  } catch (_) {}
 
   const totalEarnings = l1Earnings + l2Earnings + l3Earnings;
 
@@ -895,7 +950,8 @@ export async function distributeReferralDepositCommissionsCloud(
       } catch {}
     }
 
-    if (!userAcc || !userAcc.referredByCode) {
+    const userRefBy = (userAcc?.referredByCode || userAcc?.referredBy || userAcc?.uplineCode || '').toString().trim().toUpperCase();
+    if (!userAcc || !userRefBy) {
       console.log('[ReferralService Cloud] No upline chain found for user:', cleanDepositCode);
       return result;
     }
@@ -907,7 +963,7 @@ export async function distributeReferralDepositCommissionsCloud(
     // Level 2: 3%
     // Level 3: 1%
     let currentChildCode = userAcc.referralCode || userAcc.userCode || cleanDepositCode;
-    let uplineRef = userAcc.referredByCode;
+    let uplineRef = userRefBy;
 
     for (let level = 1; level <= 3; level++) {
       if (!uplineRef) break;
@@ -1006,7 +1062,7 @@ export async function distributeReferralDepositCommissionsCloud(
 
       // Next level upline
       currentChildCode = uplineCode;
-      uplineRef = uplineUser.referredByCode;
+      uplineRef = (uplineUser.referredByCode || uplineUser.referredBy || uplineUser.uplineCode || '').toString().trim().toUpperCase();
     }
 
     if (typeof window !== 'undefined') {
@@ -1214,7 +1270,7 @@ export function distributeReferralDepositCommissions(
 
       // Move up to next parent
       currentChildCode = uplineAcc.userCode;
-      uplineRef = uplineAcc.referredByCode;
+      uplineRef = (uplineAcc.referredByCode || uplineAcc.referredBy || uplineAcc.uplineCode || '').toString().trim().toUpperCase();
     }
 
     // Keep up to 200 logs

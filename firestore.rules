@@ -96,5 +96,21 @@ service cloud.firestore {
     match /registered_accounts/{accountId} {
       allow read, write: if true;
     }
+
+    match /email_otps/{emailId} {
+      allow read, write: if true;
+    }
+
+    match /treasure_codes/{codeId} {
+      allow read, write: if true;
+    }
+
+    match /treasure_claims/{claimId} {
+      allow read, write: if true;
+    }
+
+    match /treasure_redemptions/{redemptionId} {
+      allow read, write: if true;
+    }
   }
 }

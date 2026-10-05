@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: nvt-energy-otp-server
+    runtime: node
+    plan: free
+    region: singapore
+    buildCommand: npm run build
+    startCommand: npm run start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: GMAIL_USER
+        value: Energynvt@gmail.com
+      - key: GMAIL_APP_PASSWORD
+        value: uaiqeibcktmygdbo
+      - key: SMTP_HOST
+        value: smtp.gmail.com
+      - key: SMTP_PORT
+        value: "465"
+      - key: SMTP_SECURE
+        value: "true"
+      - key: SMTP_USER
+        value: Energynvt@gmail.com
+      - key: SMTP_PASS
+        value: uaiqeibcktmygdbo
+      - key: SMTP_FROM
+        value: NVT Energy <Energynvt@gmail.com>

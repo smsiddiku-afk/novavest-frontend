@@ -24,8 +24,8 @@ interface TreasureModalProps {
   themeMode?: 'night' | 'day';
   userId?: string;
   memberId?: string;
-  onClaimReward: (amount: number, description: string) => void;
-  showToast: (msg: string) => void;
+  onClaimReward?: (amount: number, description: string) => void;
+  showToast?: (msg: string) => void;
   onOpenProjectManager?: () => void;
 }
 
@@ -36,8 +36,8 @@ export const TreasureModal: React.FC<TreasureModalProps> = ({
   themeMode = 'night',
   userId = '',
   memberId = '',
-  onClaimReward,
-  showToast,
+  onClaimReward = (_amount: number, _description: string) => {},
+  showToast = (_msg: string) => {},
   onOpenProjectManager,
 }) => {
   const isBn = currentLang === 'bn';
@@ -157,27 +157,63 @@ export const TreasureModal: React.FC<TreasureModalProps> = ({
   const handleRedeemCode = async () => {
     const clean = redeemCode.trim().toUpperCase();
     if (!clean) {
-      showToast(
-        isBn
-          ? 'দয়া করে একটি সঠিক রিডিম কোড লিখুন।'
-          : 'Please enter a valid redeem code.'
-      );
+      if (typeof showToast === 'function') {
+        showToast(
+          isBn
+            ? 'দয়া করে একটি সঠিক রিডিম কোড লিখুন।'
+            : 'Please enter a valid redeem code.'
+        );
+      }
       return;
     }
 
     if (claimedCodes[clean]) {
-      showToast(
-        isBn
-          ? 'এই রিডিম কোডটি আপনি ইতিমধ্যে ব্যবহার করেছেন!'
-          : 'This redeem code has already been claimed by you!'
-      );
+      if (typeof showToast === 'function') {
+        showToast(
+          isBn
+            ? 'এই রিডিম কোডটি আপনি ইতিমধ্যে ব্যবহার করেছেন!'
+            : 'This redeem code has already been claimed by you!'
+        );
+      }
       return;
     }
 
     setIsRedeeming(true);
 
     try {
-      // 1. Check if user already claimed this code in Firestore
+      // 1. Direct Server API Verification (Zero CORS, persistent, instant)
+      try {
+        const srvRes = await fetch('/api/treasure-codes/redeem', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code: clean, userId: activeUserKey }),
+        });
+        const srvData = await srvRes.json().catch(() => null);
+        if (srvRes.ok && srvData && srvData.success) {
+          setIsRedeeming(false);
+          setUnlockedEnvelope({
+            code: clean,
+            amount: Number(srvData.amount) || 11,
+            description: srvData.description || (isBn ? 'দৈনিক স্পেশাল লাকি গিফট খাম' : 'Daily Special Lucky Envelope'),
+          });
+          return;
+        } else if (srvData?.alreadyClaimed) {
+          setIsRedeeming(false);
+          const updated = { ...claimedCodes, [clean]: true };
+          setClaimedCodes(updated);
+          try {
+            localStorage.setItem(`nvt_treasure_codes_${activeUserKey}`, JSON.stringify(updated));
+          } catch {}
+          if (typeof showToast === 'function') {
+            showToast(isBn ? 'এই রিডিম কোডটি আপনি ইতিমধ্যে ব্যবহার করেছেন!' : 'This redeem code has already been claimed by you!');
+          }
+          return;
+        }
+      } catch (err) {
+        console.warn('[TreasureModal] Server redeem check notice:', err);
+      }
+
+      // 2. Check if user already claimed this code in Firestore
       const redRef = safeDoc('treasure_redemptions', `${activeUserKey}_${clean}`);
       if (redRef) {
         const redSnap = await getDoc(redRef).catch(() => null);
@@ -188,18 +224,20 @@ export const TreasureModal: React.FC<TreasureModalProps> = ({
           try {
             localStorage.setItem(`nvt_treasure_codes_${activeUserKey}`, JSON.stringify(updated));
           } catch {}
-          showToast(
-            isBn
-              ? 'এই রিডিম কোডটি আপনি ইতিমধ্যে ব্যবহার করেছেন!'
-              : 'This redeem code has already been claimed by you!'
-          );
+          if (typeof showToast === 'function') {
+            showToast(
+              isBn
+                ? 'এই রিডিম কোডটি আপনি ইতিমধ্যে ব্যবহার করেছেন!'
+                : 'This redeem code has already been claimed by you!'
+            );
+          }
           return;
         }
       }
 
-      // 2. Read live dynamic code from Firestore (No hardcoded codes so deleting from Admin Panel immediately disables the code)
-      const codeDoc = safeDoc('treasure_codes', clean);
+      // 3. Fallback: Read live dynamic code from Firestore (doc or query collection)
       let codeData: any = null;
+      const codeDoc = safeDoc('treasure_codes', clean);
       if (codeDoc) {
         const snap = await getDoc(codeDoc).catch(() => null);
         if (snap && snap.exists()) {
@@ -207,18 +245,48 @@ export const TreasureModal: React.FC<TreasureModalProps> = ({
         }
       }
 
+      // If not found by direct doc ID, query Firestore collection
+      if (!codeData) {
+        try {
+          const { collection, getDocs } = await import('firebase/firestore');
+          const allCodesSnap = await getDocs(collection(db, 'treasure_codes'));
+          allCodesSnap.forEach((d) => {
+            const dData = d.data();
+            const dCode = (dData.code || d.id || '').toString().trim().toUpperCase();
+            if (dCode === clean) {
+              codeData = dData;
+            }
+          });
+        } catch (_) {}
+      }
+
+      // 4. Fallback: Check localStorage cache from Admin Panel
+      if (!codeData) {
+        try {
+          const rawAdmin = localStorage.getItem('nvt_admin_redeem_codes');
+          if (rawAdmin) {
+            const parsed = JSON.parse(rawAdmin);
+            if (Array.isArray(parsed)) {
+              codeData = parsed.find((c) => (c.code || c.id || '').toString().trim().toUpperCase() === clean);
+            }
+          }
+        } catch (_) {}
+      }
+
       setIsRedeeming(false);
 
       if (!codeData || codeData.isActive === false) {
-        showToast(
-          isBn
-            ? 'ভুল বা মেয়াদোত্তীর্ণ রিডিম কোড! সঠিক কোড পেতে প্রজেক্ট ম্যানেজারের সাথে যোগাযোগ করুন।'
-            : 'Invalid or expired redeem code! Please contact project manager.'
-        );
+        if (typeof showToast === 'function') {
+          showToast(
+            isBn
+              ? 'ভুল বা মেয়াদোত্তীর্ণ রিডিম কোড! সঠিক কোড পেতে প্রজেক্ট ম্যানেজারের সাথে যোগাযোগ করুন।'
+              : 'Invalid or expired redeem code! Please contact project manager.'
+          );
+        }
         return;
       }
 
-      // 3. Calculate reward amount strictly in 10-12 Taka range (১০-১২ টাকা)
+      // 5. Calculate reward amount strictly in 10-12 Taka range (১০-১২ টাকা)
       let calculatedAmt = 11;
       const min = Number(codeData.minAmount) || 10;
       const max = Number(codeData.maxAmount) || 12;
@@ -237,7 +305,7 @@ export const TreasureModal: React.FC<TreasureModalProps> = ({
         calculatedAmt = choices[Math.floor(Math.random() * choices.length)];
       }
 
-      // 4. Open the beautiful Gift Envelope (খাম) with "ক্লাইম" button!
+      // 6. Open the beautiful Gift Envelope (খাম) with "ক্লাইম" button!
       setUnlockedEnvelope({
         code: clean,
         amount: calculatedAmt,
@@ -246,7 +314,9 @@ export const TreasureModal: React.FC<TreasureModalProps> = ({
     } catch (err) {
       setIsRedeeming(false);
       console.error('[TreasureModal] Redeem error:', err);
-      showToast(isBn ? 'কোড যাচাই করতে সমস্যা হয়েছে।' : 'Error verifying redeem code.');
+      if (typeof showToast === 'function') {
+        showToast(isBn ? 'কোড যাচাই করতে সমস্যা হয়েছে।' : 'Error verifying redeem code.');
+      }
     }
   };
 
@@ -256,6 +326,13 @@ export const TreasureModal: React.FC<TreasureModalProps> = ({
 
     setIsClaimingEnvelope(true);
     const { code, amount, description } = unlockedEnvelope;
+
+    // Confirm claim on server
+    fetch('/api/treasure-codes/confirm-claim', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code, userId: activeUserKey }),
+    }).catch(() => {});
 
     setTimeout(() => {
       const updated = { ...claimedCodes, [code]: true };
@@ -282,22 +359,26 @@ export const TreasureModal: React.FC<TreasureModalProps> = ({
       } catch {}
 
       // Credit wallet balance
-      onClaimReward(
-        amount,
-        isBn
-          ? `ট্রেজার খাম বোনাস [${code}] (৳${amount})`
-          : `Treasure Envelope Bonus [${code}] (৳${amount})`
-      );
+      if (typeof onClaimReward === 'function') {
+        onClaimReward(
+          amount,
+          isBn
+            ? `ট্রেজার খাম বোনাস [${code}] (৳${amount})`
+            : `Treasure Envelope Bonus [${code}] (৳${amount})`
+        );
+      }
 
       setIsClaimingEnvelope(false);
       setUnlockedEnvelope(null);
       setRedeemCode('');
 
-      showToast(
-        isBn
-          ? `🎉 অভিনন্দন! খাম থেকে ৳${amount} সফলভাবে ক্লাইম হয়েছে এবং আপনার ওয়ালেটে যোগ হয়েছে!`
-          : `🎉 Congratulations! ৳${amount} from the gift envelope successfully added to your wallet!`
-      );
+      if (typeof showToast === 'function') {
+        showToast(
+          isBn
+            ? `🎉 অভিনন্দন! খাম থেকে ৳${amount} সফলভাবে ক্লাইম হয়েছে এবং আপনার ওয়ালেটে যোগ হয়েছে!`
+            : `🎉 Congratulations! ৳${amount} from the gift envelope successfully added to your wallet!`
+        );
+      }
     }, 700);
   };
 

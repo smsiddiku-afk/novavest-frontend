@@ -1,0 +1,15 @@
+[
+  {
+    "id": "DAILY12",
+    "code": "DAILY12",
+    "amount": 11,
+    "minAmount": 10,
+    "maxAmount": 12,
+    "isRange": true,
+    "isActive": true,
+    "description": "দৈনিক স্পেশাল লাকি গিফট খাম (১০-১২ টাকা)",
+    "claimedUsers": [],
+    "createdAt": "2026-10-05T10:23:20.574Z",
+    "updatedAt": "2026-10-05T10:23:20.574Z"
+  }
+]

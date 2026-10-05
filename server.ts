@@ -580,6 +580,233 @@ async function startServer() {
   });
 
   // ─────────────────────────────────────────────────────────────
+  // 5.8 REDEEM CODES & TREASURE MANAGEMENT (Persistent Server API)
+  // Ensures 10-12 Taka Envelope Bonus works reliably across all devices
+  // ─────────────────────────────────────────────────────────────
+  const TREASURE_CODES_FILE = path.join(REGISTRY_DIR, 'treasure_codes.json');
+  const treasureCodesMap = new Map<string, {
+    id: string;
+    code: string;
+    amount: number;
+    minAmount: number;
+    maxAmount: number;
+    isRange: boolean;
+    isActive: boolean;
+    description: string;
+    claimedUsers: string[];
+    createdAt: string;
+    updatedAt: string;
+  }>();
+
+  const loadTreasureCodes = () => {
+    try {
+      if (!fs.existsSync(REGISTRY_DIR)) {
+        fs.mkdirSync(REGISTRY_DIR, { recursive: true });
+      }
+      if (fs.existsSync(TREASURE_CODES_FILE)) {
+        const raw = fs.readFileSync(TREASURE_CODES_FILE, 'utf-8');
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          parsed.forEach((item) => {
+            if (item && item.code) {
+              const codeKey = String(item.code).trim().toUpperCase();
+              treasureCodesMap.set(codeKey, {
+                id: item.id || codeKey,
+                code: codeKey,
+                amount: Number(item.amount) || 11,
+                minAmount: Number(item.minAmount) || 10,
+                maxAmount: Number(item.maxAmount) || 12,
+                isRange: item.isRange !== false,
+                isActive: item.isActive !== false,
+                description: String(item.description || 'দৈনিক স্পেশাল লাকি গিফট খাম (১০-১২ টাকা)'),
+                claimedUsers: Array.isArray(item.claimedUsers) ? item.claimedUsers : [],
+                createdAt: item.createdAt || new Date().toISOString(),
+                updatedAt: item.updatedAt || new Date().toISOString(),
+              });
+            }
+          });
+          console.log(`[TreasureCodes] Loaded ${treasureCodesMap.size} redeem codes from disk`);
+        }
+      }
+      // If empty, auto-seed default DAILY12 code
+      if (treasureCodesMap.size === 0) {
+        const defaultCode = {
+          id: 'DAILY12',
+          code: 'DAILY12',
+          amount: 11,
+          minAmount: 10,
+          maxAmount: 12,
+          isRange: true,
+          isActive: true,
+          description: 'দৈনিক স্পেশাল লাকি গিফট খাম (১০-১২ টাকা)',
+          claimedUsers: [],
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+        treasureCodesMap.set('DAILY12', defaultCode);
+        saveTreasureCodes();
+      }
+    } catch (err) {
+      console.warn('[TreasureCodes] Error loading treasure_codes.json:', err);
+    }
+  };
+
+  const saveTreasureCodes = () => {
+    try {
+      if (!fs.existsSync(REGISTRY_DIR)) {
+        fs.mkdirSync(REGISTRY_DIR, { recursive: true });
+      }
+      const list = Array.from(treasureCodesMap.values());
+      fs.writeFileSync(TREASURE_CODES_FILE, JSON.stringify(list, null, 2), 'utf-8');
+    } catch (err) {
+      console.warn('[TreasureCodes] Error saving treasure_codes.json:', err);
+    }
+  };
+
+  loadTreasureCodes();
+
+  // GET /api/treasure-codes - Lists all active redeem codes
+  app.get('/api/treasure-codes', (_req, res) => {
+    const list = Array.from(treasureCodesMap.values()).filter((c) => c.isActive);
+    return res.json({ success: true, codes: list });
+  });
+
+  // POST /api/treasure-codes - Save/update a redeem code from Admin Panel
+  app.post('/api/treasure-codes', (req, res) => {
+    try {
+      const { code, amount, minAmount, maxAmount, isRange, description } = req.body || {};
+      const clean = String(code || '').trim().toUpperCase();
+      if (!clean) {
+        return res.status(400).json({ success: false, error: 'Code is required' });
+      }
+
+      const isR = Boolean(isRange !== false);
+      const min = Number(minAmount) || 10;
+      const max = Number(maxAmount) || 12;
+      const amt = isR ? 11 : (Number(amount) || 11);
+      const existing = treasureCodesMap.get(clean);
+
+      const record = {
+        id: clean,
+        code: clean,
+        amount: amt,
+        minAmount: min,
+        maxAmount: max,
+        isRange: isR,
+        isActive: true,
+        description: String(description || (isR ? 'দৈনিক স্পেশাল লাকি গিফট খাম (১০-১২ টাকা)' : `রিডিম কোড (৳${amt})`)).trim(),
+        claimedUsers: existing?.claimedUsers || [],
+        createdAt: existing?.createdAt || new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      treasureCodesMap.set(clean, record);
+      saveTreasureCodes();
+
+      console.log(`[TreasureCodes] Saved code [${clean}] (Reward: ${isR ? '10-12 TK random' : amt + ' TK'})`);
+      return res.json({ success: true, code: record });
+    } catch (err: any) {
+      console.error('[TreasureCodes] Save error:', err);
+      return res.status(500).json({ success: false, error: err?.message || 'Failed to save code' });
+    }
+  });
+
+  // DELETE /api/treasure-codes/:code - Deletes code from Admin Panel (Immediately disables it)
+  app.delete('/api/treasure-codes/:code', (req, res) => {
+    try {
+      const clean = String(req.params.code || '').trim().toUpperCase();
+      if (treasureCodesMap.has(clean)) {
+        treasureCodesMap.delete(clean);
+        saveTreasureCodes();
+        console.log(`[TreasureCodes] Deleted code [${clean}] from server registry`);
+        return res.json({ success: true, message: `Code [${clean}] removed successfully` });
+      }
+      return res.json({ success: true, message: 'Code was not found or already deleted' });
+    } catch (err: any) {
+      console.error('[TreasureCodes] Delete error:', err);
+      return res.status(500).json({ success: false, error: err?.message || 'Failed to delete code' });
+    }
+  });
+
+  // POST /api/treasure-codes/redeem - Validates code and assigns 10-12 Taka Envelope Bonus
+  app.post('/api/treasure-codes/redeem', (req, res) => {
+    try {
+      const { code, userId } = req.body || {};
+      const clean = String(code || '').trim().toUpperCase();
+      const cleanUser = String(userId || 'ANON').trim();
+
+      if (!clean) {
+        return res.status(400).json({ success: false, error: 'দয়া করে একটি সঠিক রিডিম কোড লিখুন।' });
+      }
+
+      const item = treasureCodesMap.get(clean);
+      if (!item || !item.isActive) {
+        return res.status(404).json({
+          success: false,
+          error: 'ভুল বা মেয়াদোত্তীর্ণ রিডিম কোড! সঠিক কোড পেতে প্রজেক্ট ম্যানেজারের সাথে যোগাযোগ করুন।',
+        });
+      }
+
+      // Check if user already claimed this code
+      if (cleanUser && cleanUser !== 'ANON' && Array.isArray(item.claimedUsers) && item.claimedUsers.includes(cleanUser)) {
+        return res.status(400).json({
+          success: false,
+          alreadyClaimed: true,
+          error: 'এই রিডিম কোডটি আপনি ইতিমধ্যে ব্যবহার করেছেন!',
+        });
+      }
+
+      // Calculate bonus amount strictly in 10-12 Taka range
+      let calculatedAmt = 11;
+      const min = Number(item.minAmount) || 10;
+      const max = Number(item.maxAmount) || 12;
+
+      if (item.isRange) {
+        const choices = [10, 11, 12].filter((n) => n >= min && n <= max);
+        calculatedAmt = choices.length > 0
+          ? choices[Math.floor(Math.random() * choices.length)]
+          : Math.floor(Math.random() * (max - min + 1)) + min;
+      } else if (Number(item.amount) > 0) {
+        calculatedAmt = Number(item.amount);
+      } else {
+        const choices = [10, 11, 12];
+        calculatedAmt = choices[Math.floor(Math.random() * choices.length)];
+      }
+
+      return res.json({
+        success: true,
+        code: clean,
+        amount: calculatedAmt,
+        description: item.description,
+      });
+    } catch (err: any) {
+      console.error('[TreasureCodes] Redeem verify error:', err);
+      return res.status(500).json({ success: false, error: err?.message || 'Error verifying code' });
+    }
+  });
+
+  // POST /api/treasure-codes/confirm-claim - Records that user claimed the code
+  app.post('/api/treasure-codes/confirm-claim', (req, res) => {
+    try {
+      const { code, userId } = req.body || {};
+      const clean = String(code || '').trim().toUpperCase();
+      const cleanUser = String(userId || '').trim();
+
+      if (clean && cleanUser && treasureCodesMap.has(clean)) {
+        const item = treasureCodesMap.get(clean)!;
+        if (!item.claimedUsers) item.claimedUsers = [];
+        if (!item.claimedUsers.includes(cleanUser)) {
+          item.claimedUsers.push(cleanUser);
+          saveTreasureCodes();
+        }
+      }
+      return res.json({ success: true });
+    } catch (_) {
+      return res.json({ success: true });
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────
   // 6. CHARITY BANNERS MANAGEMENT API (দাতব্য প্রতিষ্ঠান ব্যানার)
   // ─────────────────────────────────────────────────────────────
   const CHARITY_BANNERS_FILE = path.join(REGISTRY_DIR, 'charity_banners.json');

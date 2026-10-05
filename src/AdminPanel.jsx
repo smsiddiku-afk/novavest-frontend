@@ -240,6 +240,22 @@ export default function AdminPanel() {
         codesRes.value.forEach((d) => {
           cList.push({ id: d.id, ...d.data() });
         });
+        
+        // Also fetch from server API
+        try {
+          const srvRes = await fetch('/api/treasure-codes');
+          if (srvRes.ok) {
+            const srvData = await srvRes.json();
+            if (srvData && Array.isArray(srvData.codes)) {
+              srvData.codes.forEach((sc) => {
+                if (!cList.some((c) => c.code === sc.code || c.id === sc.code)) {
+                  cList.push(sc);
+                }
+              });
+            }
+          }
+        } catch (_) {}
+
         if (cList.length === 0) {
           const starter = {
             id: 'DAILY12',
@@ -254,10 +270,18 @@ export default function AdminPanel() {
           };
           const ref = safeDoc('treasure_codes', 'DAILY12');
           if (ref) safeSetDoc(ref, starter).catch(() => {});
+          fetch('/api/treasure-codes', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(starter),
+          }).catch(() => {});
           cList.push(starter);
         }
         cList.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
         setRedeemCodes(cList);
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('nvt_admin_redeem_codes', JSON.stringify(cList));
+        }
       }
     } catch (error) {
       console.error("ডেটা লোড সমস্যা:", error);
@@ -301,10 +325,30 @@ export default function AdminPanel() {
         updatedAt: new Date().toISOString(),
       };
 
+      // 1. Post to Express Server API for persistent multi-device access
+      try {
+        await fetch('/api/treasure-codes', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(codeData),
+        });
+      } catch (srvErr) {
+        console.warn('[AdminPanel] Server save code notice:', srvErr);
+      }
+
+      // 2. Save to Firestore
       const ref = safeDoc("treasure_codes", cleanCode);
       if (ref) {
         await safeSetDoc(ref, codeData, { merge: true });
       }
+
+      // 3. Save to localStorage
+      try {
+        const rawExisting = localStorage.getItem('nvt_admin_redeem_codes');
+        const existing = rawExisting ? JSON.parse(rawExisting) : [];
+        const updated = [codeData, ...existing.filter((c) => c.code !== cleanCode && c.id !== cleanCode)];
+        localStorage.setItem('nvt_admin_redeem_codes', JSON.stringify(updated));
+      } catch (_) {}
 
       setRedeemCodes((prev) => {
         const without = prev.filter((c) => c.code !== cleanCode && c.id !== cleanCode);
@@ -327,10 +371,29 @@ export default function AdminPanel() {
       return;
     }
     try {
+      // 1. Delete on Express server
+      try {
+        await fetch(`/api/treasure-codes/${encodeURIComponent(codeId)}`, {
+          method: 'DELETE',
+        });
+      } catch (srvErr) {
+        console.warn('[AdminPanel] Server delete code notice:', srvErr);
+      }
+
+      // 2. Delete on Firestore
       const ref = safeDoc("treasure_codes", codeId);
       if (ref) {
         await deleteDoc(ref);
       }
+
+      // 3. Delete from localStorage
+      try {
+        const rawExisting = localStorage.getItem('nvt_admin_redeem_codes');
+        const existing = rawExisting ? JSON.parse(rawExisting) : [];
+        const updated = existing.filter((c) => c.code !== codeId && c.id !== codeId);
+        localStorage.setItem('nvt_admin_redeem_codes', JSON.stringify(updated));
+      } catch (_) {}
+
       setRedeemCodes((prev) => prev.filter((c) => c.code !== codeId && c.id !== codeId));
       setStatusMsg(`কোড [${codeId}] সফলভাবে মুছে ফেলা হয়েছে! এখন আর কোনো ইউজার এটি দিয়ে রিডিম করতে পারবে না।`);
     } catch (err) {
@@ -342,16 +405,26 @@ export default function AdminPanel() {
   const handleToggleCodeStatus = async (item) => {
     try {
       const nextStatus = !item.isActive;
-      const ref = safeDoc("treasure_codes", item.code || item.id);
+      const cleanCode = item.code || item.id;
+      
+      // Update server
+      fetch('/api/treasure-codes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...item, isActive: nextStatus }),
+      }).catch(() => {});
+
+      const ref = safeDoc("treasure_codes", cleanCode);
       if (ref) {
         await safeSetDoc(ref, { isActive: nextStatus }, { merge: true });
       }
+
       setRedeemCodes((prev) =>
         prev.map((c) =>
-          c.code === item.code || c.id === item.id ? { ...c, isActive: nextStatus } : c
+          c.code === cleanCode || c.id === cleanCode ? { ...c, isActive: nextStatus } : c
         )
       );
-      setStatusMsg(`কোড [${item.code}] এখন ${nextStatus ? "চালু (Active)" : "বন্ধ (Inactive)"}!`);
+      setStatusMsg(`কোড [${cleanCode}] এখন ${nextStatus ? "চালু (Active)" : "বন্ধ (Inactive)"}!`);
     } catch (err) {
       console.error("কোড স্ট্যাটাস পরিবর্তন এরর:", err);
     }

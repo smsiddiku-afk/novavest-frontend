@@ -80,7 +80,7 @@ export function sanitizePaymentLink(
   const cleanOrigin = origin.replace(/\/+$/, '');
   const cleanOrderNo = orderNo || `ORD-${Date.now()}`;
   const numAmount = amount || 0;
-  const returnTarget = `${cleanOrigin}/?payment_status=PENDING&payment_return=1&orderNo=${encodeURIComponent(cleanOrderNo)}&amount=${numAmount}&channel=${encodeURIComponent(channel)}&gateway=nekpay`;
+  const returnTarget = `${cleanOrigin}/profile?payment_status=PENDING&payment_return=1&orderNo=${encodeURIComponent(cleanOrderNo)}&amount=${numAmount}&channel=${encodeURIComponent(channel)}&gateway=nekpay`;
 
   let processed = rawLink;
 
@@ -173,7 +173,7 @@ export async function createCpanelDepositOrder(
   }).catch(() => {});
 
   const cleanOrigin = clientOrigin.replace(/\/+$/, '');
-  const returnTarget = `${cleanOrigin}/?payment_status=PENDING&payment_return=1&amount=${amount}&channel=${encodeURIComponent(channel)}&gateway=nekpay`;
+  const returnTarget = `${cleanOrigin}/profile?payment_status=PENDING&payment_return=1&amount=${amount}&channel=${encodeURIComponent(channel)}&gateway=nekpay`;
 
   const requestBody = JSON.stringify({
     amount,

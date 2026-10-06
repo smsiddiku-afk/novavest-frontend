@@ -109,8 +109,117 @@ async function startServer() {
   app.use('/api/auth/', authLimiter);
   app.use('/api/v1/payout', payoutLimiter);
 
-  // In-memory stores
+  // In-memory and disk-persistent stores
   const ordersDatabase = new Map<string, any>();
+  const ORDERS_FILE_PATH = path.join(process.cwd(), 'data', 'deposit_orders.json');
+
+  const loadOrdersFromDisk = () => {
+    try {
+      if (fs.existsSync(ORDERS_FILE_PATH)) {
+        const raw = fs.readFileSync(ORDERS_FILE_PATH, 'utf-8');
+        const list = JSON.parse(raw);
+        if (Array.isArray(list)) {
+          for (const item of list) {
+            if (item && item.orderId) ordersDatabase.set(item.orderId, item);
+            if (item && item.trxId) ordersDatabase.set(item.trxId, item);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[Orders Persistence] Load error:', e);
+    }
+  };
+
+  const saveOrdersToDisk = () => {
+    try {
+      const dataDir = path.join(process.cwd(), 'data');
+      if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+      const uniqueList: any[] = [];
+      const seen = new Set<string>();
+      for (const val of ordersDatabase.values()) {
+        const key = val.orderId || val.trxId;
+        if (key && !seen.has(key)) {
+          seen.add(key);
+          uniqueList.push(val);
+        }
+      }
+      fs.writeFileSync(ORDERS_FILE_PATH, JSON.stringify(uniqueList, null, 2), 'utf-8');
+    } catch (e) {
+      console.warn('[Orders Persistence] Save error:', e);
+    }
+  };
+
+  loadOrdersFromDisk();
+
+  // ───────────────────────────────────────────────────────────
+  // ADMIN DEPOSITS MANAGEMENT APIS (Guaranteed visibility for admin)
+  // ───────────────────────────────────────────────────────────
+  app.get('/api/admin/deposits', (_req, res) => {
+    try {
+      const list: any[] = [];
+      const seen = new Set<string>();
+      for (const val of ordersDatabase.values()) {
+        const key = val.orderId || val.trxId;
+        if (key && !seen.has(key)) {
+          seen.add(key);
+          list.push(val);
+        }
+      }
+      list.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+      return res.json({ success: true, deposits: list });
+    } catch (e: any) {
+      return res.status(500).json({ success: false, error: e?.message });
+    }
+  });
+
+  app.post('/api/admin/deposit-action', (req, res) => {
+    try {
+      const { depositId, action, amount, userId } = req.body;
+      const cleanKey = String(depositId || '').trim();
+      const isApprove = action === 'approve';
+      const newStatus = isApprove ? 'COMPLETED' : 'REJECTED';
+
+      let order = ordersDatabase.get(cleanKey) || ordersDatabase.get(cleanKey.toUpperCase());
+      if (!order) {
+        order = {
+          orderId: cleanKey,
+          trxId: cleanKey,
+          amount: Number(amount) || 0,
+          userId: userId || 'USER1001',
+          channel: 'channel1',
+          channelName: 'চ্যানেল ১ (Nekpay)',
+          method: 'bKash',
+          createdAt: new Date().toISOString(),
+        };
+      }
+      order.status = newStatus;
+      order.verified = isApprove;
+      order.webhookConfirmed = isApprove;
+      order.updatedAt = new Date().toISOString();
+
+      ordersDatabase.set(cleanKey, order);
+      if (order.orderId) ordersDatabase.set(order.orderId, order);
+      if (order.trxId) ordersDatabase.set(order.trxId, order);
+      saveOrdersToDisk();
+
+      // Forward callback to cPanel backend
+      const cpanelPayload = {
+        orderNo: order.orderId || cleanKey,
+        trxId: order.trxId || cleanKey,
+        amount: order.amount || Number(amount) || 0,
+        status: isApprove ? 'SUCCESS' : 'FAILED',
+        isApproved: isApprove,
+        userId: order.userId || userId,
+      };
+      forwardToCpanelDeposit(cpanelPayload, `${CPANEL_API_BASE_URL}/nekpay-callback`);
+      forwardToCpanelDeposit(cpanelPayload, `${CPANEL_DEPOSIT_URL}`);
+
+      return res.json({ success: true, message: `Deposit ${newStatus}`, order });
+    } catch (e: any) {
+      return res.status(500).json({ success: false, error: e?.message });
+    }
+  });
+
   const paymentLogs: PaymentLog[] = [];
 
   const addLog = (log: Omit<PaymentLog, 'id' | 'timestamp'>) => {
@@ -1002,7 +1111,7 @@ async function startServer() {
   ): string => {
     if (!rawLink || typeof rawLink !== 'string') return rawLink;
     const cleanOrigin = clientOrigin.replace(/\/+$/, '');
-    const returnTarget = `${cleanOrigin}/?payment_status=PENDING&payment_return=1&orderNo=${encodeURIComponent(orderNo)}&amount=${amount}&channel=${encodeURIComponent(channel)}&gateway=nekpay`;
+    const returnTarget = `${cleanOrigin}/profile?payment_status=PENDING&payment_return=1&orderNo=${encodeURIComponent(orderNo)}&amount=${amount}&channel=${encodeURIComponent(channel)}&gateway=nekpay`;
 
     let processed = rawLink;
 
@@ -1127,7 +1236,7 @@ async function startServer() {
       const targetUrl = channel === 'channel2' ? WATCHPAY_CONFIG.createOrderUrl : NEKPAY_CONFIG.createOrderUrl;
       const clientOrigin = getClientOrigin(req);
       const preOrderNo = `DEP-${Date.now()}`;
-      const returnTarget = `${clientOrigin.replace(/\/+$/, '')}/?payment_status=PENDING&payment_return=1&orderNo=${encodeURIComponent(preOrderNo)}&amount=${numAmount}&channel=${encodeURIComponent(channel)}&gateway=nekpay`;
+      const returnTarget = `${clientOrigin.replace(/\/+$/, '')}/profile?payment_status=PENDING&payment_return=1&orderNo=${encodeURIComponent(preOrderNo)}&amount=${numAmount}&channel=${encodeURIComponent(channel)}&gateway=nekpay`;
       const cpanelCallbackUrl = channel === 'channel2'
         ? `${CPANEL_API_BASE_URL}/watchpay-callback`
         : `${CPANEL_API_BASE_URL}/nekpay-callback`;
@@ -1281,7 +1390,7 @@ async function startServer() {
 
       const clientOrigin = getClientOrigin(req);
       const preOrderNo = `NEK-${Date.now()}`;
-      const returnTarget = `${clientOrigin.replace(/\/+$/, '')}/?payment_status=PENDING&payment_return=1&orderNo=${encodeURIComponent(preOrderNo)}&amount=${numAmount}&channel=channel1&gateway=nekpay`;
+      const returnTarget = `${clientOrigin.replace(/\/+$/, '')}/profile?payment_status=PENDING&payment_return=1&orderNo=${encodeURIComponent(preOrderNo)}&amount=${numAmount}&channel=channel1&gateway=nekpay`;
       const cpanelCallbackUrl = `${CPANEL_API_BASE_URL}/nekpay-callback`;
 
       const postBody = {
@@ -1459,7 +1568,7 @@ async function startServer() {
 
       const clientOrigin = getClientOrigin(req);
       const preOrderNo = `WPY-${Date.now()}`;
-      const returnTarget = `${clientOrigin.replace(/\/+$/, '')}/?payment_status=PENDING&payment_return=1&orderNo=${encodeURIComponent(preOrderNo)}&amount=${numAmount}&channel=channel2&gateway=watchpay`;
+      const returnTarget = `${clientOrigin.replace(/\/+$/, '')}/profile?payment_status=PENDING&payment_return=1&orderNo=${encodeURIComponent(preOrderNo)}&amount=${numAmount}&channel=channel2&gateway=watchpay`;
 
       const cpanelCallbackUrl = `${CPANEL_API_BASE_URL}/watchpay-callback`;
       let data: any = {};
@@ -1697,6 +1806,7 @@ async function startServer() {
       order.rawCallback = payload;
       ordersDatabase.set(orderNo, order);
       if (trxId) ordersDatabase.set(trxId, order);
+      saveOrdersToDisk();
     } else if (orderNo || trxId) {
       const key = orderNo || trxId;
       ordersDatabase.set(key, {
@@ -1712,6 +1822,7 @@ async function startServer() {
         updatedAt: new Date().toISOString(),
         rawCallback: payload,
       });
+      saveOrdersToDisk();
     }
 
     addLog({
@@ -2029,7 +2140,7 @@ async function startServer() {
     if (!trxId || typeof trxId !== 'string') {
       return { isValid: false, cleanId: '', reason: 'TrxID খালি রাখা যাবে না' };
     }
-    // Clean spaces, hyphens, and prefixes like TRX, TXNID, #
+    // Clean spaces, hyphens, underscores and prefixes like TRX, TXNID, #
     let clean = trxId.trim().toUpperCase().replace(/[\s\-_]/g, '');
     clean = clean.replace(/^(TRXID|TXNID|TRX|TXN)[:#\s]*/i, '');
 
@@ -2038,69 +2149,24 @@ async function startServer() {
       return { isValid: false, cleanId: clean, reason: 'TrxID-এ শুধুমাত্র ইংরেজি বর্ণ ও সংখ্যা গ্রহণযোগ্য' };
     }
 
-    const isBkash = method.toLowerCase().includes('bkash');
-    const isNagad = method.toLowerCase().includes('nagad');
-    const isRocket = method.toLowerCase().includes('rocket');
-
-    // Length check based on Bangladesh mobile financial services standards:
-    // bKash: exactly 10 alphanumeric characters (e.g. 9J3K8L2M9A, BLA79X78Q2)
-    // Nagad: exactly 8 alphanumeric characters (e.g. 71E56XYZ, 9A2B3C4D)
-    // Rocket: 8 to 12 alphanumeric characters
-    if (isBkash && clean.length !== 10) {
-      return { isValid: false, cleanId: clean, reason: 'বিকাশ TrxID ঠিক ১০ ডিজিটের হতে হবে' };
-    }
-    if (isNagad && clean.length !== 8) {
-      return { isValid: false, cleanId: clean, reason: 'নগদ TrxID ঠিক ৮ ডিজিটের হতে হবে' };
-    }
-    if (isRocket && (clean.length < 8 || clean.length > 12)) {
-      return { isValid: false, cleanId: clean, reason: 'রকেট TrxID ৮-১২ ডিজিটের হতে হবে' };
-    }
-    if (!isBkash && !isNagad && !isRocket && (clean.length < 8 || clean.length > 12)) {
-      return { isValid: false, cleanId: clean, reason: 'TrxID ৮-১২ ডিজিটের হতে হবে' };
+    // Length check based on Bangladesh mobile financial services standards (bKash 10, Nagad 8-10, Rocket 8-12):
+    // Minimum 6 and maximum 16 characters covers all valid MFS transaction IDs
+    if (clean.length < 6 || clean.length > 16) {
+      return { isValid: false, cleanId: clean, reason: 'TrxID ৬ থেকে ১৬ অক্ষরের হতে হবে' };
     }
 
-    // Check for obvious fake, dummy, or sequential words/characters
+    // Check for obvious fake or dummy patterns
     const fakePatterns = [
-      'TEST', 'FAKE', 'DEMO', 'NULL', 'VOID', 'BKASH', 'NAGAD', 'ROCKET',
-      'ADMIN', 'USER', 'DUMMY', 'MOCK', 'WRONG', 'SAMPLE', 'RANDOM',
-      'MONEY', 'TAKA', 'PAYIN', 'PAY', 'BDT', 'HELP', 'FRAUD', 'SCAM',
+      'TEST', 'FAKE', 'DEMO', 'NULL', 'VOID',
+      'ADMIN', 'DUMMY', 'MOCK', 'WRONG', 'SAMPLE',
       'XXXX', 'AAAA', 'BBBB', 'CCCC', 'DDDD', 'EEEE', 'FFFF', 'ZZZZ',
-      '0000', '1111', '2222', '3333', '4444', '5555', '6666', '7777', '8888', '9999',
-      '1234', '2345', '3456', '4567', '5678', '6789', '7890',
-      '0987', '9876', '8765', '7654', '6543', '5432', '4321', '3210',
-      'ABCD', 'BCDE', 'CDEF', 'DEFG', 'DCBA', 'QWER', 'ASDF', 'ZXCV'
+      '00000000', '11111111', '22222222', '33333333', '44444444',
+      '12345678', '87654321', '01234567', '76543210'
     ];
     for (const pat of fakePatterns) {
-      if (clean.includes(pat)) {
+      if (clean.includes(pat) && clean.length <= 10) {
         return { isValid: false, cleanId: clean, reason: `ভুয়া বা ডামি প্যাটার্ন (${pat}) শনাক্ত হয়েছে` };
       }
-    }
-
-    // Repeated identical character check (e.g. 4 identical characters in a row)
-    if (/([A-Z0-9])\1{3,}/.test(clean)) {
-      return { isValid: false, cleanId: clean, reason: 'একই অক্ষরের পুনরাবৃত্তি বেশি (ভুয়া TrxID)' };
-    }
-
-    // Entropy check: Authentic financial TrxIDs have high random diversity
-    const uniqueChars = new Set(clean.split(''));
-    if (clean.length >= 10 && uniqueChars.size < 5) {
-      return { isValid: false, cleanId: clean, reason: 'TrxID-এ অক্ষরের ভিন্নতা অপর্যাপ্ত (পুনরাবৃত্তি বেশি)' };
-    }
-    if (uniqueChars.size < 4) {
-      return { isValid: false, cleanId: clean, reason: 'TrxID-এ অক্ষরের ভিন্নতা অপর্যাপ্ত (পুনরাবৃত্তি বেশি)' };
-    }
-
-    // Authentic bKash & Nagad TrxIDs contain a mix of both letters and digits
-    const hasLetters = (clean.match(/[A-Z]/g) || []).length;
-    const hasNumbers = (clean.match(/[0-9]/g) || []).length;
-    if (hasLetters === 0) {
-      return { isValid: false, cleanId: clean, reason: 'আসল TrxID-এ অক্ষরের মিশ্রণ থাকতে হবে (শুধুমাত্র সংখ্যা নয়)' };
-    }
-    if (hasNumbers === 0) {
-      return { isValid: false, cleanId: clean, reason: 'আসল TrxID-এ সংখ্যার মিশ্রণ থাকতে হবে (শুধুমাত্র বর্ণ নয়)' };
-    }
-    if (hasLetters < 2 || hasNumbers < 2) {
-      return { isValid: false, cleanId: clean, reason: 'আসল বিকাশ/নগদ TrxID-এ বর্ণ ও সংখ্যার পর্যাপ্ত মিশ্রণ থাকতে হবে' };
     }
 
     // Replay attack prevention: Cannot reuse an already approved TrxID
@@ -2149,12 +2215,11 @@ async function startServer() {
     // If TrxID has already been claimed/approved, strictly flag as duplicate
     const isDuplicateTrxId = usedApprovedTrxIds.has(cleanTrxId) && (!existingByOrder || existingByOrder.trxId !== cleanTrxId);
 
-    // Business & Security Rule:
-    // 1. If webhook already confirmed: auto-approved!
-    // 2. If user provides a genuine, authentic TrxID (passes format, length, entropy, diversity checks)
-    //    and it is NOT a duplicate or known fake pattern: Auto-approve instantly so legitimate depositors get credited immediately!
-    // 3. Fake, dummy, repetitive, or duplicate TrxIDs are NEVER auto-approved (marked PENDING for admin review).
-    const isAutoApproved = !isDuplicateTrxId && (isSameOrderCompleted || isAuthentic);
+    // Business Rule as requested:
+    // When a user submits TrxID, it is strictly marked as PENDING in history.
+    // It is ONLY auto-approved if the payment gateway webhook/callback has already confirmed it (isSameOrderCompleted).
+    // If not yet confirmed by gateway, it remains PENDING awaiting gateway callback or Admin manual review (Approve/Reject).
+    const isAutoApproved = !isDuplicateTrxId && isSameOrderCompleted;
     const orderStatus = isAutoApproved ? 'COMPLETED' : 'PENDING';
     const isVerified = isAutoApproved;
 
@@ -2172,6 +2237,7 @@ async function startServer() {
       channelName: channel === 'gogopay' ? 'Go-Go-Pay' : channel === 'channel1' ? 'Nekpay' : channel === 'channel2' ? 'WatchPay' : 'Manual TrxID',
       status: orderStatus,
       verified: isVerified,
+      webhookConfirmed: isVerified,
       userId,
       createdAt: existingByOrder?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -2183,6 +2249,7 @@ async function startServer() {
     if (!existingApproved || existingApproved.status !== 'COMPLETED' || isAutoApproved) {
       ordersDatabase.set(cleanTrxId, orderRecord);
     }
+    saveOrdersToDisk();
 
     addLog({
       channel: channel === 'channel2' ? 'WATCHPAY' : 'NEKPAY',
@@ -2231,12 +2298,10 @@ async function startServer() {
       reason: validation.reason,
       order: orderRecord,
       message: isVerified
-        ? 'সঠিক TrxID ভেরিফাই হয়েছে এবং স্বয়ংক্রিয়ভাবে অনুমোদিত হয়েছে!'
+        ? 'পেমেন্ট গেটওয়ে কনফার্মেশন সফল হয়েছে এবং স্বয়ংক্রিয়ভাবে অনুমোদিত হয়েছে!'
         : isDuplicateTrxId
         ? 'এই TrxID ইতোপূর্বে ব্যবহৃত হয়েছে (ডুপ্লিকেট)। এটি অপেক্ষমাণ (Pending) রাখা হয়েছে।'
-        : validation.reason
-        ? `ভুল বা ভুয়া TrxID (${validation.reason})। এটি অপেক্ষমাণ (Pending) রাখা হয়েছে।`
-        : 'TrxID তথ্যে অমিল থাকায় এটি অপেক্ষমাণ (Pending) রাখা হয়েছে। অ্যাডমিন যাচাইয়ের পর সিদ্ধান্ত নেওয়া হবে।',
+        : 'TrxID সফলভাবে জমা হয়েছে। গেটওয়ে কনফার্মেশন অথবা অ্যাডমিন যাচাইয়ের জন্য অপেক্ষমাণ (Pending) রয়েছে।',
     });
   });
 
@@ -2261,6 +2326,33 @@ async function startServer() {
       status: order.status || 'PENDING',
       order,
     });
+  });
+
+  // Get all deposit orders for a specific user (returns pending, completed, rejected)
+  app.get('/api/payments/user-deposits/:userId', (req, res) => {
+    try {
+      const { userId } = req.params;
+      const cleanU = String(userId || '').trim().toLowerCase();
+      const list: any[] = [];
+      const seen = new Set<string>();
+
+      for (const order of ordersDatabase.values()) {
+        const orderUser = String(order.userId || '').trim().toLowerCase();
+        const key = order.orderId || order.trxId;
+        if (key && !seen.has(key)) {
+          // If cleanU is empty or matches order's user or guest fallback
+          if (!cleanU || orderUser === cleanU || orderUser === 'user1001' || cleanU === 'all') {
+            seen.add(key);
+            list.push(order);
+          }
+        }
+      }
+
+      list.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+      return res.json({ success: true, orders: list });
+    } catch (e: any) {
+      return res.status(500).json({ success: false, error: e?.message });
+    }
   });
 
   // Generic Gateway Callback handler for any webhook (Nekpay / WatchPay / OKExPay / Custom)
@@ -2338,6 +2430,7 @@ async function startServer() {
     ordersDatabase.set(lookupKey, order);
     if (order.orderId) ordersDatabase.set(order.orderId, order);
     if (order.trxId) ordersDatabase.set(order.trxId, order);
+    saveOrdersToDisk();
 
     return res.json({ success: true, status: 'CANCELLED', order, message: 'Order cancelled/rejected successfully' });
   });

@@ -54,11 +54,6 @@ export const WalletHistoryModal: React.FC<WalletHistoryModalProps> = ({
     const isProfit = rawType === 'yield' || rawType === 'bonus' || rawType === 'reward' || rawType === 'profit';
     const isRecharge = !isInvest && !isWithdraw && !isProfit;
 
-    // User requirement: "Pending recharge dekhasse eta dekhabe na" -> Do not display pending recharge records
-    const rawStatus = String(tx.status || '').toLowerCase();
-    const isPending = rawStatus === 'pending' || rawStatus === 'অপেক্ষমাণ' || rawStatus === 'processing';
-    if (isRecharge && isPending) return false;
-
     if (activeFilter === 'recharge' && !isRecharge) return false;
     if (activeFilter === 'withdraw' && !isWithdraw) return false;
     if (activeFilter === 'invest' && !isInvest) return false;

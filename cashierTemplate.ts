@@ -701,6 +701,38 @@ export function generateCashierHtml(
         const resData = await res.json();
         const isAutoApproved = Boolean(resData && resData.success && (resData.status === 'COMPLETED' || resData.verified === true));
 
+        // Immediately save transaction locally so even if user closes tab or returns, it is in history
+        try {
+          const now = new Date();
+          const timeStr = now.toLocaleDateString('en-GB') + ' ' + now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+          const newTxn = {
+            id: rawTrx,
+            type: 'deposit',
+            title: 'ওয়ালেট রিচার্জ (' + (activeMethod || 'bKash') + ')',
+            amount: Number(orderData.amount || 0),
+            timestamp: timeStr,
+            date: now.toLocaleDateString('en-GB'),
+            time: now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+            status: isAutoApproved ? 'completed' : 'pending',
+            description: isAutoApproved
+              ? ('ডিপোজিট TrxID: ' + rawTrx + ' (সফল)')
+              : ('ডিপোজিট TrxID: ' + rawTrx + ' (অপেক্ষমাণ)'),
+            hash: rawTrx,
+            channel: (activeMethod || 'bKash') + ' (ক্যাশিয়ার)',
+            isCredit: isAutoApproved,
+          };
+          localStorage.setItem('nvt_last_submitted_deposit_tx', JSON.stringify(newTxn));
+          localStorage.setItem('nvt_payment_return_deposit', JSON.stringify({
+            status: isAutoApproved ? 'SUCCESS' : 'PENDING',
+            orderNo: orderData.orderId,
+            amount: Number(orderData.amount || 0),
+            method: activeMethod || 'bKash',
+            channel: orderData.channel || 'channel1',
+            trxId: rawTrx,
+            timestamp: Date.now()
+          }));
+        } catch (_) {}
+
         if (isAutoApproved) {
           showApprovedAndRedirect(rawTrx);
         } else {
@@ -735,8 +767,21 @@ export function generateCashierHtml(
         queryParams.set('trxId', finalTrx);
       }
 
-      // Safe same-origin return URL - always stays on user's current preview/app domain
-      const returnPath = '/?' + queryParams.toString();
+      // Store in localStorage for fail-safe retrieval
+      try {
+        localStorage.setItem('nvt_payment_return_deposit', JSON.stringify({
+          status: statusParam,
+          orderNo: orderData.orderId,
+          amount: Number(orderData.amount || 0),
+          method: activeMethod || 'bKash',
+          channel: orderData.channel || 'channel1',
+          trxId: finalTrx,
+          timestamp: Date.now()
+        }));
+      } catch (_) {}
+
+      // Safe same-origin return URL - always lands on /profile with query params
+      const returnPath = '/profile?' + queryParams.toString();
       const currentOrigin = (typeof window !== 'undefined' && window.location && window.location.origin)
         ? window.location.origin.replace(/\/+$/, '')
         : '';

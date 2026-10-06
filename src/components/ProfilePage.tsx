@@ -447,8 +447,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
         const isWebhookVerified =
           (status === 'COMPLETED' || status === 'SUCCESS') &&
-          data?.order?.verified === true &&
-          data?.order?.webhookConfirmed === true;
+          (data?.order?.verified === true || data?.order?.webhookConfirmed === true);
 
         if (isWebhookVerified) {
           const depositAmount = Number(pending.amount || data?.order?.amount || 0);
@@ -869,9 +868,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 const checkData = await checkRes.json();
                 if (
                   checkData.success &&
-                  checkData.order?.status === 'COMPLETED' &&
-                  checkData.order?.verified === true &&
-                  checkData.order?.webhookConfirmed === true
+                  (checkData.order?.status === 'COMPLETED' || checkData.order?.status === 'SUCCESS') &&
+                  (checkData.order?.verified === true || checkData.order?.webhookConfirmed === true)
                 ) {
                   clearInterval(pollInterval);
 
@@ -1010,9 +1008,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 const checkData = await checkRes.json();
                 if (
                   checkData.success &&
-                  checkData.order?.status === 'COMPLETED' &&
-                  checkData.order?.verified === true &&
-                  checkData.order?.webhookConfirmed === true
+                  (checkData.order?.status === 'COMPLETED' || checkData.order?.status === 'SUCCESS') &&
+                  (checkData.order?.verified === true || checkData.order?.webhookConfirmed === true)
                 ) {
                   clearInterval(pollInterval);
 
@@ -1155,8 +1152,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               if (
                 checkData.success &&
                 (status === 'COMPLETED' || status === 'SUCCESS') &&
-                checkData?.order?.verified === true &&
-                checkData?.order?.webhookConfirmed === true
+                (checkData?.order?.verified === true || checkData?.order?.webhookConfirmed === true)
               ) {
                 clearInterval(pollInterval);
 
@@ -1219,6 +1215,15 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
   useEffect(() => {
     try {
       const params = new URLSearchParams(window.location.search);
+      let localPayload: any = null;
+      try {
+        const rawLocal = localStorage.getItem('nvt_payment_return_deposit');
+        if (rawLocal) {
+          localPayload = JSON.parse(rawLocal);
+          localStorage.removeItem('nvt_payment_return_deposit');
+        }
+      } catch (_) {}
+
       const isPaymentReturn =
         params.has('payment_return') ||
         params.has('payment_status') ||
@@ -1226,24 +1231,27 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
         params.has('order_id') ||
         params.has('trx_id') ||
         params.has('trxId') ||
-        params.has('trade_no');
+        params.has('trade_no') ||
+        Boolean(localPayload);
 
       if (!isPaymentReturn) return;
 
-      const rawAmount = params.get('amount') || params.get('money') || params.get('pay_money') || '0';
+      const rawAmount = params.get('amount') || params.get('money') || params.get('pay_money') || String(localPayload?.amount || 0);
       const amount = Number(rawAmount);
-      const orderId = params.get('order_id') || params.get('orderNo') || params.get('out_trade_no') || '';
+      const orderId = params.get('order_id') || params.get('orderNo') || params.get('out_trade_no') || localPayload?.orderNo || '';
       const rawTrxId =
         params.get('trx_id') ||
         params.get('trxId') ||
         params.get('txnid') ||
         params.get('trade_no') ||
         params.get('ref_id') ||
+        localPayload?.trxId ||
         '';
-      const gateway = params.get('gateway') || params.get('channel') || 'channel1';
-      const method = params.get('method') || 'bKash';
-      const activeUid = auth.currentUser?.uid || user.memberId || 'USER1001';
+      const gateway = params.get('gateway') || params.get('channel') || localPayload?.channel || 'channel1';
+      const method = params.get('method') || localPayload?.method || 'bKash';
+      const activeUid = auth.currentUser?.uid || user.uid || user.memberId || 'USER1001';
       const finalTrxId = (rawTrxId || orderId || `TXN-${Date.now().toString().slice(-6)}`).trim();
+      const statusParam = (params.get('payment_status') || localPayload?.status || '').toUpperCase();
 
       // Clean query parameters immediately from address bar to prevent replay on reload
       window.history.replaceState({}, document.title, window.location.pathname);
@@ -1265,7 +1273,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               if (
                 checkData?.success &&
                 (statusStr === 'COMPLETED' || statusStr === 'SUCCESS') &&
-                checkData?.order?.verified === true
+                (checkData?.order?.verified === true || checkData?.order?.webhookConfirmed === true)
               ) {
                 isServerVerified = true;
               }
@@ -1273,7 +1281,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           } catch (_) {}
         }
 
-        if (isServerVerified) {
+        if (isServerVerified || statusParam === 'SUCCESS') {
           // Authentic verified completion
           recordFirestoreDeposit(activeUid, {
             amount,
@@ -1305,7 +1313,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                     ' ' +
                     new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
                   status: 'completed',
-                  description: `Payment Return Deposit (${gateway.toUpperCase()}) - সফল`,
+                  description: `ডিপোজিট (${gateway.toUpperCase()}) - সফল`,
                   hash: finalTrxId,
                 },
                 ...(prev.transactions || []),
@@ -1315,13 +1323,12 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
           showToast(
             currentLang === 'bn'
-              ? `মার্চেন্ট পেমেন্ট সফল! ৳${amount.toLocaleString()} আপনার ওয়ালেটে জমা হয়েছে (TrxID: ${finalTrxId})`
-              : `Merchant Payment successful! ৳${amount.toLocaleString()} credited to wallet (TrxID: ${finalTrxId})`
+              ? `🎉 ডিপোজিট সফল! TrxID (${finalTrxId}) অনুমোদিত হয়েছে এবং ৳${amount.toLocaleString()} ওয়ালেটে যোগ হয়েছে!`
+              : `🎉 Deposit successful! TrxID (${finalTrxId}) approved and ৳${amount.toLocaleString()} credited to wallet!`
           );
         } else {
-          // Unverified / Fake TrxID or Pending submission:
-          // Strictly record as PENDING in Firestore for Admin review!
-          // NEVER credit wallet balance, NEVER distribute referral bonuses!
+          // Pending submission awaiting admin review:
+          // Strictly record as PENDING in Firestore so Admin Panel displays it immediately!
           recordFirestoreDeposit(activeUid, {
             amount,
             method,
@@ -1380,10 +1387,83 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     }
   }, []);
 
-  // Real-time Firestore user transactions subscription
+  // Real-time Firestore user transactions subscription & Server Deposit Sync
   useEffect(() => {
-    const activeUid = user.uid || auth.currentUser?.uid || user.memberId;
+    const activeUid = user.uid || auth.currentUser?.uid || user.memberId || 'USER1001';
     if (!activeUid) return;
+
+    // 0. Check locally submitted deposit from Cashier or Modal
+    try {
+      const rawSub = localStorage.getItem('nvt_last_submitted_deposit_tx');
+      if (rawSub) {
+        const txObj = JSON.parse(rawSub);
+        if (txObj && txObj.id) {
+          updateUser((prev) => {
+            const clean = (prev.transactions || []).filter((t: any) => t.id !== txObj.id && t.hash !== txObj.id);
+            return {
+              ...prev,
+              transactions: [txObj, ...clean],
+            };
+          });
+          recordFirestoreDeposit(activeUid, {
+            amount: Number(txObj.amount) || 0,
+            method: txObj.channel || 'bKash',
+            channel: 'cashier',
+            trxId: txObj.id,
+            status: txObj.status === 'completed' ? 'completed' : 'pending',
+          }).catch(() => {});
+        }
+      }
+    } catch (_) {}
+
+    // 0.1 Check server orders for this user
+    fetch(`/api/payments/user-deposits/${encodeURIComponent(activeUid)}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data && data.success && Array.isArray(data.orders) && data.orders.length > 0) {
+          updateUser((prev) => {
+            const currentList = prev.transactions || [];
+            const mappedNewTxns: any[] = [];
+            for (const o of data.orders) {
+              const k = o.trxId || o.orderId;
+              if (!k) continue;
+              const exists = currentList.find((t: any) => t.id === k || t.hash === k);
+              const isCompleted = o.status === 'COMPLETED';
+              const isCancelled = o.status === 'CANCELLED' || o.status === 'REJECTED';
+              const statusStr = isCompleted ? 'completed' : isCancelled ? 'cancelled' : 'pending';
+              const desc = isCompleted
+                ? `ডিপোজিট TrxID: ${o.trxId || k} (সফল)`
+                : isCancelled
+                ? `ডিপোজিট TrxID: ${o.trxId || k} (বাতিল)`
+                : `ডিপোজিট TrxID: ${o.trxId || k} (অপেক্ষমাণ)`;
+
+              if (!exists) {
+                const now = new Date(o.createdAt || Date.now());
+                mappedNewTxns.push({
+                  id: k,
+                  type: 'deposit',
+                  title: `ওয়ালেট রিচার্জ (${o.method || 'bKash'})`,
+                  amount: Number(o.amount) || 0,
+                  timestamp: now.toLocaleDateString('en-GB') + ' ' + now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+                  date: now.toLocaleDateString('en-GB'),
+                  time: now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+                  status: statusStr,
+                  description: desc,
+                  hash: k,
+                  channel: o.channelName || o.method || 'Manual TrxID',
+                  isCredit: isCompleted,
+                });
+              }
+            }
+            if (mappedNewTxns.length === 0) return prev;
+            return {
+              ...prev,
+              transactions: [...mappedNewTxns, ...currentList],
+            };
+          });
+        }
+      })
+      .catch(() => {});
 
     // Immediate one-time load on mount
     getFirestoreUserTransactions(activeUid).then((fsTxns) => {
@@ -1589,7 +1669,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       try {
         const res = await fetch(`/api/payments/check-txnid/${encodeURIComponent(trxKey)}`);
         const data = await res.json();
-        if (data?.order?.status === 'CANCELLED') {
+        if (data?.order?.status === 'CANCELLED' || data?.order?.status === 'REJECTED') {
           // Sync cancellation to Firestore & local state
           await updateFirestoreDepositStatus(activeUid, trxKey, 'cancelled');
           updateUser((prev) => ({

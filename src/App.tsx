@@ -47,12 +47,21 @@ export default function App() {
     if (initial === '/admin') return '/admin'; // Admin পাথ সরাসরি চেক
 
     const search = typeof window !== 'undefined' ? window.location.search : '';
-    const isPaymentReturn = search.includes('payment_status') || search.includes('orderNo') || search.includes('trade_no') || search.includes('trx_id');
-    if (isPaymentReturn) {
-      return '/profile';
-    }
+    const hasLocalReturn = typeof window !== 'undefined' && !!localStorage.getItem('nvt_payment_return_deposit');
+    const isPaymentReturn =
+      search.includes('payment_status') ||
+      search.includes('payment_return') ||
+      search.includes('orderNo') ||
+      search.includes('trade_no') ||
+      search.includes('trx_id') ||
+      search.includes('trxId') ||
+      hasLocalReturn;
 
     const isStoredAuth = !!getPersistedAuthUser();
+
+    if (isPaymentReturn && isStoredAuth) {
+      return '/profile';
+    }
 
     if (!isStoredAuth) {
       if (initial === '/login') return '/login';

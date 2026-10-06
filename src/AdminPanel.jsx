@@ -117,17 +117,83 @@ export default function AdminPanel() {
   };
 
   // Real-time synchronization for instant deposits, withdrawals, and redeem codes
+  // Helper to merge and synchronize deposits from both Firestore and the local server backend
+  const mergeAndSyncDeposits = async (firestoreList) => {
+    try {
+      const serverRes = await fetch('/api/admin/deposits');
+      if (serverRes.ok) {
+        const serverData = await serverRes.json();
+        if (serverData && serverData.success && Array.isArray(serverData.deposits)) {
+          const mergedMap = new Map();
+          // 1. First add Firestore deposits
+          firestoreList.forEach((d) => {
+            const k = d.id || d.trxId || d.orderNo;
+            if (k) mergedMap.set(k, d);
+          });
+          // 2. Merge server-side deposits if not present in Firestore
+          for (const s of serverData.deposits) {
+            const key = s.orderId || s.trxId || s.id;
+            const existing =
+              mergedMap.get(key) ||
+              Array.from(mergedMap.values()).find(
+                (m) =>
+                  (m.trxId && s.trxId && String(m.trxId).toUpperCase() === String(s.trxId).toUpperCase()) ||
+                  (m.orderNo && s.orderId && String(m.orderNo).toUpperCase() === String(s.orderId).toUpperCase())
+              );
+            if (!existing) {
+              const formattedItem = {
+                id: key,
+                userId: s.userId || 'USER1001',
+                userName: s.payerName || s.userId || 'Customer',
+                amount: Number(s.amount) || 0,
+                method: s.method || 'bKash',
+                channel: s.channelName || s.channel || 'Nekpay (চ্যানেল ১)',
+                trxId: s.trxId || key,
+                senderNumber: s.senderPhone || '',
+                senderPhone: s.senderPhone || '',
+                orderNo: s.orderId || key,
+                status: s.status === 'COMPLETED' ? 'Approved' : s.status === 'REJECTED' ? 'Rejected' : 'Pending',
+                createdAt: s.createdAt || new Date().toISOString(),
+              };
+              mergedMap.set(key, formattedItem);
+
+              // Auto-sync missing deposit into Firestore collection so it stays permanently in database!
+              try {
+                const targetDoc = safeDoc('deposits', key);
+                if (targetDoc) {
+                  safeSetDoc(
+                    targetDoc,
+                    {
+                      ...formattedItem,
+                      serverCreatedAt: serverTimestamp(),
+                    },
+                    { merge: true }
+                  ).catch(() => {});
+                }
+              } catch (_) {}
+            }
+          }
+          const list = Array.from(mergedMap.values());
+          list.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+          return list;
+        }
+      }
+    } catch (_) {}
+    return firestoreList;
+  };
+
   useEffect(() => {
     if (!isAuthenticated) return;
     let unsubDeposits = () => {};
     let unsubWithdrawals = () => {};
     let unsubCodes = () => {};
     try {
-      unsubDeposits = onSnapshot(collection(db, "deposits"), (snap) => {
+      unsubDeposits = onSnapshot(collection(db, "deposits"), async (snap) => {
         const list = [];
         snap.forEach((d) => list.push({ id: d.id, ...d.data() }));
         list.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
-        setDeposits(list);
+        const merged = await mergeAndSyncDeposits(list);
+        setDeposits(merged);
       }, (err) => console.warn("Admin deposits listener notice:", err));
     } catch (_) {}
 
@@ -200,7 +266,8 @@ export default function AdminPanel() {
         depositRes.value.forEach((docSnap) => {
           depositList.push({ id: docSnap.id, ...docSnap.data() });
         });
-        setDeposits(depositList);
+        const mergedList = await mergeAndSyncDeposits(depositList);
+        setDeposits(mergedList);
       }
 
       if (settingsRes.status === 'fulfilled' && settingsRes.value && settingsRes.value.exists()) {
@@ -915,6 +982,17 @@ export default function AdminPanel() {
 
       // 5. Server sync / webhook callback
       try {
+        await fetch('/api/admin/deposit-action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            depositId: cleanDId,
+            action,
+            amount: numAmount,
+            userId: effectiveDocId || userId,
+          }),
+        }).catch(() => {});
+
         if (isApprove) {
           await fetch('/api/payments/gateway-callback', {
             method: 'POST',

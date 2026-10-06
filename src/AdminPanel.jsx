@@ -2177,7 +2177,7 @@ export default function AdminPanel() {
                 </div>
 
                 <div style={{ marginBottom: "10px" }}>
-                  <label style={{ display: "block", marginBottom: "4px", fontSize: "12px", color: "#6ee7b7" }}>প্রকল্প ব্যবস্থাপক (উইথড্রল ও অর্থায়ন - ফারহানা হক):</label>
+                  <label style={{ display: "block", marginBottom: "4px", fontSize: "12px", color: "#6ee7b7" }}>প্রকল্প ব্যবস্থাপক (উইথড্রল ও অর্থায়ন - জ্যাক হ্যারিসন / Jack Harrison):</label>
                   <input type="text" placeholder="https://t.me/..." value={manager2Telegram} onChange={(e) => setManager2Telegram(e.target.value)} style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #3b476c", backgroundColor: "#0b0f19", color: "#fff", boxSizing: "border-box", fontSize: "13px" }} />
                 </div>
 

@@ -574,11 +574,11 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       const activeUid = user.uid || auth.currentUser?.uid || user.memberId;
       if (activeUid) {
         getFirestoreUserProfile(activeUid).then((latestProfile) => {
-          if (latestProfile && (Boolean(latestProfile.canRefer) !== Boolean(user.canRefer) || latestProfile.referralLimit !== user.referralLimit)) {
+          if (latestProfile && (Boolean(latestProfile.canRefer) !== Boolean(user.canRefer) || (latestProfile.referralLimit !== undefined && latestProfile.referralLimit !== user.referralLimit))) {
             updateUser((prev) => ({
               ...prev,
               canRefer: Boolean(latestProfile.canRefer),
-              referralLimit: latestProfile.referralLimit ?? prev.referralLimit ?? 5,
+              referralLimit: typeof latestProfile.referralLimit === 'number' ? latestProfile.referralLimit : (prev.referralLimit ?? 0),
             }));
           }
         }).catch(() => {});
@@ -592,11 +592,11 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       const activeUid = user.uid || auth.currentUser?.uid || user.memberId;
       if (activeUid) {
         getFirestoreUserProfile(activeUid).then((latestProfile) => {
-          if (latestProfile && (Boolean(latestProfile.canRefer) !== Boolean(user.canRefer) || latestProfile.referralLimit !== user.referralLimit)) {
+          if (latestProfile && (Boolean(latestProfile.canRefer) !== Boolean(user.canRefer) || (latestProfile.referralLimit !== undefined && latestProfile.referralLimit !== user.referralLimit))) {
             updateUser((prev) => ({
               ...prev,
               canRefer: Boolean(latestProfile.canRefer),
-              referralLimit: latestProfile.referralLimit ?? prev.referralLimit ?? 5,
+              referralLimit: typeof latestProfile.referralLimit === 'number' ? latestProfile.referralLimit : (prev.referralLimit ?? 0),
             }));
           }
         }).catch(() => {});
@@ -2590,7 +2590,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                       updateUser((prev) => ({
                         ...prev,
                         canRefer: true,
-                        referralLimit: latestProfile.referralLimit ?? prev.referralLimit ?? 5,
+                        referralLimit: typeof latestProfile.referralLimit === 'number' ? latestProfile.referralLimit : (prev.referralLimit ?? 0),
                       }));
                       showToast(
                         currentLang === 'bn'

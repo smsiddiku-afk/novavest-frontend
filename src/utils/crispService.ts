@@ -64,7 +64,7 @@ export const DEFAULT_PROJECT_MANAGERS: ProjectManagerInfo[] = [
     nameBn: 'প্রকল্প ব্যবস্থাপক',
     nameEn: 'Project Manager',
     personNameBn: 'জ্যাক হ্যারিসন',
-    personNameEn: 'Jack Harrison',
+    personNameEn: 'Jack Harission',
     roleBn: 'উইথড্রল অনুমোদন ও আর্থিক সহায়তা',
     roleEn: 'Withdrawal Approval & Finance Support',
     telegram: 'https://t.me/NVT_ProjectManager2',

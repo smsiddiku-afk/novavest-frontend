@@ -1244,19 +1244,17 @@ export const updateFirestoreReferralPermission = async (
   const targetCode = targetUserInfo?.referralCode ? cleanDocId(targetUserInfo.referralCode, '') : '';
   const targetPhone = targetUserInfo?.phone || '';
 
-  const docIds = Array.from(
-    new Set([cleanId, targetMemberId, targetUid, targetCode].filter(Boolean))
-  );
-
-  const effectiveLimit = Number(referralLimit) >= 0 ? Number(referralLimit) : (canRefer ? 5 : 0);
+  const numLimit = Number(referralLimit);
+  const effectiveLimit = !isNaN(numLimit) && numLimit >= 0 ? numLimit : (canRefer ? 10 : 0);
   const payload = {
     canRefer: Boolean(canRefer),
     referralLimit: effectiveLimit,
     updatedAt: new Date().toISOString(),
   };
 
-  // 1. Direct safeSetDoc for known IDs in 'users'
-  for (const docId of docIds) {
+  // 1. Direct safeSetDoc on the primary user document and auth uid
+  const directIds = Array.from(new Set([cleanId, targetUid].filter(Boolean)));
+  for (const docId of directIds) {
     try {
       const dRef = safeDoc('users', docId);
       if (dRef) {
@@ -1265,14 +1263,14 @@ export const updateFirestoreReferralPermission = async (
     } catch (_) {}
   }
 
-  // 2. Query Firestore 'users' by memberId, uid, phone to update any remaining docs
+  // 2. Query Firestore 'users' by memberId, uid, phone to update any matching docs
   try {
     const uCol = collection(db, 'users');
     const queries = [];
-    if (targetMemberId || cleanId) {
-      queries.push(query(uCol, where('memberId', '==', targetMemberId || cleanId), limit(5)));
+    if (targetMemberId) {
+      queries.push(query(uCol, where('memberId', '==', targetMemberId), limit(5)));
     }
-    if (targetUid) {
+    if (targetUid && targetUid !== cleanId) {
       queries.push(query(uCol, where('uid', '==', targetUid), limit(5)));
     }
     if (targetPhone) {
@@ -1290,7 +1288,7 @@ export const updateFirestoreReferralPermission = async (
   } catch (_) {}
 
   // 3. Update 'referral_nodes' collection
-  const codeKeys = Array.from(new Set([targetCode, targetMemberId, cleanId].filter(Boolean)));
+  const codeKeys = Array.from(new Set([targetCode, targetMemberId].filter(Boolean)));
   for (const c of codeKeys) {
     try {
       const nRef = safeDoc('referral_nodes', c.toUpperCase());
@@ -1351,6 +1349,23 @@ export const updateFirestoreReferralPermission = async (
       }
     } catch (_) {}
   }
+
+  // 5. Sync directly with server disk backup
+  try {
+    fetch('/api/admin/update-referral-permission', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId: cleanId,
+        uid: targetUid || cleanId,
+        memberId: targetMemberId,
+        phone: targetPhone,
+        referralCode: targetCode,
+        canRefer: Boolean(canRefer),
+        referralLimit: effectiveLimit,
+      }),
+    }).catch(() => {});
+  } catch (_) {}
 
   return true;
 };

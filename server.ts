@@ -528,8 +528,13 @@ async function startServer() {
       const last10 = digits ? digits.slice(-10) : '';
       const memberId = user.memberId ? String(user.memberId).trim().toUpperCase() : '';
 
+      const existing = (uid && usersBackupMap.get(uid)) || (email && usersBackupMap.get(email)) || (last10 && usersBackupMap.get(last10));
+
       const record = {
+        ...(existing || {}),
         ...user,
+        canRefer: user.canRefer !== undefined ? Boolean(user.canRefer) : (existing?.canRefer ?? false),
+        referralLimit: user.referralLimit !== undefined ? Number(user.referralLimit) : (existing?.referralLimit ?? 0),
         updatedAt: new Date().toISOString(),
       };
 
@@ -661,6 +666,58 @@ async function startServer() {
       message: `User permanently purged from server phone registry (${deletedCount} keys removed)`,
       deletedCount,
     });
+  });
+
+  // 5.4 POST /api/admin/update-referral-permission - Updates referral permission and limit on persistent server disk
+  app.post('/api/admin/update-referral-permission', (req, res) => {
+    try {
+      const { userId, uid, memberId, phone, referralCode, canRefer, referralLimit } = req.body || {};
+      const targetLimit = Number(referralLimit);
+      const effectiveLimit = !isNaN(targetLimit) && targetLimit >= 0 ? targetLimit : (canRefer ? 10 : 0);
+      const effectiveCanRefer = Boolean(canRefer);
+
+      const cleanUid = uid ? String(uid).trim() : (userId ? String(userId).trim() : '');
+      const cleanMember = memberId ? String(memberId).trim().toUpperCase() : '';
+      const digits = phone ? normalizePhoneQuery(phone) : '';
+      const last10 = digits ? digits.slice(-10) : '';
+
+      let updatedCount = 0;
+      usersBackupMap.forEach((user, key) => {
+        const match =
+          (cleanUid && (user.uid === cleanUid || key === cleanUid || user.id === cleanUid)) ||
+          (cleanMember && (user.memberId === cleanMember || key === cleanMember)) ||
+          (last10 && (key === last10 || key === `0${last10}` || key === `880${last10}` || (user.phone && user.phone.includes(last10))));
+        if (match) {
+          user.canRefer = effectiveCanRefer;
+          user.referralLimit = effectiveLimit;
+          user.updatedAt = new Date().toISOString();
+          usersBackupMap.set(key, user);
+          updatedCount++;
+        }
+      });
+
+      if (cleanUid && !usersBackupMap.has(cleanUid)) {
+        usersBackupMap.set(cleanUid, {
+          uid: cleanUid,
+          memberId: cleanMember,
+          canRefer: effectiveCanRefer,
+          referralLimit: effectiveLimit,
+          updatedAt: new Date().toISOString(),
+        });
+      }
+
+      saveUsersBackupToDisk();
+
+      return res.json({
+        success: true,
+        message: 'Referral permission and limit updated on server disk',
+        effectiveCanRefer,
+        effectiveLimit,
+        updatedCount,
+      });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err?.message });
+    }
   });
 
   // 5.5 POST /api/admin/purge-all-accounts - Completely clears all user and phone registries on server

@@ -17,6 +17,82 @@ import { resolveImageSrc } from "./utils/imageUtils";
 
 const ADMIN_SECRET_KEY = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_ADMIN_SECRET_KEY) || "123456"; 
 
+function ReferralLimitEditor({ userId, currentLimit, onSave }) {
+  const [val, setVal] = useState(currentLimit);
+  const [saved, setSaved] = useState(false);
+  const isEditingRef = useRef(false);
+
+  useEffect(() => {
+    if (!isEditingRef.current) {
+      setVal(currentLimit);
+    }
+  }, [currentLimit]);
+
+  const handleCommit = (rawVal) => {
+    const target = rawVal !== undefined ? rawVal : val;
+    const num = Math.max(0, parseInt(target, 10) || 0);
+    setVal(num);
+    isEditingRef.current = false;
+    onSave(userId, num);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
+  return (
+    <div style={{ display: "inline-flex", alignItems: "center", gap: "3px" }}>
+      <input
+        type="number"
+        min="0"
+        max="100000"
+        value={val}
+        onFocus={() => {
+          isEditingRef.current = true;
+        }}
+        onChange={(e) => {
+          isEditingRef.current = true;
+          setVal(e.target.value);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            handleCommit(e.target.value);
+          }
+        }}
+        onBlur={(e) => handleCommit(e.target.value)}
+        style={{
+          width: "48px",
+          padding: "2px 4px",
+          borderRadius: "3px",
+          backgroundColor: "#0b0f19",
+          border: saved ? "1px solid #10b981" : "1px solid #3b476c",
+          color: saved ? "#10b981" : "#38bdf8",
+          fontSize: "12px",
+          fontWeight: "bold",
+          textAlign: "center"
+        }}
+        title="লিমিট লিখে এন্টার বা সেভ বাটনে চাপুন"
+      />
+      <button
+        type="button"
+        onClick={() => handleCommit()}
+        style={{
+          padding: "2px 5px",
+          borderRadius: "3px",
+          fontSize: "10px",
+          fontWeight: "bold",
+          background: saved ? "#059669" : "#1e293b",
+          color: saved ? "#fff" : "#94a3b8",
+          border: saved ? "1px solid #10b981" : "1px solid #334155",
+          cursor: "pointer"
+        }}
+        title="সেভ করতে ক্লিক করুন"
+      >
+        {saved ? "✓" : "সেভ"}
+      </button>
+    </div>
+  );
+}
+
 export default function AdminPanel() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [passwordInput, setPasswordInput] = useState("");
@@ -250,7 +326,24 @@ export default function AdminPanel() {
         userSnapRes.value.forEach((docSnap) => {
           userList.push({ id: docSnap.id, ...docSnap.data() });
         });
-        setUsers(userList);
+        setUsers((prevUsers) => {
+          const prevMap = new Map();
+          (prevUsers || []).forEach((p) => {
+            if (p.id) prevMap.set(p.id, p);
+            if (p.uid) prevMap.set(p.uid, p);
+            if (p.memberId) prevMap.set(p.memberId, p);
+          });
+          return userList.map((u) => {
+            const prevU = prevMap.get(u.id) || prevMap.get(u.uid) || prevMap.get(u.memberId);
+            if (prevU && prevU.referralLimit !== undefined) {
+              const isRecentLocalEdit = prevU._locallyEdited && Date.now() - prevU._locallyEdited < 60000;
+              if (isRecentLocalEdit || u.referralLimit === undefined || u.referralLimit === null) {
+                return { ...u, referralLimit: prevU.referralLimit, canRefer: prevU.canRefer ?? u.canRefer, _locallyEdited: prevU._locallyEdited };
+              }
+            }
+            return u;
+          });
+        });
       }
 
       if (withdrawRes.status === 'fulfilled' && withdrawRes.value) {
@@ -1216,7 +1309,7 @@ export default function AdminPanel() {
   };
 
   // রেফার করার পারমিশন টগল ও লিমিট সেট করার হ্যান্ডলার
-  const handleToggleReferralPermission = async (userId, currentStatus, currentLimit = 5) => {
+  const handleToggleReferralPermission = async (userId, currentStatus, currentLimit = 10) => {
     const cleanId = cleanDocId(userId, "");
     if (!cleanId) return;
     try {
@@ -1228,7 +1321,17 @@ export default function AdminPanel() {
           u.memberId === cleanId ||
           (u.phone && String(u.phone).slice(-10) === String(cleanId).slice(-10))
       );
-      const effectiveLimit = newStatus ? (Number(currentLimit) || 5) : 0;
+      const effectiveLimit = newStatus ? (Number(currentLimit) > 0 ? Number(currentLimit) : 10) : 0;
+
+      // Instant optimistic update
+      const now = Date.now();
+      setUsers((prev) =>
+        prev.map((u) =>
+          u.id === cleanId || u.uid === cleanId || u.memberId === cleanId || (targetUser && (u.id === targetUser.id || u.uid === targetUser.uid || u.memberId === targetUser.memberId))
+            ? { ...u, canRefer: newStatus, referralLimit: effectiveLimit, _locallyEdited: now }
+            : u
+        )
+      );
 
       await updateFirestoreReferralPermission(
         cleanId,
@@ -1237,20 +1340,28 @@ export default function AdminPanel() {
         effectiveLimit
       );
 
-      setUsers((prev) =>
-        prev.map((u) =>
-          u.id === cleanId || u.uid === cleanId || u.memberId === cleanId || (targetUser && (u.id === targetUser.id || u.uid === targetUser.uid || u.memberId === targetUser.memberId))
-            ? { ...u, canRefer: newStatus, referralLimit: effectiveLimit }
-            : u
-        )
-      );
+      // Also sync to server persistent storage
+      try {
+        await fetch('/api/admin/update-referral-permission', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            userId: cleanId,
+            uid: targetUser?.uid || cleanId,
+            memberId: targetUser?.memberId,
+            phone: targetUser?.phone,
+            referralCode: targetUser?.referralCode,
+            canRefer: newStatus,
+            referralLimit: effectiveLimit,
+          }),
+        });
+      } catch (_) {}
 
       setStatusMsg(
         newStatus
           ? `✅ ইউজার "${cleanId}" কে সফলভাবে রেফার করার অনুমতি প্রদান করা হয়েছে (লিমিট: ${effectiveLimit} জন)!`
           : `🛑 ইউজার "${cleanId}" এর রেফার করার অনুমতি বাতিল করা হয়েছে!`
       );
-      fetchAllData();
     } catch (err) {
       console.error("Referral permission update error:", err);
       setStatusMsg("⚠️ রেফার পারমিশন পরিবর্তন করতে সমস্যা হয়েছে।");
@@ -1270,6 +1381,16 @@ export default function AdminPanel() {
           (u.phone && String(u.phone).slice(-10) === String(cleanId).slice(-10))
       );
 
+      // Instant optimistic state update
+      const now = Date.now();
+      setUsers((prev) =>
+        prev.map((u) =>
+          u.id === cleanId || u.uid === cleanId || u.memberId === cleanId || (targetUser && (u.id === targetUser.id || u.uid === targetUser.uid || u.memberId === targetUser.memberId))
+            ? { ...u, referralLimit: numLimit, canRefer: numLimit > 0, _locallyEdited: now }
+            : u
+        )
+      );
+
       await updateFirestoreReferralPermission(
         cleanId,
         targetUser,
@@ -1277,16 +1398,24 @@ export default function AdminPanel() {
         numLimit
       );
 
-      setUsers((prev) =>
-        prev.map((u) =>
-          u.id === cleanId || u.uid === cleanId || u.memberId === cleanId || (targetUser && (u.id === targetUser.id || u.uid === targetUser.uid || u.memberId === targetUser.memberId))
-            ? { ...u, referralLimit: numLimit, canRefer: numLimit > 0 }
-            : u
-        )
-      );
+      // Also sync to server persistent storage
+      try {
+        await fetch('/api/admin/update-referral-permission', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            userId: cleanId,
+            uid: targetUser?.uid || cleanId,
+            memberId: targetUser?.memberId,
+            phone: targetUser?.phone,
+            referralCode: targetUser?.referralCode,
+            canRefer: numLimit > 0,
+            referralLimit: numLimit,
+          }),
+        });
+      } catch (_) {}
 
-      setStatusMsg(`✅ ইউজার "${cleanId}" এর রেফার লিমিট ${numLimit} সেট করা হয়েছে!`);
-      fetchAllData();
+      setStatusMsg(`✅ ইউজার "${cleanId}" এর রেফার লিমিট ${numLimit} জন সফলভাবে সংরক্ষণ করা হয়েছে!`);
     } catch (err) {
       console.error("Referral limit update error:", err);
       setStatusMsg("⚠️ রেফার লিমিট পরিবর্তন করতে সমস্যা হয়েছে।");
@@ -2603,7 +2732,7 @@ export default function AdminPanel() {
                       const isBeingDeleted = deletingUserId === u.id;
                       const isIdCopied = copiedId === u.id;
                       const userCanRefer = !!u.canRefer;
-                      const userLimit = u.referralLimit !== undefined ? Number(u.referralLimit) : (userCanRefer ? 5 : 0);
+                      const userLimit = u.referralLimit !== undefined && u.referralLimit !== null ? Number(u.referralLimit) : (userCanRefer ? 10 : 0);
                       const isUserActive = (Array.isArray(u.activeInvestments) && u.activeInvestments.length > 0) || Number(u.totalInvested || 0) > 0;
                       const userReferredCount = users.filter((x) =>
                         x.referredBy &&
@@ -2684,7 +2813,7 @@ export default function AdminPanel() {
                             <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "nowrap", whiteSpace: "nowrap" }}>
                               <button
                                 type="button"
-                                onClick={() => handleToggleReferralPermission(u.id, userCanRefer, userLimit || 5)}
+                                onClick={() => handleToggleReferralPermission(u.id, userCanRefer, userLimit || 10)}
                                 style={{
                                   padding: "2px 6px",
                                   borderRadius: "4px",
@@ -2702,37 +2831,10 @@ export default function AdminPanel() {
 
                               <div style={{ display: "inline-flex", alignItems: "center", gap: "3px", fontSize: "11px", color: "#94a3b8" }}>
                                 <span>লিমিট:</span>
-                                <input
-                                  type="number"
-                                  min="0"
-                                  max="10000"
-                                  defaultValue={userLimit}
-                                  onBlur={(e) => {
-                                    const val = parseInt(e.target.value, 10);
-                                    if (!isNaN(val) && val !== userLimit) {
-                                      handleUpdateReferralLimit(u.id, val);
-                                    }
-                                  }}
-                                  onKeyDown={(e) => {
-                                    if (e.key === "Enter") {
-                                      const val = parseInt(e.target.value, 10);
-                                      if (!isNaN(val)) {
-                                        handleUpdateReferralLimit(u.id, val);
-                                      }
-                                    }
-                                  }}
-                                  style={{
-                                    width: "44px",
-                                    padding: "1px 4px",
-                                    borderRadius: "3px",
-                                    backgroundColor: "#0b0f19",
-                                    border: "1px solid #3b476c",
-                                    color: "#38bdf8",
-                                    fontSize: "11px",
-                                    fontWeight: "bold",
-                                    textAlign: "center"
-                                  }}
-                                  title="লিমিট লিখে এন্টার চাপুন"
+                                <ReferralLimitEditor
+                                  userId={u.id}
+                                  currentLimit={userLimit}
+                                  onSave={handleUpdateReferralLimit}
                                 />
                                 <span style={{ fontSize: "10px", color: userReferredCount >= userLimit && userLimit > 0 ? "#f87171" : "#4ade80" }}>
                                   ({userReferredCount}/{userLimit > 0 ? userLimit : "∞"})

@@ -383,11 +383,79 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
               </div>
             </div>
 
+            {/* ১. পেমেন্ট মেথড নির্বাচন (বিকাশ / নগদ) */}
+            <div className="space-y-2 pt-1">
+              <div className="flex items-center justify-between">
+                <span className="text-slate-100 text-sm sm:text-base font-extrabold flex items-center gap-1.5">
+                  <CreditCard className="w-4 h-4 text-emerald-400" />
+                  <span>{currentLang === 'bn' ? '১. পেমেন্ট মেথড নির্বাচন করুন' : '1. Select Payment Method'}</span>
+                </span>
+                <span
+                  className="text-xs sm:text-sm font-mono font-extrabold px-2.5 py-0.5 rounded-full border"
+                  style={{
+                    color: selectedMethod === 'Nagad' ? '#fbbf24' : '#f43f5e',
+                    backgroundColor: selectedMethod === 'Nagad' ? 'rgba(245, 158, 11, 0.15)' : 'rgba(244, 63, 94, 0.15)',
+                    borderColor: selectedMethod === 'Nagad' ? 'rgba(245, 158, 11, 0.35)' : 'rgba(244, 63, 94, 0.35)',
+                  }}
+                >
+                  {selectedMethod === 'Nagad' ? 'নগদ (Nagad)' : 'বিকাশ (bKash)'}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div
+                  id="recharge-method-bkash"
+                  onClick={() => setSelectedMethod('bKash')}
+                  className={`p-3.5 sm:p-4 rounded-2xl flex items-center justify-between cursor-pointer transition-all duration-200 border-2 ${
+                    selectedMethod === 'bKash'
+                      ? 'bg-gradient-to-br from-[#2a061b] to-[#12020b] border-[#e2136e] shadow-[0_0_20px_rgba(226,19,110,0.4)] scale-[1.02]'
+                      : 'bg-[#042018] border-emerald-500/25 text-slate-300 hover:border-[#e2136e]/50 hover:bg-[#07241c]'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5 sm:gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-[#e2136e]/20 border border-[#e2136e]/60 flex items-center justify-center font-black text-xs text-[#ff5b99] shadow-sm">
+                      bKash
+                    </div>
+                    <div>
+                      <div className="text-sm sm:text-base font-black text-white leading-tight">বিকাশ</div>
+                      <div className="text-[11px] text-[#ff80b3] font-bold">অটো পেমেন্ট</div>
+                    </div>
+                  </div>
+                  <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${selectedMethod === 'bKash' ? 'border-[#e2136e] bg-[#e2136e]' : 'border-slate-700 bg-slate-900/40'}`}>
+                    {selectedMethod === 'bKash' && <Check className="w-3.5 h-3.5 text-white stroke-[3]" />}
+                  </div>
+                </div>
+
+                <div
+                  id="recharge-method-nagad"
+                  onClick={() => setSelectedMethod('Nagad')}
+                  className={`p-3.5 sm:p-4 rounded-2xl flex items-center justify-between cursor-pointer transition-all duration-200 border-2 ${
+                    selectedMethod === 'Nagad'
+                      ? 'bg-gradient-to-br from-[#2b1404] to-[#120701] border-[#f7941d] shadow-[0_0_20px_rgba(247,148,29,0.4)] scale-[1.02]'
+                      : 'bg-[#042018] border-emerald-500/25 text-slate-300 hover:border-[#f7941d]/50 hover:bg-[#07241c]'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5 sm:gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-[#f7941d]/20 border border-[#f7941d]/60 flex items-center justify-center font-black text-xs text-[#fbbf24] shadow-sm">
+                      Nagad
+                    </div>
+                    <div>
+                      <div className="text-sm sm:text-base font-black text-white leading-tight">নগদ</div>
+                      <div className="text-[11px] text-[#fbbf24] font-bold">অটো পেমেন্ট</div>
+                    </div>
+                  </div>
+                  <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${selectedMethod === 'Nagad' ? 'border-[#f7941d] bg-[#f7941d]' : 'border-slate-700 bg-slate-900/40'}`}>
+                    {selectedMethod === 'Nagad' && <Check className="w-3.5 h-3.5 text-slate-950 stroke-[3]" />}
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <div className="space-y-2 pt-1">
               <div className="flex items-center justify-between">
                 <span className="text-slate-100 text-sm sm:text-base font-extrabold flex items-center gap-1.5">
                   <Layers className="w-4 h-4 text-emerald-400" />
-                  <span>{currentLang === 'bn' ? '১. পেমেন্ট চ্যানেল নির্বাচন করুন' : '1. Select Payment Channel'}</span>
+                  <span>{currentLang === 'bn' ? '২. পেমেন্ট চ্যানেল নির্বাচন করুন' : '2. Select Payment Channel'}</span>
                 </span>
                 <span className="text-xs sm:text-sm text-emerald-400 font-mono font-bold">
                   {selectedChannel === 'channel1' && 'চ্যানেল ১'}
@@ -553,9 +621,9 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
                   <>
                     <Zap className="w-6 h-6 fill-current animate-pulse" />
                     <span>
-                      {selectedChannel === 'channel2'
-                        ? (currentLang === 'bn' ? `চ্যানেল ২ দিয়ে রিচার্জ • ৳${amount || '১০০'}` : `Recharge with Channel 2 • ৳${amount || '100'}`)
-                        : (currentLang === 'bn' ? `চ্যানেল ১ দিয়ে রিচার্জ • ৳${amount || '১০০'}` : `Recharge with Channel 1 • ৳${amount || '100'}`)}
+                      {currentLang === 'bn'
+                        ? `${selectedMethod === 'Nagad' ? 'নগদ' : 'বিকাশ'} দিয়ে রিচার্জ • ৳${amount || '১০০'} (${selectedChannel === 'channel2' ? 'চ্যানেল ২' : 'চ্যানেল ১'})`
+                        : `Recharge with ${selectedMethod} • ৳${amount || '100'} (${selectedChannel === 'channel2' ? 'Ch 2' : 'Ch 1'})`}
                     </span>
                   </>
                 )}

@@ -1223,11 +1223,13 @@ async function startServer() {
     clientOrigin: string,
     orderNo: string,
     amount: number,
-    channel: string = 'channel1'
+    channel: string = 'channel1',
+    method: string = 'bKash'
   ): string => {
     if (!rawLink || typeof rawLink !== 'string') return rawLink;
     const cleanOrigin = clientOrigin.replace(/\/+$/, '');
-    const returnTarget = `${cleanOrigin}/profile?payment_status=PENDING&payment_return=1&orderNo=${encodeURIComponent(orderNo)}&amount=${amount}&channel=${encodeURIComponent(channel)}&gateway=nekpay`;
+    const cleanMethod = String(method || '').toLowerCase().includes('nagad') ? 'Nagad' : String(method || '').toLowerCase().includes('rocket') ? 'Rocket' : 'bKash';
+    const returnTarget = `${cleanOrigin}/profile?payment_status=PENDING&payment_return=1&orderNo=${encodeURIComponent(orderNo)}&amount=${amount}&channel=${encodeURIComponent(channel)}&method=${encodeURIComponent(cleanMethod)}&gateway=${encodeURIComponent(channel)}`;
 
     let processed = rawLink;
 
@@ -1572,15 +1574,16 @@ async function startServer() {
 
       if (responseOk && responseData.success && responseData.paymentLink) {
         const orderNo = responseData.orderNo || `NEK-${Date.now()}`;
-        const cleanPaymentLink = sanitizePaymentLink(responseData.paymentLink, clientOrigin, orderNo, numAmount, 'channel1');
+        const cleanMethod = String(method || '').toLowerCase().includes('nagad') ? 'Nagad' : 'bKash';
+        const cleanPaymentLink = sanitizePaymentLink(responseData.paymentLink, clientOrigin, orderNo, numAmount, 'channel1', cleanMethod);
 
-        // Save order in memory database
+        // Save order in memory database and persist to disk
         ordersDatabase.set(orderNo, {
           orderId: orderNo,
           amount: numAmount,
-          channel: 'nekpay',
-          channelName: `চ্যানেল ১ (${method || 'Nekpay'})`,
-          method: method || 'bKash',
+          channel: 'channel1',
+          channelName: `চ্যানেল ১ (${cleanMethod})`,
+          method: cleanMethod,
           status: 'PENDING',
           paymentLink: cleanPaymentLink,
           rawPaymentLink: responseData.paymentLink,
@@ -1590,19 +1593,20 @@ async function startServer() {
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         });
+        saveOrdersToDisk();
 
         addLog({
           channel: 'NEKPAY',
           type: 'PAYIN_REQUEST',
           orderId: orderNo,
           status: 'SUCCESS',
-          details: { postBody, cleanPaymentLink },
+          details: { postBody, cleanPaymentLink, cleanMethod },
         });
 
         return res.json({
           success: true,
           channel: 'channel1',
-          method: method || 'bKash',
+          method: cleanMethod,
           paymentLink: cleanPaymentLink,
           orderNo,
           message: 'Order created successfully with Nekpay',
@@ -1611,14 +1615,15 @@ async function startServer() {
 
       // HIGH-AVAILABILITY CASHIER FALLBACK
       const fallbackOrderNo = preOrderNo;
-      const cashierUrl = `${clientOrigin.replace(/\/+$/, '')}/pay/checkout/${encodeURIComponent(fallbackOrderNo)}?amount=${numAmount}&method=${encodeURIComponent(method)}&channel=channel1&userId=${encodeURIComponent(userId)}`;
+      const cleanMethod = String(method || '').toLowerCase().includes('nagad') ? 'Nagad' : 'bKash';
+      const cashierUrl = `${clientOrigin.replace(/\/+$/, '')}/pay/checkout/${encodeURIComponent(fallbackOrderNo)}?amount=${numAmount}&method=${encodeURIComponent(cleanMethod)}&channel=channel1&userId=${encodeURIComponent(userId)}`;
 
       ordersDatabase.set(fallbackOrderNo, {
         orderId: fallbackOrderNo,
         amount: numAmount,
-        channel: 'nekpay',
-        channelName: `চ্যানেল ১ (${method || 'Nekpay'})`,
-        method: method || 'bKash',
+        channel: 'channel1',
+        channelName: `চ্যানেল ১ (${cleanMethod})`,
+        method: cleanMethod,
         status: 'PENDING',
         paymentLink: cashierUrl,
         rawPaymentLink: cashierUrl,
@@ -1628,6 +1633,7 @@ async function startServer() {
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       });
+      saveOrdersToDisk();
 
       addLog({
         channel: 'NEKPAY',

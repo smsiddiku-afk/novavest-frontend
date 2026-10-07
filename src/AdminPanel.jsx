@@ -1711,13 +1711,18 @@ export default function AdminPanel() {
                               );
                             })()}
                             <span style={{ fontSize: "11px", color: "#6ee7b7", background: "rgba(16, 185, 129, 0.15)", padding: "1px 6px", borderRadius: "3px" }}>
-                              {d.channel || (resolveDepositMethod(d) === 'Nagad' ? "চ্যানেল ১ (Nagad)" : "চ্যানেল ১")}
+                              {String(d.channel || '').toLowerCase().includes('nekpay') || !d.channel
+                                ? (isNagad ? "চ্যানেল ১ (Nagad)" : "চ্যানেল ১ (bKash)")
+                                : d.channel}
                             </span>
                           </div>
                           <div style={{ fontSize: "12px", color: "#cbd5e1" }}>{d.senderNumber || d.senderPhone || d.phone || "N/A"}</div>
                         </td>
                         <td style={{ padding: "10px", fontFamily: "monospace", color: "#38bdf8", fontWeight: "bold" }}>
-                          {d.trxId || d.transactionId || d.orderNo || "N/A"}
+                          <div>{d.trxId || d.transactionId || d.orderNo || "N/A"}</div>
+                          {d.orderNo && d.trxId && d.orderNo !== d.trxId && (
+                            <div style={{ fontSize: "11px", color: "#94a3b8", fontWeight: "normal" }}>অর্ডার: {d.orderNo}</div>
+                          )}
                         </td>
                         <td style={{ padding: "10px", color: "#22c55e", fontWeight: "900", fontSize: "15px" }}>
                           ৳ {d.amount || 0}

@@ -1142,7 +1142,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
       let data: any = null;
       try {
-        data = await createCpanelDepositOrder('channel2', Number(amount), 'Customer', activeUid);
+        data = await createCpanelDepositOrder('channel2', Number(amount), 'Customer', activeUid, method || 'Nagad');
       } catch (fetchErr) {
         console.warn('[WatchPay] createCpanelDepositOrder failed:', fetchErr);
       }
@@ -1303,7 +1303,36 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
         localPayload?.trxId ||
         '';
       const gateway = params.get('gateway') || params.get('channel') || localPayload?.channel || 'channel1';
-      const method = params.get('method') || localPayload?.method || 'bKash';
+
+      let pendingSavedMethod = '';
+      try {
+        const pStr = localStorage.getItem('pending_gateway_deposit');
+        if (pStr) {
+          const pObj = JSON.parse(pStr);
+          if (pObj && (pObj.orderNo === orderId || !orderId) && pObj.method) {
+            pendingSavedMethod = pObj.method;
+          }
+        }
+      } catch (_) {}
+
+      const rawMethodParam =
+        params.get('method') ||
+        params.get('pay_type') ||
+        params.get('payType') ||
+        params.get('payment_method') ||
+        params.get('type') ||
+        localPayload?.method ||
+        pendingSavedMethod ||
+        '';
+
+      const initialDetectedMethod =
+        rawMethodParam.toLowerCase().includes('nagad') || rawMethodParam === '2'
+          ? 'Nagad'
+          : rawMethodParam.toLowerCase().includes('rocket') || rawMethodParam === '3'
+          ? 'Rocket'
+          : rawMethodParam || 'bKash';
+
+      const method = initialDetectedMethod;
       const activeUid = auth.currentUser?.uid || user.uid || user.memberId || 'USER1001';
       const finalTrxId = (rawTrxId || orderId || `TXN-${Date.now().toString().slice(-6)}`).trim();
       const statusParam = (params.get('payment_status') || localPayload?.status || '').toUpperCase();

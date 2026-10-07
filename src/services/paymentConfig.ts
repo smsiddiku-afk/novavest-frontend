@@ -72,7 +72,8 @@ export function sanitizePaymentLink(
   clientOrigin?: string,
   orderNo?: string,
   amount?: number,
-  channel: string = 'channel1'
+  channel: string = 'channel1',
+  method: string = 'bKash'
 ): string {
   if (!rawLink || typeof rawLink !== 'string') return rawLink;
 
@@ -80,7 +81,8 @@ export function sanitizePaymentLink(
   const cleanOrigin = origin.replace(/\/+$/, '');
   const cleanOrderNo = orderNo || `ORD-${Date.now()}`;
   const numAmount = amount || 0;
-  const returnTarget = `${cleanOrigin}/profile?payment_status=PENDING&payment_return=1&orderNo=${encodeURIComponent(cleanOrderNo)}&amount=${numAmount}&channel=${encodeURIComponent(channel)}&gateway=nekpay`;
+  const cleanMethod = String(method || '').toLowerCase().includes('nagad') ? 'Nagad' : String(method || '').toLowerCase().includes('rocket') ? 'Rocket' : 'bKash';
+  const returnTarget = `${cleanOrigin}/profile?payment_status=PENDING&payment_return=1&orderNo=${encodeURIComponent(cleanOrderNo)}&amount=${numAmount}&channel=${encodeURIComponent(channel)}&method=${encodeURIComponent(cleanMethod)}&gateway=${encodeURIComponent(channel)}`;
 
   let processed = rawLink;
 

@@ -157,7 +157,15 @@ export const isSameUser = (
     Boolean(a.canRefer) === Boolean(b.canRefer) &&
     (a.referralLimit || 0) === (b.referralLimit || 0) &&
     (a.activeInvestments?.length || 0) === (b.activeInvestments?.length || 0) &&
-    (a.transactions?.length || 0) === (b.transactions?.length || 0)
+    (a.transactions?.length || 0) === (b.transactions?.length || 0) &&
+    (a.transactions || []).every((t: any, i: number) => {
+      const other = (b.transactions || [])[i];
+      if (!other) return false;
+      return (
+        (t.id || t.hash) === (other.id || other.hash) &&
+        String(t.status || '').toLowerCase() === String(other.status || '').toLowerCase()
+      );
+    })
   );
 };
 

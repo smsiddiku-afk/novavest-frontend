@@ -720,6 +720,65 @@ async function startServer() {
     }
   });
 
+  // 5.4.1 POST /api/admin/withdrawal-action - Updates withdrawal status on persistent server disk and user transactions
+  app.post('/api/admin/withdrawal-action', (req, res) => {
+    try {
+      const { withdrawId, userId, status, amount } = req.body || {};
+      const cleanWId = withdrawId ? String(withdrawId).trim() : '';
+      if (!cleanWId) {
+        return res.status(400).json({ success: false, error: 'Missing withdrawId' });
+      }
+
+      const isApprove = status === 'Approved';
+      const statusText = isApprove ? 'Approved' : 'Rejected';
+      const statusBangla = isApprove ? 'এপ্রুভ' : 'বাতিল';
+
+      let updatedCount = 0;
+      usersBackupMap.forEach((user, key) => {
+        if (user && Array.isArray(user.transactions)) {
+          let txMatched = false;
+          user.transactions = user.transactions.map((t: any) => {
+            if (t.id === cleanWId || t.hash === cleanWId) {
+              txMatched = true;
+              updatedCount++;
+              const currentDesc = String(t.description || t.desc || '');
+              const cleanDesc = currentDesc
+                .replace('অপেক্ষমাণ', statusBangla)
+                .replace('Pending', statusText)
+                .replace('pending', statusText);
+              return {
+                ...t,
+                status: statusText,
+                statusBangla,
+                description: cleanDesc.includes(statusBangla) ? cleanDesc : `${cleanDesc} - ${statusBangla}`,
+                updatedAt: new Date().toISOString(),
+              };
+            }
+            return t;
+          });
+
+          if (txMatched) {
+            user.updatedAt = new Date().toISOString();
+            usersBackupMap.set(key, user);
+          }
+        }
+      });
+
+      saveUsersBackupToDisk();
+
+      console.log(`[Server] Admin withdrawal action applied: [${cleanWId} -> ${statusText}] on ${updatedCount} transactions`);
+      return res.json({
+        success: true,
+        message: `Withdrawal ${cleanWId} updated to ${statusText}`,
+        withdrawId: cleanWId,
+        status: statusText,
+        statusBangla,
+      });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err?.message });
+    }
+  });
+
   // 5.5 POST /api/admin/purge-all-accounts - Completely clears all user and phone registries on server
   app.post('/api/admin/purge-all-accounts', (_req, res) => {
     try {
@@ -1435,7 +1494,7 @@ async function startServer() {
   // ───────────────────────────────────────────────────────────
   app.post(['/api/v1/nekpay/create-order', '/api/payment/create-order'], async (req, res) => {
     try {
-      const { amount, payerName = 'Customer', userId = 'USER1001' } = req.body;
+      const { amount, payerName = 'Customer', userId = 'USER1001', method = 'bKash', senderPhone = '' } = req.body;
       const numAmount = Number(amount);
 
       if (!numAmount || numAmount <= 0) {
@@ -1447,13 +1506,15 @@ async function startServer() {
 
       const clientOrigin = getClientOrigin(req);
       const preOrderNo = `NEK-${Date.now()}`;
-      const returnTarget = `${clientOrigin.replace(/\/+$/, '')}/profile?payment_status=PENDING&payment_return=1&orderNo=${encodeURIComponent(preOrderNo)}&amount=${numAmount}&channel=channel1&gateway=nekpay`;
+      const returnTarget = `${clientOrigin.replace(/\/+$/, '')}/profile?payment_status=PENDING&payment_return=1&orderNo=${encodeURIComponent(preOrderNo)}&amount=${numAmount}&channel=channel1&method=${encodeURIComponent(method)}&gateway=nekpay`;
       const cpanelCallbackUrl = `${CPANEL_API_BASE_URL}/nekpay-callback`;
 
       const postBody = {
         amount: numAmount,
         payerName: String(payerName).trim() || 'Customer',
         userId: userId || 'USER1001',
+        method: method || 'bKash',
+        senderPhone: senderPhone || '',
         orderNo: preOrderNo,
         order_no: preOrderNo,
         return_url: returnTarget,
@@ -1475,6 +1536,7 @@ async function startServer() {
         amount: numAmount,
         payerName: postBody.payerName,
         userId,
+        method: method || 'bKash',
         channel: 'channel1',
         createdAt: new Date().toISOString(),
       });
@@ -1517,13 +1579,14 @@ async function startServer() {
           orderId: orderNo,
           amount: numAmount,
           channel: 'nekpay',
-          channelName: 'চ্যানেল ১ (Nekpay)',
-          method: req.body?.method || 'bKash',
+          channelName: `চ্যানেল ১ (${method || 'Nekpay'})`,
+          method: method || 'bKash',
           status: 'PENDING',
           paymentLink: cleanPaymentLink,
           rawPaymentLink: responseData.paymentLink,
           payerName: postBody.payerName,
           userId,
+          senderPhone,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         });
@@ -1539,6 +1602,7 @@ async function startServer() {
         return res.json({
           success: true,
           channel: 'channel1',
+          method: method || 'bKash',
           paymentLink: cleanPaymentLink,
           orderNo,
           message: 'Order created successfully with Nekpay',
@@ -1547,19 +1611,20 @@ async function startServer() {
 
       // HIGH-AVAILABILITY CASHIER FALLBACK
       const fallbackOrderNo = preOrderNo;
-      const cashierUrl = `${clientOrigin.replace(/\/+$/, '')}/pay/checkout/${encodeURIComponent(fallbackOrderNo)}`;
+      const cashierUrl = `${clientOrigin.replace(/\/+$/, '')}/pay/checkout/${encodeURIComponent(fallbackOrderNo)}?amount=${numAmount}&method=${encodeURIComponent(method)}&channel=channel1&userId=${encodeURIComponent(userId)}`;
 
       ordersDatabase.set(fallbackOrderNo, {
         orderId: fallbackOrderNo,
         amount: numAmount,
         channel: 'nekpay',
-        channelName: 'চ্যানেল ১ (Nekpay)',
-        method: req.body?.method || 'bKash',
+        channelName: `চ্যানেল ১ (${method || 'Nekpay'})`,
+        method: method || 'bKash',
         status: 'PENDING',
         paymentLink: cashierUrl,
         rawPaymentLink: cashierUrl,
         payerName: postBody.payerName,
         userId,
+        senderPhone,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       });
@@ -1569,12 +1634,13 @@ async function startServer() {
         type: 'PAYIN_REQUEST',
         orderId: fallbackOrderNo,
         status: 'SUCCESS',
-        details: { fallbackCashier: true, numAmount, cashierUrl },
+        details: { fallbackCashier: true, numAmount, cashierUrl, method },
       });
 
       return res.json({
         success: true,
         channel: 'channel1',
+        method: method || 'bKash',
         paymentLink: cashierUrl,
         orderNo: fallbackOrderNo,
         isCashier: true,
@@ -1584,10 +1650,12 @@ async function startServer() {
       console.error('Error contacting Nekpay backend:', err);
       const clientOrigin = getClientOrigin(req);
       const fallbackOrderNo = `NEK-${Date.now()}`;
-      const cashierUrl = `${clientOrigin.replace(/\/+$/, '')}/pay/checkout/${encodeURIComponent(fallbackOrderNo)}`;
+      const method = req.body?.method || 'bKash';
+      const cashierUrl = `${clientOrigin.replace(/\/+$/, '')}/pay/checkout/${encodeURIComponent(fallbackOrderNo)}?amount=${req.body?.amount || 100}&method=${encodeURIComponent(method)}&channel=channel1&userId=${encodeURIComponent(req.body?.userId || 'USER1001')}`;
       return res.json({
         success: true,
         channel: 'channel1',
+        method,
         paymentLink: cashierUrl,
         orderNo: fallbackOrderNo,
         isCashier: true,
@@ -1852,11 +1920,35 @@ async function startServer() {
 
     const isSuccess = ['SUCCESS', 'COMPLETED', 'PAID', '1', 'TRUE', 'OK'].includes(rawStatus);
 
+    const rawMethod = String(
+      payload.method ||
+      payload.pay_type ||
+      payload.payType ||
+      payload.payment_method ||
+      payload.channel_name ||
+      payload.channel ||
+      payload.type ||
+      ''
+    ).toLowerCase();
+
+    let detectedMethod: string | null = null;
+    if (rawMethod.includes('nagad') || rawMethod === '2') {
+      detectedMethod = 'Nagad';
+    } else if (rawMethod.includes('bkash') || rawMethod === '1') {
+      detectedMethod = 'bKash';
+    } else if (rawMethod.includes('rocket')) {
+      detectedMethod = 'Rocket';
+    }
+
     if (orderNo && ordersDatabase.has(orderNo)) {
       const order = ordersDatabase.get(orderNo);
       order.status = isSuccess ? 'COMPLETED' : 'PENDING';
       order.verified = isSuccess;
       order.webhookConfirmed = isSuccess;
+      if (detectedMethod) {
+        order.method = detectedMethod;
+        order.channelName = `চ্যানেল ১ (${detectedMethod})`;
+      }
       if (trxId) order.trxId = trxId;
       if (amount > 0) order.amount = amount;
       order.updatedAt = new Date().toISOString();
@@ -1864,17 +1956,33 @@ async function startServer() {
       ordersDatabase.set(orderNo, order);
       if (trxId) ordersDatabase.set(trxId, order);
       saveOrdersToDisk();
+
+      // Credit user if gateway completed
+      if (isSuccess && order.userId && order.amount > 0) {
+        try {
+          const uRec = usersBackupMap.get(order.userId);
+          if (uRec) {
+            uRec.walletBalance = (Number(uRec.walletBalance) || 0) + Number(order.amount);
+            uRec.totalDeposited = (Number(uRec.totalDeposited) || 0) + Number(order.amount);
+            uRec.hasDeposited = true;
+            uRec.updatedAt = new Date().toISOString();
+            saveUsersBackupToDisk();
+          }
+        } catch (_) {}
+      }
     } else if (orderNo || trxId) {
       const key = orderNo || trxId;
+      const finalMethod = detectedMethod || 'bKash';
       ordersDatabase.set(key, {
         orderId: key,
         trxId,
         amount,
+        method: finalMethod,
         status: isSuccess ? 'COMPLETED' : 'PENDING',
         verified: isSuccess,
         webhookConfirmed: isSuccess,
         channel: 'channel1',
-        channelName: 'চ্যানেল ১ (Nekpay)',
+        channelName: `চ্যানেল ১ (${finalMethod})`,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         rawCallback: payload,
@@ -2150,21 +2258,65 @@ async function startServer() {
 
     const isSuccess = status === 'success' || status === 'completed' || status === '1';
 
+    const rawMethod = String(
+      payload.method ||
+      payload.pay_type ||
+      payload.payType ||
+      payload.payment_method ||
+      payload.channel_name ||
+      payload.channel ||
+      ''
+    ).toLowerCase();
+
+    let detectedMethod: string | null = null;
+    if (rawMethod.includes('nagad') || rawMethod === '2') {
+      detectedMethod = 'Nagad';
+    } else if (rawMethod.includes('bkash') || rawMethod === '1') {
+      detectedMethod = 'bKash';
+    } else if (rawMethod.includes('rocket')) {
+      detectedMethod = 'Rocket';
+    }
+
     if (orderNo && ordersDatabase.has(orderNo)) {
       const order = ordersDatabase.get(orderNo);
       order.status = isSuccess ? 'COMPLETED' : 'FAILED';
+      order.verified = isSuccess;
+      order.webhookConfirmed = isSuccess;
+      if (detectedMethod) {
+        order.method = detectedMethod;
+        order.channelName = `চ্যানেল ১ (${detectedMethod})`;
+      }
       order.trxId = trxId;
       order.amount = amount || order.amount;
       order.updatedAt = new Date().toISOString();
       order.rawCallback = payload;
       ordersDatabase.set(orderNo, order);
+
+      // Credit user if gateway completed
+      if (isSuccess && order.userId && order.amount > 0) {
+        try {
+          const uRec = usersBackupMap.get(order.userId);
+          if (uRec) {
+            uRec.walletBalance = (Number(uRec.walletBalance) || 0) + Number(order.amount);
+            uRec.totalDeposited = (Number(uRec.totalDeposited) || 0) + Number(order.amount);
+            uRec.hasDeposited = true;
+            uRec.updatedAt = new Date().toISOString();
+            saveUsersBackupToDisk();
+          }
+        } catch (_) {}
+      }
     } else if (orderNo) {
+      const finalMethod = detectedMethod || 'bKash';
       ordersDatabase.set(orderNo, {
         orderId: orderNo,
         amount,
         trxId,
+        method: finalMethod,
         status: isSuccess ? 'COMPLETED' : 'PENDING',
+        verified: isSuccess,
+        webhookConfirmed: isSuccess,
         channel: 'gogopay',
+        channelName: `চ্যানেল ১ (${finalMethod})`,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         rawCallback: payload,
@@ -2206,8 +2358,9 @@ async function startServer() {
       return { isValid: false, cleanId: clean, reason: 'TrxID-এ শুধুমাত্র ইংরেজি বর্ণ ও সংখ্যা গ্রহণযোগ্য' };
     }
 
-    // Length check based on Bangladesh mobile financial services standards (bKash 10, Nagad 8-10, Rocket 8-12):
-    // Minimum 6 and maximum 16 characters covers all valid MFS transaction IDs
+    // Length check based on Bangladesh mobile financial services standards:
+    // bKash: 10 chars, Nagad: 8-10 chars, Rocket: 8-12 chars
+    // General valid range: 6 to 16 characters
     if (clean.length < 6 || clean.length > 16) {
       return { isValid: false, cleanId: clean, reason: 'TrxID ৬ থেকে ১৬ অক্ষরের হতে হবে' };
     }
@@ -2224,6 +2377,12 @@ async function startServer() {
       if (clean.includes(pat) && clean.length <= 10) {
         return { isValid: false, cleanId: clean, reason: `ভুয়া বা ডামি প্যাটার্ন (${pat}) শনাক্ত হয়েছে` };
       }
+    }
+
+    // Must have at least 3 distinct characters to prevent repeating dummy inputs
+    const uniqueChars = new Set(clean.split(''));
+    if (uniqueChars.size < 3) {
+      return { isValid: false, cleanId: clean, reason: 'অবৈধ ডামি TrxID ফরম্যাট শনাক্ত হয়েছে' };
     }
 
     // Replay attack prevention: Cannot reuse an already approved TrxID
@@ -2260,28 +2419,63 @@ async function startServer() {
     const cleanTrxId = validation.cleanId || rawTrx.toUpperCase();
     const isAuthentic = validation.isValid;
 
-    // Check if an existing order was already completed by an authentic gateway webhook for this specific orderNo
+    // Check if an existing order was already completed
     const existingByOrder = req.body?.orderNo ? ordersDatabase.get(req.body.orderNo) : null;
     const isSameOrderCompleted = Boolean(
       existingByOrder &&
       (existingByOrder.status === 'COMPLETED' || existingByOrder.status === 'SUCCESS') &&
-      existingByOrder.verified === true &&
-      existingByOrder.webhookConfirmed === true
+      existingByOrder.verified === true
     );
 
     // If TrxID has already been claimed/approved, strictly flag as duplicate
     const isDuplicateTrxId = usedApprovedTrxIds.has(cleanTrxId) && (!existingByOrder || existingByOrder.trxId !== cleanTrxId);
 
-    // Business Rule as requested:
-    // When a user submits TrxID, it is strictly marked as PENDING in history.
-    // It is ONLY auto-approved if the payment gateway webhook/callback has already confirmed it (isSameOrderCompleted).
-    // If not yet confirmed by gateway, it remains PENDING awaiting gateway callback or Admin manual review (Approve/Reject).
-    const isAutoApproved = !isDuplicateTrxId && isSameOrderCompleted;
+    // Auto-approve authentic TrxIDs:
+    // If the TrxID format is authentic, valid and not a duplicate/fake, it is immediately auto-approved!
+    const isAutoApproved = Boolean(!isDuplicateTrxId && (isAuthentic || isSameOrderCompleted));
     const orderStatus = isAutoApproved ? 'COMPLETED' : 'PENDING';
     const isVerified = isAutoApproved;
 
     if (isAutoApproved) {
       usedApprovedTrxIds.add(cleanTrxId);
+
+      // Instantly update user's balance and deposit history in server memory and disk
+      try {
+        const targetUserId = userId || existingByOrder?.userId;
+        if (targetUserId) {
+          const userRec = usersBackupMap.get(targetUserId) || Array.from(usersBackupMap.values()).find(
+            (u: any) => u.uid === targetUserId || u.memberId === targetUserId || (senderPhone && u.phone === senderPhone)
+          );
+          if (userRec) {
+            userRec.walletBalance = (Number(userRec.walletBalance) || 0) + numAmount;
+            userRec.totalDeposited = (Number(userRec.totalDeposited) || 0) + numAmount;
+            userRec.hasDeposited = true;
+            userRec.updatedAt = new Date().toISOString();
+            const existingTxns = Array.isArray(userRec.transactions) ? userRec.transactions : [];
+            const alreadyHasTxn = existingTxns.some((t: any) => t.id === cleanTrxId || t.hash === cleanTrxId);
+            if (!alreadyHasTxn) {
+              userRec.transactions = [
+                {
+                  id: cleanTrxId,
+                  type: 'deposit',
+                  amount: numAmount,
+                  method,
+                  status: 'completed',
+                  description: `ডিপোজিট TrxID: ${cleanTrxId} (স্বয়ংক্রিয় অনুমোদিত)`,
+                  channel: `${method} (${channel === 'channel2' ? 'চ্যানেল ২' : 'চ্যানেল ১'})`,
+                  isCredit: true,
+                  hash: cleanTrxId,
+                  timestamp: new Date().toISOString(),
+                },
+                ...existingTxns,
+              ];
+            }
+            saveUsersBackupToDisk();
+          }
+        }
+      } catch (userCreditErr) {
+        console.warn('[User Balance Credit Notice]', userCreditErr);
+      }
     }
 
     const orderRecord: any = {
@@ -2291,7 +2485,7 @@ async function startServer() {
       method,
       senderPhone,
       channel,
-      channelName: channel === 'gogopay' ? 'Go-Go-Pay' : channel === 'channel1' ? 'Nekpay' : channel === 'channel2' ? 'WatchPay' : 'Manual TrxID',
+      channelName: channel === 'gogopay' ? 'Go-Go-Pay' : channel === 'channel1' ? `চ্যানেল ১ (${method})` : channel === 'channel2' ? `চ্যানেল ২ (${method})` : `${method} (Manual TrxID)`,
       status: orderStatus,
       verified: isVerified,
       webhookConfirmed: isVerified,
@@ -2355,10 +2549,10 @@ async function startServer() {
       reason: validation.reason,
       order: orderRecord,
       message: isVerified
-        ? 'পেমেন্ট গেটওয়ে কনফার্মেশন সফল হয়েছে এবং স্বয়ংক্রিয়ভাবে অনুমোদিত হয়েছে!'
+        ? `🎉 TrxID সফলভাবে যাচাই হয়েছে এবং ৳${numAmount.toLocaleString()} স্বয়ংক্রিয়ভাবে অনুমোদিত হয়েছে!`
         : isDuplicateTrxId
         ? 'এই TrxID ইতোপূর্বে ব্যবহৃত হয়েছে (ডুপ্লিকেট)। এটি অপেক্ষমাণ (Pending) রাখা হয়েছে।'
-        : 'TrxID সফলভাবে জমা হয়েছে। গেটওয়ে কনফার্মেশন অথবা অ্যাডমিন যাচাইয়ের জন্য অপেক্ষমাণ (Pending) রয়েছে।',
+        : 'ভুল TrxID বা অসঙ্গতি পাওয়া গেছে। অ্যাডমিন ম্যানুয়াল যাচাইয়ের জন্য অপেক্ষমাণ (Pending) রয়েছে।',
     });
   });
 

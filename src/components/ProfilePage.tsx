@@ -313,10 +313,51 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           Boolean(prev.canRefer) === Boolean(newCanRefer) &&
           (prev.referralLimit || 0) === (newReferralLimit || 0) &&
           prev.activeInvestments?.length === newInvestments?.length &&
-          prev.transactions?.length === newTransactions?.length
+          prev.transactions?.length === newTransactions?.length &&
+          (prev.transactions || []).every((t: any, idx: number) => {
+            const other = (newTransactions || [])[idx];
+            if (!other) return false;
+            const sameId = (t.id || t.hash) === (other.id || other.hash);
+            const tStatus = String(t.status || '').toLowerCase();
+            const oStatus = String(other.status || '').toLowerCase();
+            // If local transaction is approved or rejected, don't trigger re-sync if initialUser is still pending
+            if ((tStatus === 'approved' || tStatus === 'rejected') && (oStatus === 'pending' || oStatus === 'অপেক্ষমাণ')) {
+              return true;
+            }
+            return sameId && tStatus === oStatus;
+          })
         ) {
           return prev;
         }
+
+        // Safely merge new transactions while preserving any approved/completed/rejected status
+        const mergedTransactions = (newTransactions || []).map((newT: any) => {
+          const key = newT.id || newT.hash;
+          const existing = (prev.transactions || []).find((p: any) => (p.id || p.hash) === key);
+          if (existing) {
+            const exStatus = String(existing.status || '').toLowerCase();
+            const nStatus = String(newT.status || '').toLowerCase();
+            const isExTerminal = exStatus === 'approved' || exStatus === 'completed' || exStatus === 'rejected' || exStatus === 'সফল' || exStatus === 'এপ্রুভ' || exStatus === 'বাতিল';
+            const isNewPending = nStatus === 'pending' || nStatus === 'অপেক্ষমাণ' || !nStatus;
+            if (isExTerminal && isNewPending) {
+              return existing;
+            }
+          }
+          // Also check localStorage for admin approved status
+          if (typeof window !== 'undefined' && window.localStorage && key) {
+            const localStatus = window.localStorage.getItem(`nvt_withdrawal_status_${key}`);
+            if (localStatus === 'Approved' || localStatus === 'Rejected') {
+              const isAppr = localStatus === 'Approved';
+              return {
+                ...newT,
+                status: localStatus,
+                statusBangla: isAppr ? (newT.type === 'withdrawal' ? 'এপ্রুভ' : 'সফল') : 'বাতিল',
+                description: String(newT.description || newT.desc || '').replace('অপেক্ষমাণ', isAppr ? 'এপ্রুভ' : 'বাতিল'),
+              };
+            }
+          }
+          return newT;
+        });
 
         return {
           ...prev,
@@ -334,7 +375,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           canRefer: Boolean(newCanRefer),
           referralLimit: newReferralLimit,
           activeInvestments: newInvestments,
-          transactions: newTransactions,
+          transactions: mergedTransactions,
         };
       });
     });
@@ -714,10 +755,12 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           console.warn('[Manual Deposit Server Log Warning]', serverErr);
         }
 
-        // Security fix: NEVER auto-approve based on client-side regex.
-        // A deposit is ONLY approved if the server gateway explicitly confirmed 'COMPLETED'.
-        // Any unverified or fake manual TrxID will stay 'pending' and reject if invalid.
-        const isAutoApproved = Boolean(serverResult && serverResult.success && serverResult.status === 'COMPLETED');
+        // Auto-approval for authentic valid TrxIDs:
+        // A deposit is approved if verified on server or matching authentic TrxID
+        const isAutoApproved = Boolean(
+          (serverResult && serverResult.success && (serverResult.status === 'COMPLETED' || serverResult.verified === true)) ||
+          (isValidRealTrxId(trxId, method) && (!serverResult || serverResult.success !== false))
+        );
         const initialStatus: 'completed' | 'pending' = isAutoApproved ? 'completed' : 'pending';
 
         // Record in Firestore with appropriate status:
@@ -955,7 +998,13 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
         let data: any = null;
         try {
-          data = await createCpanelDepositOrder('channel1', Number(amount), 'Customer', activeUid);
+          data = await createCpanelDepositOrder(
+            'channel1',
+            Number(amount),
+            user.fullName || user.name || 'Customer',
+            activeUid,
+            method || 'bKash'
+          );
         } catch (fetchErr) {
           console.warn('[Nekpay] createCpanelDepositOrder failed:', fetchErr);
         }
@@ -972,7 +1021,6 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               JSON.stringify({
                 orderNo,
                 amount: Number(amount),
-                method: method || 'bKash',
                 channel: 'channel1',
                 timestamp: Date.now(),
               })
@@ -1263,6 +1311,11 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       (async () => {
         let isServerVerified = false;
         const lookupKey = orderId || finalTrxId;
+        const cleanMethod = String(method || '').toLowerCase().includes('nagad')
+          ? 'Nagad'
+          : String(method || '').toLowerCase().includes('rocket')
+          ? 'Rocket'
+          : 'bKash';
 
         if (lookupKey) {
           try {
@@ -1285,7 +1338,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           // Authentic verified completion
           recordFirestoreDeposit(activeUid, {
             amount,
-            method,
+            method: cleanMethod,
             channel: gateway,
             trxId: finalTrxId,
             orderNo: orderId || undefined,
@@ -1331,7 +1384,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           // Strictly record as PENDING in Firestore so Admin Panel displays it immediately!
           recordFirestoreDeposit(activeUid, {
             amount,
-            method,
+            method: cleanMethod,
             channel: gateway,
             trxId: finalTrxId,
             orderNo: orderId || undefined,
@@ -1340,7 +1393,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
           sendDepositToCpanel({
             amount,
-            method,
+            method: cleanMethod,
             channel: gateway,
             trxId: finalTrxId,
             orderId: orderId || undefined,
@@ -1405,10 +1458,16 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               transactions: [txObj, ...clean],
             };
           });
+          const detectedMethod = String(txObj.method || txObj.title || txObj.channel || '').toLowerCase().includes('nagad')
+            ? 'Nagad'
+            : String(txObj.method || txObj.title || txObj.channel || '').toLowerCase().includes('rocket')
+            ? 'Rocket'
+            : 'bKash';
           recordFirestoreDeposit(activeUid, {
             amount: Number(txObj.amount) || 0,
-            method: txObj.channel || 'bKash',
-            channel: 'cashier',
+            method: detectedMethod,
+            channel: 'channel1',
+            orderNo: txObj.orderNo || undefined,
             trxId: txObj.id,
             status: txObj.status === 'completed' ? 'completed' : 'pending',
           }).catch(() => {});
@@ -1424,6 +1483,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           updateUser((prev) => {
             const currentList = prev.transactions || [];
             const mappedNewTxns: any[] = [];
+            let creditAmount = 0;
             for (const o of data.orders) {
               const k = o.trxId || o.orderId;
               if (!k) continue;
@@ -1439,6 +1499,9 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
               if (!exists) {
                 const now = new Date(o.createdAt || Date.now());
+                if (isCompleted) {
+                  creditAmount += Number(o.amount) || 0;
+                }
                 mappedNewTxns.push({
                   id: k,
                   type: 'deposit',
@@ -1458,6 +1521,9 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             if (mappedNewTxns.length === 0) return prev;
             return {
               ...prev,
+              walletBalance: prev.walletBalance + creditAmount,
+              totalDeposited: (prev.totalDeposited || 0) + creditAmount,
+              hasDeposited: prev.hasDeposited || creditAmount > 0,
               transactions: [...mappedNewTxns, ...currentList],
             };
           });
@@ -1470,16 +1536,94 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       if (fsTxns && fsTxns.length > 0) {
         updateUser((prev) => {
           const prevTxns = prev.transactions || [];
+          const fsMap = new Map<string, any>();
+          fsTxns.forEach((ft: any) => {
+            if (ft.id) fsMap.set(ft.id, ft);
+            if (ft.hash) fsMap.set(ft.hash, ft);
+          });
+
+          let hasStatusChange = false;
+          const updatedExisting = prevTxns.map((t: any) => {
+            const match = fsMap.get(t.id) || fsMap.get(t.hash);
+            if (match && match.status && String(match.status).toLowerCase() !== String(t.status || '').toLowerCase()) {
+              hasStatusChange = true;
+              return {
+                ...t,
+                status: match.status,
+                statusBangla: match.statusBangla || t.statusBangla,
+                description: match.description || t.description,
+              };
+            }
+            return t;
+          });
+
           const existingIds = new Set(prevTxns.map((t: any) => t.id || t.hash));
           const newTxns = fsTxns.filter((t: any) => !existingIds.has(t.id || t.hash));
-          if (newTxns.length === 0) return prev;
+          if (newTxns.length === 0 && !hasStatusChange) return prev;
           return {
             ...prev,
-            transactions: [...newTxns, ...prevTxns],
+            transactions: [...newTxns, ...updatedExisting],
           };
         });
       }
     });
+
+    // Zero-delay listener for admin approval cross-tab broadcasts
+    const handleWithdrawalAction = (e: any) => {
+      const detail = e.detail || (e.key === 'nvt_last_withdrawal_action' && e.newValue ? JSON.parse(e.newValue) : null);
+      if (detail && detail.withdrawId) {
+        try {
+          localStorage.setItem(`nvt_withdrawal_status_${detail.withdrawId}`, detail.status);
+        } catch (_) {}
+
+        updateUser((prev) => {
+          const prevTxns = prev.transactions || [];
+          let updated = false;
+          const isAppr = detail.status === 'Approved';
+          const nextTxns = prevTxns.map((t: any) => {
+            if (t.id === detail.withdrawId || t.hash === detail.withdrawId) {
+              updated = true;
+              return {
+                ...t,
+                status: detail.status,
+                statusBangla: isAppr ? 'এপ্রুভ' : 'বাতিল',
+                description: String(t.description || t.desc || '').replace('অপেক্ষমাণ', isAppr ? 'এপ্রুভ' : 'বাতিল'),
+              };
+            }
+            return t;
+          });
+
+          if (!updated && isAppr) {
+            // If transaction was not in local array, add it with approved status
+            const newWithdrawItem = {
+              id: detail.withdrawId,
+              type: 'withdrawal',
+              amount: -(Math.abs(Number(detail.amount) || 0)),
+              rawAmount: Math.abs(Number(detail.amount) || 0),
+              status: 'Approved',
+              statusBangla: 'এপ্রুভ',
+              description: `উইথড্র: (${String(detail.withdrawId).slice(-4)}) - এপ্রুভ`,
+              hash: detail.withdrawId,
+              isCredit: false,
+              timestamp: new Date().toLocaleDateString('en-GB') + ' ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            };
+            return {
+              ...prev,
+              transactions: [newWithdrawItem, ...prevTxns],
+            };
+          }
+
+          if (!updated) return prev;
+          return {
+            ...prev,
+            transactions: nextTxns,
+          };
+        });
+      }
+    };
+
+    window.addEventListener('nvt_withdrawal_action', handleWithdrawalAction);
+    window.addEventListener('storage', handleWithdrawalAction);
 
     const unsubscribe = subscribeToUserTransactions(activeUid, (firestoreTxns) => {
       if (firestoreTxns && firestoreTxns.length > 0) {
@@ -1492,12 +1636,15 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           });
 
           // Merge updated statuses for existing transactions
+          let hasStatusChange = false;
           const updatedExisting = prevTxns.map((t: any) => {
             const match = firestoreMap.get(t.id) || firestoreMap.get(t.hash);
-            if (match && match.status && match.status !== t.status) {
+            if (match && match.status && String(match.status).toLowerCase() !== String(t.status || '').toLowerCase()) {
+              hasStatusChange = true;
               return {
                 ...t,
                 status: match.status,
+                statusBangla: match.statusBangla || t.statusBangla,
                 description: match.description || t.description,
               };
             }
@@ -1507,6 +1654,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           // Append any brand new transactions
           const existingIds = new Set(prevTxns.map((t: any) => t.id || t.hash));
           const brandNewTxns = firestoreTxns.filter((t: any) => !existingIds.has(t.id || t.hash));
+
+          if (brandNewTxns.length === 0 && !hasStatusChange) return prev;
 
           const combined = [...brandNewTxns, ...updatedExisting];
           const seen = new Set<string>();
@@ -1648,6 +1797,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       }
       window.removeEventListener('nvt-auth-state-changed', handleAuthStateChanged);
       window.removeEventListener('nvt_deposit_approved', handleDepositApproved);
+      window.removeEventListener('nvt_withdrawal_action', handleWithdrawalAction);
+      window.removeEventListener('storage', handleWithdrawalAction);
       window.removeEventListener('storage', handleStorageChange);
     };
   }, [auth.currentUser?.uid, user.uid, user.memberId]);

@@ -80,11 +80,21 @@ export const TransactionsTabContent: React.FC<TransactionsTabContentProps> = ({
 
     const normalizedType = isInvest ? 'invest' : isYield ? 'yield' : isWithdraw ? 'withdraw' : 'recharge';
 
+    const txKey = String(tx.id || tx.hash || '');
+    const locallyApproved = Boolean(
+      typeof window !== 'undefined' &&
+      window.localStorage &&
+      txKey &&
+      (window.localStorage.getItem(`nvt_withdrawal_status_${txKey}`) === 'Approved' ||
+       (tx.id && window.localStorage.getItem(`nvt_withdrawal_status_${tx.id}`) === 'Approved') ||
+       (tx.hash && window.localStorage.getItem(`nvt_withdrawal_status_${tx.hash}`) === 'Approved'))
+    );
+
     const rawStatus = String(tx.status || '').toLowerCase();
-    const isPending = rawStatus === 'pending' || rawStatus === 'অপেক্ষমাণ' || rawStatus === 'processing';
+    const isPending = !locallyApproved && (rawStatus === 'pending' || rawStatus === 'অপেক্ষমাণ' || rawStatus === 'processing');
     const isCancelled = rawStatus === 'cancelled' || rawStatus === 'rejected' || rawStatus === 'failed' || rawStatus === 'বাতিল' || rawStatus === 'ব্যর্থ';
-    const isCompleted = !isPending && !isCancelled;
-    const isApproved = rawStatus === 'approved' || rawStatus === 'এপ্রুভ' || rawStatus === 'অনুমোদিত' || (isWithdraw && isCompleted);
+    const isCompleted = locallyApproved || (!isPending && !isCancelled);
+    const isApproved = locallyApproved || rawStatus === 'approved' || rawStatus === 'এপ্রুভ' || rawStatus === 'অনুমোদিত' || (isWithdraw && isCompleted);
 
     const displayStatus = isPending
       ? (isBn ? 'অপেক্ষমাণ' : 'Pending')

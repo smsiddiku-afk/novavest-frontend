@@ -173,12 +173,20 @@ export const WalletHistoryModal: React.FC<WalletHistoryModalProps> = ({
               const isDebit = isInvest || isWithdraw || (typeof tx.amount === 'number' ? tx.amount < 0 : String(tx.amount || '').startsWith('-'));
               const rawAmount = typeof tx.amount === 'number' ? Math.abs(tx.amount) : Math.abs(parseFloat(String(tx.amount || '0').replace(/[^\d.]/g, '')) || 0);
 
-              const rawStatus = String(tx.status || '').toLowerCase();
-              const isPending = rawStatus === 'pending' || rawStatus === 'অপেক্ষমাণ' || rawStatus === 'processing';
-              const isCancelled = rawStatus === 'cancelled' || rawStatus === 'rejected' || rawStatus === 'failed' || rawStatus === 'বাতিল';
-              const isApproved = rawStatus === 'approved' || rawStatus === 'এপ্রুভ' || rawStatus === 'অনুমোদিত' || (!isPending && !isCancelled);
-
               const txId = tx.id || tx.hash || `TRX-${idx}`;
+              const locallyApproved = Boolean(
+                typeof window !== 'undefined' &&
+                window.localStorage &&
+                txId &&
+                (window.localStorage.getItem(`nvt_withdrawal_status_${txId}`) === 'Approved' ||
+                 (tx.id && window.localStorage.getItem(`nvt_withdrawal_status_${tx.id}`) === 'Approved') ||
+                 (tx.hash && window.localStorage.getItem(`nvt_withdrawal_status_${tx.hash}`) === 'Approved'))
+              );
+
+              const rawStatus = String(tx.status || '').toLowerCase();
+              const isPending = !locallyApproved && (rawStatus === 'pending' || rawStatus === 'অপেক্ষমাণ' || rawStatus === 'processing');
+              const isCancelled = rawStatus === 'cancelled' || rawStatus === 'rejected' || rawStatus === 'failed' || rawStatus === 'বাতিল';
+              const isApproved = locallyApproved || rawStatus === 'approved' || rawStatus === 'এপ্রুভ' || rawStatus === 'অনুমোদিত' || (!isPending && !isCancelled);
 
               return (
                 <div

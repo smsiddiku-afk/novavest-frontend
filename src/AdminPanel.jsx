@@ -18,24 +18,48 @@ import { resolveImageSrc } from "./utils/imageUtils";
 const ADMIN_SECRET_KEY = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_ADMIN_SECRET_KEY) || "123456"; 
 
 function ReferralLimitEditor({ userId, currentLimit, onSave }) {
-  const [val, setVal] = useState(currentLimit);
+  const [val, setVal] = useState(() => {
+    try {
+      const saved = localStorage.getItem(`nvt_admin_saved_limit_${userId}`);
+      if (saved !== null && saved !== undefined && !isNaN(Number(saved))) {
+        return Number(saved);
+      }
+    } catch (_) {}
+    return currentLimit;
+  });
   const [saved, setSaved] = useState(false);
   const isEditingRef = useRef(false);
+  const localCommittedRef = useRef(null);
 
   useEffect(() => {
     if (!isEditingRef.current) {
-      setVal(currentLimit);
+      if (localCommittedRef.current !== null) {
+        setVal(localCommittedRef.current);
+      } else {
+        try {
+          const cached = localStorage.getItem(`nvt_admin_saved_limit_${userId}`);
+          if (cached !== null && cached !== undefined && !isNaN(Number(cached))) {
+            setVal(Number(cached));
+            return;
+          }
+        } catch (_) {}
+        setVal(currentLimit);
+      }
     }
-  }, [currentLimit]);
+  }, [currentLimit, userId]);
 
   const handleCommit = (rawVal) => {
     const target = rawVal !== undefined ? rawVal : val;
     const num = Math.max(0, parseInt(target, 10) || 0);
     setVal(num);
+    localCommittedRef.current = num;
     isEditingRef.current = false;
+    try {
+      localStorage.setItem(`nvt_admin_saved_limit_${userId}`, String(num));
+    } catch (_) {}
     onSave(userId, num);
     setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    setTimeout(() => setSaved(false), 2500);
   };
 
   return (
@@ -216,13 +240,54 @@ export default function AdminPanel() {
                   (m.trxId && s.trxId && String(m.trxId).toUpperCase() === String(s.trxId).toUpperCase()) ||
                   (m.orderNo && s.orderId && String(m.orderNo).toUpperCase() === String(s.orderId).toUpperCase())
               );
-            if (!existing) {
+            if (existing) {
+              // Authoritatively update existing record with server method (Nagad/bKash), TrxID, and status
+              const updatedMethod = s.method || (String(s.channelName || '').toLowerCase().includes('nagad') ? 'Nagad' : existing.method || 'bKash');
+              existing.method = updatedMethod;
+              if (s.trxId && s.trxId !== s.orderId) {
+                existing.trxId = s.trxId;
+              }
+              if (s.channelName || s.channel) {
+                existing.channel = s.channelName || s.channel;
+              }
+              if (s.senderPhone) {
+                existing.senderNumber = s.senderPhone;
+                existing.senderPhone = s.senderPhone;
+              }
+              if (s.status === 'COMPLETED') {
+                existing.status = 'Approved';
+              } else if (s.status === 'REJECTED') {
+                existing.status = 'Rejected';
+              } else if (s.status === 'PENDING' && existing.status !== 'Approved') {
+                existing.status = 'Pending';
+              }
+
+              // Keep Firestore collection in sync with updated method and TrxID
+              try {
+                const docId = existing.id || key;
+                const targetDoc = safeDoc('deposits', docId);
+                if (targetDoc) {
+                  safeSetDoc(
+                    targetDoc,
+                    {
+                      method: existing.method,
+                      trxId: existing.trxId,
+                      channel: existing.channel,
+                      status: existing.status,
+                      senderNumber: existing.senderNumber || '',
+                      updatedAt: serverTimestamp(),
+                    },
+                    { merge: true }
+                  ).catch(() => {});
+                }
+              } catch (_) {}
+            } else {
               const formattedItem = {
                 id: key,
                 userId: s.userId || 'USER1001',
                 userName: s.payerName || s.userId || 'Customer',
                 amount: Number(s.amount) || 0,
-                method: s.method || 'bKash',
+                method: s.method || (String(s.channelName || '').toLowerCase().includes('nagad') ? 'Nagad' : 'bKash'),
                 channel: s.channelName || s.channel || 'Nekpay (চ্যানেল ১)',
                 trxId: s.trxId || key,
                 senderNumber: s.senderPhone || '',
@@ -335,11 +400,20 @@ export default function AdminPanel() {
           });
           return userList.map((u) => {
             const prevU = prevMap.get(u.id) || prevMap.get(u.uid) || prevMap.get(u.memberId);
-            if (prevU && prevU.referralLimit !== undefined) {
-              const isRecentLocalEdit = prevU._locallyEdited && Date.now() - prevU._locallyEdited < 60000;
-              if (isRecentLocalEdit || u.referralLimit === undefined || u.referralLimit === null) {
-                return { ...u, referralLimit: prevU.referralLimit, canRefer: prevU.canRefer ?? u.canRefer, _locallyEdited: prevU._locallyEdited };
-              }
+            const savedLimitStr =
+              (typeof window !== 'undefined' &&
+                (localStorage.getItem(`nvt_admin_saved_limit_${u.id}`) ||
+                 (u.uid && localStorage.getItem(`nvt_admin_saved_limit_${u.uid}`)) ||
+                 (u.memberId && localStorage.getItem(`nvt_admin_saved_limit_${u.memberId}`)))) ||
+              null;
+            const savedLimit = savedLimitStr !== null && !isNaN(Number(savedLimitStr)) ? Number(savedLimitStr) : null;
+
+            if (savedLimit !== null) {
+              return { ...u, referralLimit: savedLimit, canRefer: savedLimit > 0, _locallyEdited: Date.now() };
+            }
+
+            if (prevU && prevU.referralLimit !== undefined && prevU.referralLimit !== null) {
+              return { ...u, referralLimit: prevU.referralLimit, canRefer: prevU.canRefer ?? u.canRefer, _locallyEdited: prevU._locallyEdited };
             }
             return u;
           });
@@ -960,12 +1034,41 @@ export default function AdminPanel() {
         )
       );
 
+      // Instant cross-tab broadcast for 0ms website sync
+      try {
+        const payload = {
+          withdrawId: cleanWId,
+          userId: targetUserId,
+          amount: Number(amount) || 0,
+          status: isApprove ? "Approved" : "Rejected",
+          statusBangla: isApprove ? "এপ্রুভ" : "বাতিল",
+          timestamp: Date.now(),
+        };
+        localStorage.setItem(`nvt_withdrawal_status_${cleanWId}`, isApprove ? "Approved" : "Rejected");
+        localStorage.setItem('nvt_last_withdrawal_action', JSON.stringify(payload));
+        window.dispatchEvent(new CustomEvent('nvt_withdrawal_action', { detail: payload }));
+      } catch (_) {}
+
       await updateFirestoreWithdrawalStatus(
         targetUserId,
         cleanWId,
         isApprove ? "Approved" : "Rejected",
         Number(amount) || 0
       );
+
+      // Server disk backup sync
+      try {
+        await fetch('/api/admin/withdrawal-action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            withdrawId: cleanWId,
+            userId: targetUserId,
+            status: isApprove ? "Approved" : "Rejected",
+            amount: Number(amount) || 0,
+          }),
+        }).catch(() => {});
+      } catch (_) {}
 
       setStatusMsg(
         isApprove
@@ -1383,6 +1486,13 @@ export default function AdminPanel() {
 
       // Instant optimistic state update
       const now = Date.now();
+      try {
+        localStorage.setItem(`nvt_admin_saved_limit_${cleanId}`, String(numLimit));
+        if (targetUser?.uid) localStorage.setItem(`nvt_admin_saved_limit_${targetUser.uid}`, String(numLimit));
+        if (targetUser?.memberId) localStorage.setItem(`nvt_admin_saved_limit_${targetUser.memberId}`, String(numLimit));
+        if (targetUser?.phone) localStorage.setItem(`nvt_admin_saved_limit_${targetUser.phone}`, String(numLimit));
+      } catch (_) {}
+
       setUsers((prev) =>
         prev.map((u) =>
           u.id === cleanId || u.uid === cleanId || u.memberId === cleanId || (targetUser && (u.id === targetUser.id || u.uid === targetUser.uid || u.memberId === targetUser.memberId))
@@ -1522,13 +1632,66 @@ export default function AdminPanel() {
                   <tbody>
                     {deposits.map((d) => (
                       <tr key={d.id} style={{ borderBottom: "1px solid #1e293b" }}>
-                        <td style={{ padding: "10px" }}>{d.userName || d.name || d.email || "N/A"}</td>
-                        <td style={{ padding: "10px" }}>{d.method || "N/A"} ({d.senderNumber || d.phone || "N/A"})</td>
-                        <td style={{ padding: "10px", fontFamily: "monospace", color: "#38bdf8" }}>{d.trxId || d.transactionId || "N/A"}</td>
-                        <td style={{ padding: "10px", color: "#22c55e", fontWeight: "bold" }}>৳ {d.amount || 0}</td>
                         <td style={{ padding: "10px" }}>
-                          <span style={{ padding: "4px 8px", borderRadius: "4px", fontSize: "12px", background: (d.status === "Approved" || d.status === "completed" || d.status?.toLowerCase() === "approved") ? "#14532d" : (d.status === "Rejected" || d.status === "failed" || d.status?.toLowerCase() === "rejected") ? "#7f1d1d" : "#713f12" }}>
-                            {d.status || "Pending"}
+                          <div style={{ fontWeight: "bold", color: "#fff" }}>{d.userName || d.name || d.email || "Customer"}</div>
+                          <div style={{ fontSize: "11px", color: "#94a3b8", fontFamily: "monospace" }}>ID: {d.userId || d.id}</div>
+                        </td>
+                        <td style={{ padding: "10px" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap", marginBottom: "3px" }}>
+                            <span
+                              style={{
+                                padding: "2px 8px",
+                                borderRadius: "4px",
+                                fontSize: "11px",
+                                fontWeight: "bold",
+                                background: String(d.method || '').toLowerCase().includes('nagad')
+                                  ? "#f7941d"
+                                  : String(d.method || '').toLowerCase().includes('rocket')
+                                  ? "#8c3494"
+                                  : "#e2136e",
+                                color: String(d.method || '').toLowerCase().includes('nagad') ? "#000" : "#fff",
+                              }}
+                            >
+                              {String(d.method || '').toLowerCase().includes('nagad') ? 'Nagad (নগদ)' : 'bKash (বিকাশ)'}
+                            </span>
+                            <span style={{ fontSize: "11px", color: "#6ee7b7", background: "rgba(16, 185, 129, 0.15)", padding: "1px 6px", borderRadius: "3px" }}>
+                              {d.channel || "চ্যানেল ১"}
+                            </span>
+                          </div>
+                          <div style={{ fontSize: "12px", color: "#cbd5e1" }}>{d.senderNumber || d.senderPhone || d.phone || "N/A"}</div>
+                        </td>
+                        <td style={{ padding: "10px", fontFamily: "monospace", color: "#38bdf8", fontWeight: "bold" }}>
+                          {d.trxId || d.transactionId || d.orderNo || "N/A"}
+                        </td>
+                        <td style={{ padding: "10px", color: "#22c55e", fontWeight: "900", fontSize: "15px" }}>
+                          ৳ {d.amount || 0}
+                        </td>
+                        <td style={{ padding: "10px" }}>
+                          <span
+                            style={{
+                              padding: "4px 8px",
+                              borderRadius: "4px",
+                              fontSize: "12px",
+                              fontWeight: "bold",
+                              background:
+                                d.status === "Approved" || d.status === "COMPLETED" || d.status === "completed" || String(d.status).toLowerCase() === "approved"
+                                  ? "#14532d"
+                                  : d.status === "Rejected" || d.status === "failed" || String(d.status).toLowerCase() === "rejected"
+                                  ? "#7f1d1d"
+                                  : "#713f12",
+                              color:
+                                d.status === "Approved" || d.status === "COMPLETED" || d.status === "completed" || String(d.status).toLowerCase() === "approved"
+                                  ? "#4ade80"
+                                  : d.status === "Rejected" || d.status === "failed" || String(d.status).toLowerCase() === "rejected"
+                                  ? "#f87171"
+                                  : "#fde047",
+                            }}
+                          >
+                            {d.status === "Approved" || d.status === "COMPLETED" || d.status === "completed"
+                              ? "✅ Approved"
+                              : d.status === "Rejected" || d.status === "failed"
+                              ? "❌ Rejected"
+                              : "⏳ Pending"}
                           </span>
                         </td>
                         <td style={{ padding: "10px", textAlign: "center" }}>

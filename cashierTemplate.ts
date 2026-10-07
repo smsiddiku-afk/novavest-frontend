@@ -718,7 +718,9 @@ export function generateCashierHtml(
               ? ('ডিপোজিট TrxID: ' + rawTrx + ' (সফল)')
               : ('ডিপোজিট TrxID: ' + rawTrx + ' (অপেক্ষমাণ)'),
             hash: rawTrx,
-            channel: (activeMethod || 'bKash') + ' (ক্যাশিয়ার)',
+            method: activeMethod || 'bKash',
+            orderNo: orderData.orderId,
+            channel: 'channel1',
             isCredit: isAutoApproved,
           };
           localStorage.setItem('nvt_last_submitted_deposit_tx', JSON.stringify(newTxn));

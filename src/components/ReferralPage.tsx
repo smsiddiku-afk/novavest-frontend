@@ -197,7 +197,8 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
       if (onContactManager) onContactManager();
       return;
     }
-    if (referralLimit > 0 && teamTree.totalTeamCount >= referralLimit) {
+    const directReferrals = Number(teamTree.directCount ?? teamTree.level1Count ?? 0);
+    if (referralLimit > 0 && directReferrals >= referralLimit) {
       showToast(currentLang === 'bn' ? `আপনার রেফারেল সীমা (${referralLimit} জন) পূর্ণ হয়েছে। দয়া করে ব্যবস্থাপক প্রতিনিধির সঙ্গে যোগাযোগ করুন।` : `Referral limit (${referralLimit}) reached. Please contact manager representative.`);
       if (onContactManager) onContactManager();
       return;
@@ -214,7 +215,8 @@ export const ReferralPage: React.FC<ReferralPageProps> = ({
       if (onContactManager) onContactManager();
       return;
     }
-    if (referralLimit > 0 && teamTree.totalTeamCount >= referralLimit) {
+    const directReferrals = Number(teamTree.directCount ?? teamTree.level1Count ?? 0);
+    if (referralLimit > 0 && directReferrals >= referralLimit) {
       showToast(currentLang === 'bn' ? `আপনার রেফারেল সীমা (${referralLimit} জন) পূর্ণ হয়েছে। দয়া করে ব্যবস্থাপক প্রতিনিধির সঙ্গে যোগাযোগ করুন।` : `Referral limit (${referralLimit}) reached. Please contact manager representative.`);
       if (onContactManager) onContactManager();
       return;

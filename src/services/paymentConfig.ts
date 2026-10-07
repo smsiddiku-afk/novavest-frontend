@@ -173,7 +173,7 @@ export async function createCpanelDepositOrder(
   }).catch(() => {});
 
   const cleanOrigin = clientOrigin.replace(/\/+$/, '');
-  const returnTarget = `${cleanOrigin}/profile?payment_status=PENDING&payment_return=1&amount=${amount}&channel=${encodeURIComponent(channel)}&gateway=nekpay`;
+  const returnTarget = `${cleanOrigin}/profile?payment_status=PENDING&payment_return=1&amount=${amount}&channel=${encodeURIComponent(channel)}&method=${encodeURIComponent(method)}&gateway=nekpay`;
 
   const requestBody = JSON.stringify({
     amount,
@@ -244,7 +244,7 @@ export async function createCpanelDepositOrder(
 
   // 3. High-availability client-side Cashier link fallback
   const fallbackOrderNo = `DEP-${Date.now()}`;
-  const fallbackPaymentLink = `${cleanOrigin}/pay/checkout/${encodeURIComponent(fallbackOrderNo)}?amount=${amount}&method=${encodeURIComponent(method)}&channel=${encodeURIComponent(channel)}`;
+  const fallbackPaymentLink = `${cleanOrigin}/pay/checkout/${encodeURIComponent(fallbackOrderNo)}?amount=${amount}&method=${encodeURIComponent(method)}&channel=${encodeURIComponent(channel)}&userId=${encodeURIComponent(userId)}`;
   return {
     success: true,
     channel,

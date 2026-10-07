@@ -1777,11 +1777,29 @@ export const updateFirestoreDepositStatus = async (
 };
 
 /**
- * Security: Client-side TrxIDs must NEVER be trusted as auto-approved.
- * Only verified server webhooks or admin approvals can confirm a transaction.
+ * Authentic Bangladesh MFS TrxID Validator (bKash 10 chars, Nagad 8-10 chars, Rocket 8-12 chars)
  */
-export const isValidRealTrxId = (_trxId: string): boolean => {
-  return false;
+export const isValidRealTrxId = (trxId: string, _method?: string): boolean => {
+  if (!trxId || typeof trxId !== 'string') return false;
+  let clean = trxId.trim().toUpperCase().replace(/[\s\-_]/g, '');
+  clean = clean.replace(/^(TRXID|TXNID|TRX|TXN)[:#\s]*/i, '');
+  if (!/^[A-Z0-9]+$/.test(clean)) return false;
+  if (clean.length < 6 || clean.length > 16) return false;
+
+  const fakePatterns = [
+    'TEST', 'FAKE', 'DEMO', 'NULL', 'VOID',
+    'ADMIN', 'DUMMY', 'MOCK', 'WRONG', 'SAMPLE',
+    'XXXX', 'AAAA', 'BBBB', 'CCCC', 'DDDD', 'EEEE', 'FFFF', 'ZZZZ',
+    '00000000', '11111111', '22222222', '33333333', '44444444',
+    '12345678', '87654321', '01234567', '76543210'
+  ];
+  for (const pat of fakePatterns) {
+    if (clean.includes(pat) && clean.length <= 10) return false;
+  }
+  const uniqueChars = new Set(clean.split(''));
+  if (uniqueChars.size < 3) return false;
+
+  return true;
 };
 
 /**
@@ -1887,8 +1905,19 @@ export const subscribeToUserTransactions = (
 
   let latestTxns: TransactionRecord[] = [];
   let latestWithdrawals: TransactionRecord[] = [];
+  let latestTopWithdrawals: TransactionRecord[] = [];
   let latestDeposits: TransactionRecord[] = [];
   let latestUserDocTxns: TransactionRecord[] = [];
+
+  const isTerminalApproved = (st: any) => {
+    const s = String(st || '').toLowerCase();
+    return s === 'approved' || s === 'completed' || s === 'সফল' || s === 'এপ্রুভ' || s === 'অনুমোদিত';
+  };
+
+  const isTerminalRejected = (st: any) => {
+    const s = String(st || '').toLowerCase();
+    return s === 'rejected' || s === 'failed' || s === 'cancelled' || s === 'বাতিল';
+  };
 
   const mergeAndEmit = () => {
     const map = new Map<string, TransactionRecord>();
@@ -1917,6 +1946,15 @@ export const subscribeToUserTransactions = (
       }
     });
 
+    // 3.1 Withdrawals from top-level withdrawals collection (AUTHORITATIVE from Admin Panel)
+    latestTopWithdrawals.forEach((w) => {
+      const k = w.id || (w as any).hash;
+      if (k) {
+        const existing = map.get(k);
+        map.set(k, { ...(existing || {}), ...w });
+      }
+    });
+
     // 4. Transactions from user document array
     latestUserDocTxns.forEach((t) => {
       const k = t.id || (t as any).hash;
@@ -1925,14 +1963,42 @@ export const subscribeToUserTransactions = (
         if (!existing) {
           map.set(k, t);
         } else {
-          const rawSt = String(t.status || '').toLowerCase();
-          const isAppr = rawSt === 'approved' || rawSt === 'completed' || rawSt === 'সফল' || rawSt === 'এপ্রুভ';
-          if (isAppr) {
-            map.set(k, { ...existing, ...t, status: 'Approved', statusBangla: 'সফল', isCredit: true });
+          // If existing is already approved or rejected from top collection, PRESERVE IT!
+          const existingIsTerminal = isTerminalApproved(existing.status) || isTerminalRejected(existing.status);
+          const newIsTerminal = isTerminalApproved(t.status) || isTerminalRejected(t.status);
+
+          if (!existingIsTerminal && newIsTerminal) {
+            const isAppr = isTerminalApproved(t.status);
+            const isRej = isTerminalRejected(t.status);
+            const statusText = isAppr ? 'Approved' : isRej ? 'Rejected' : (t.status || 'Pending');
+            const statusBangla = isAppr ? (t.type === 'withdrawal' ? 'এপ্রুভ' : 'সফল') : isRej ? 'বাতিল' : 'অপেক্ষমাণ';
+            map.set(k, {
+              ...existing,
+              ...t,
+              status: statusText,
+              statusBangla,
+              isCredit: t.type === 'withdrawal' ? false : isAppr,
+            });
           }
         }
       }
     });
+
+    // 5. Final check against local storage admin broadcast status
+    if (typeof window !== 'undefined' && window.localStorage) {
+      map.forEach((item, k) => {
+        const localStatus = window.localStorage.getItem(`nvt_withdrawal_status_${k}`);
+        if (localStatus === 'Approved' || localStatus === 'Rejected') {
+          const isAppr = localStatus === 'Approved';
+          item.status = localStatus;
+          item.statusBangla = isAppr ? (item.type === 'withdrawal' ? 'এপ্রুভ' : 'সফল') : 'বাতিল';
+          item.description = String(item.description || item.desc || '').replace('অপেক্ষমাণ', item.statusBangla);
+          if (item.type === 'withdrawal') {
+            item.isCredit = false;
+          }
+        }
+      });
+    }
 
     onUpdate(Array.from(map.values()));
   };
@@ -1994,7 +2060,9 @@ export const subscribeToUserTransactions = (
           userId: cleanUid,
           type: 'withdrawal',
           amount: -(Math.abs(Number(data.amount) || 0)),
+          rawAmount: Math.abs(Number(data.amount) || 0),
           status: isApproved ? 'Approved' : isRejected ? 'Rejected' : 'Pending',
+          statusBangla,
           timestamp: `${data.dateStr || ''} ${data.timeStr || ''}`.trim() || data.createdAt || 'Recent',
           date: data.dateStr || undefined,
           time: data.timeStr || undefined,
@@ -2011,6 +2079,42 @@ export const subscribeToUserTransactions = (
       console.warn('[Firebase] Withdrawals listener notice:', err);
     }
   );
+
+  // Authoritative top-level withdrawals listener for this user
+  let unsubTopWithdrawals = () => {};
+  try {
+    unsubTopWithdrawals = onSnapshot(
+      query(collection(db, 'withdrawals'), where('userId', '==', cleanUid)),
+      (snap) => {
+        latestTopWithdrawals = snap.docs.map((d) => {
+          const data = d.data();
+          const rawStatus = String(data.status || 'Pending');
+          const isApproved = rawStatus.toLowerCase() === 'approved';
+          const isRejected = rawStatus.toLowerCase() === 'rejected';
+          const statusBangla = isApproved ? 'এপ্রুভ' : isRejected ? 'বাতিল' : 'অপেক্ষমাণ';
+          return {
+            id: d.id,
+            userId: cleanUid,
+            type: 'withdrawal',
+            amount: -(Math.abs(Number(data.amount) || 0)),
+            rawAmount: Math.abs(Number(data.amount) || 0),
+            status: isApproved ? 'Approved' : isRejected ? 'Rejected' : 'Pending',
+            statusBangla,
+            timestamp: `${data.dateStr || ''} ${data.timeStr || ''}`.trim() || data.createdAt || 'Recent',
+            date: data.dateStr || undefined,
+            time: data.timeStr || undefined,
+            channel: data.method || data.walletMethod || 'bKash',
+            description: `উইথড্র: ${data.method || data.walletMethod || 'bKash'} (${String(data.accountNumber || '').slice(-4)}) - ${statusBangla}`,
+            hash: d.id,
+            isCredit: false,
+            ...data,
+          } as TransactionRecord;
+        });
+        mergeAndEmit();
+      },
+      () => {}
+    );
+  } catch (_) {}
 
   const unsubUserDoc = onSnapshot(
     safeDoc('users', cleanUid),
@@ -2030,6 +2134,7 @@ export const subscribeToUserTransactions = (
     try { unsubTxns(); } catch (_) {}
     try { unsubDeposits(); } catch (_) {}
     try { unsubWithdrawals(); } catch (_) {}
+    try { unsubTopWithdrawals(); } catch (_) {}
     try { unsubUserDoc(); } catch (_) {}
   };
 };

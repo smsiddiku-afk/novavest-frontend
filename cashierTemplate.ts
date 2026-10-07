@@ -484,15 +484,15 @@ export function generateCashierHtml(
 
       <!-- Payment Method Switcher -->
       <div class="method-selector">
-        <div class="method-btn ${safeMethod === 'bKash' ? 'active bkash' : ''}" onclick="selectMethod('bKash')">
+        <div class="method-btn ${safeMethod === 'bKash' ? 'active bkash' : ''}" data-method="bKash" onclick="selectMethod('bKash')">
           <div class="method-icon bkash-icon">৳</div>
           <div class="method-name">bKash</div>
         </div>
-        <div class="method-btn ${safeMethod === 'Nagad' ? 'active nagad' : ''}" onclick="selectMethod('Nagad')">
+        <div class="method-btn ${safeMethod === 'Nagad' ? 'active nagad' : ''}" data-method="Nagad" onclick="selectMethod('Nagad')">
           <div class="method-icon nagad-icon">ন</div>
           <div class="method-name">Nagad</div>
         </div>
-        <div class="method-btn ${safeMethod === 'Rocket' ? 'active rocket' : ''}" onclick="selectMethod('Rocket')">
+        <div class="method-btn ${safeMethod === 'Rocket' ? 'active rocket' : ''}" data-method="Rocket" onclick="selectMethod('Rocket')">
           <div class="method-icon rocket-icon">R</div>
           <div class="method-name">Rocket</div>
         </div>
@@ -604,6 +604,21 @@ export function generateCashierHtml(
       const copyBtn = document.getElementById('copyBtn');
       copyBtn.classList.remove('copied');
       document.getElementById('copyBtnText').innerText = 'নম্বর কপি করুন';
+
+      // Immediately notify server that user selected this method (Nagad/bKash)
+      try {
+        if (orderData.orderId) {
+          fetch('/api/payments/update-method', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              orderNo: orderData.orderId,
+              method: method,
+              channel: orderData.channel || 'channel1'
+            })
+          }).catch(() => {});
+        }
+      } catch (_) {}
     }
 
     function copyAgentNumber() {

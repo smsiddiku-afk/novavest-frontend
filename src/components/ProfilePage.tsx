@@ -1061,11 +1061,18 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                 ) {
                   clearInterval(pollInterval);
 
+                  const receivedMethod = checkData.order?.method || method || 'bKash';
+                  const normalizedMethod = String(receivedMethod).toLowerCase().includes('nagad')
+                    ? 'Nagad'
+                    : String(receivedMethod).toLowerCase().includes('rocket')
+                    ? 'Rocket'
+                    : 'bKash';
+
                   // Update Firestore wallet balance and transaction record
                   await recordFirestoreDeposit(activeUid, {
                     amount: Number(amount),
-                    method: method || 'bKash',
-                    channel: 'channel1',
+                    method: normalizedMethod,
+                    channel: checkData.order?.channelName || `চ্যানেল ১ (${normalizedMethod})`,
                     trxId: checkData.order?.trxId || orderNo,
                     orderNo,
                     status: 'completed',
@@ -1311,17 +1318,16 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       (async () => {
         let isServerVerified = false;
         const lookupKey = orderId || finalTrxId;
-        const cleanMethod = String(method || '').toLowerCase().includes('nagad')
-          ? 'Nagad'
-          : String(method || '').toLowerCase().includes('rocket')
-          ? 'Rocket'
-          : 'bKash';
+        let detectedMethod = method;
 
         if (lookupKey) {
           try {
             const checkRes = await fetch(`/api/payments/order-status/${encodeURIComponent(lookupKey)}`);
             if (checkRes.ok) {
               const checkData = await checkRes.json();
+              if (checkData?.order?.method) {
+                detectedMethod = checkData.order.method;
+              }
               const statusStr = String(checkData?.order?.status || '').toUpperCase();
               if (
                 checkData?.success &&
@@ -1333,6 +1339,12 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
             }
           } catch (_) {}
         }
+
+        const cleanMethod = String(detectedMethod || method || '').toLowerCase().includes('nagad')
+          ? 'Nagad'
+          : String(detectedMethod || method || '').toLowerCase().includes('rocket')
+          ? 'Rocket'
+          : 'bKash';
 
         if (isServerVerified || statusParam === 'SUCCESS') {
           // Authentic verified completion

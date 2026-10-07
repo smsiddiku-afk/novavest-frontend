@@ -216,6 +216,22 @@ export default function AdminPanel() {
     }
   };
 
+  // Helper to reliably detect payment method (bKash, Nagad, Rocket) from any field or language
+  const resolveDepositMethod = (item) => {
+    if (!item) return 'bKash';
+    const methodStr = String(item.method || '').toLowerCase();
+    if (methodStr.includes('nagad') || methodStr.includes('নগদ')) return 'Nagad';
+    if (methodStr.includes('rocket') || methodStr.includes('রকেট')) return 'Rocket';
+    if (methodStr.includes('bkash') || methodStr.includes('বিকাশ')) return 'bKash';
+
+    const fullStr = `${item.channel || ''} ${item.channelName || ''} ${item.title || ''} ${item.walletMethod || ''} ${item.desc || ''} ${item.description || ''} ${item.gateway || ''}`.toLowerCase();
+    if (fullStr.includes('nagad') || fullStr.includes('নগদ')) return 'Nagad';
+    if (fullStr.includes('rocket') || fullStr.includes('রকেট')) return 'Rocket';
+    if (fullStr.includes('bkash') || fullStr.includes('বিকাশ')) return 'bKash';
+
+    return item.method || 'bKash';
+  };
+
   // Real-time synchronization for instant deposits, withdrawals, and redeem codes
   // Helper to merge and synchronize deposits from both Firestore and the local server backend
   const mergeAndSyncDeposits = async (firestoreList) => {
@@ -228,27 +244,37 @@ export default function AdminPanel() {
           // 1. First add Firestore deposits
           firestoreList.forEach((d) => {
             const k = d.id || d.trxId || d.orderNo;
-            if (k) mergedMap.set(k, d);
+            if (k) {
+              const resMethod = resolveDepositMethod(d);
+              mergedMap.set(k, { ...d, method: resMethod });
+            }
           });
           // 2. Merge server-side deposits if not present in Firestore
           for (const s of serverData.deposits) {
             const key = s.orderId || s.trxId || s.id;
+            const sMethod = resolveDepositMethod(s);
             const existing =
               mergedMap.get(key) ||
               Array.from(mergedMap.values()).find(
                 (m) =>
                   (m.trxId && s.trxId && String(m.trxId).toUpperCase() === String(s.trxId).toUpperCase()) ||
-                  (m.orderNo && s.orderId && String(m.orderNo).toUpperCase() === String(s.orderId).toUpperCase())
+                  (m.orderNo && s.orderId && String(m.orderNo).toUpperCase() === String(s.orderId).toUpperCase()) ||
+                  (m.id && s.orderId && String(m.id).toUpperCase() === String(s.orderId).toUpperCase()) ||
+                  (m.id && s.trxId && String(m.id).toUpperCase() === String(s.trxId).toUpperCase()) ||
+                  (m.orderNo && s.trxId && String(m.orderNo).toUpperCase() === String(s.trxId).toUpperCase()) ||
+                  (m.trxId && s.orderId && String(m.trxId).toUpperCase() === String(s.orderId).toUpperCase())
               );
             if (existing) {
               // Authoritatively update existing record with server method (Nagad/bKash), TrxID, and status
-              const updatedMethod = s.method || (String(s.channelName || '').toLowerCase().includes('nagad') ? 'Nagad' : existing.method || 'bKash');
+              const isNagad = sMethod === 'Nagad' || resolveDepositMethod(existing) === 'Nagad' || String(s.method || '').toLowerCase().includes('nagad') || String(existing.method || '').toLowerCase().includes('nagad');
+              const isRocket = !isNagad && (sMethod === 'Rocket' || resolveDepositMethod(existing) === 'Rocket' || String(s.method || '').toLowerCase().includes('rocket'));
+              const updatedMethod = isNagad ? 'Nagad' : isRocket ? 'Rocket' : (s.method || existing.method || 'bKash');
               existing.method = updatedMethod;
               if (s.trxId && s.trxId !== s.orderId) {
                 existing.trxId = s.trxId;
               }
               if (s.channelName || s.channel) {
-                existing.channel = s.channelName || s.channel;
+                existing.channel = isNagad ? 'চ্যানেল ১ (Nagad)' : (s.channelName || s.channel);
               }
               if (s.senderPhone) {
                 existing.senderNumber = s.senderPhone;
@@ -282,13 +308,15 @@ export default function AdminPanel() {
                 }
               } catch (_) {}
             } else {
+              const isNagad = sMethod === 'Nagad' || String(s.method || '').toLowerCase().includes('nagad');
+              const isRocket = !isNagad && (sMethod === 'Rocket' || String(s.method || '').toLowerCase().includes('rocket'));
               const formattedItem = {
                 id: key,
                 userId: s.userId || 'USER1001',
                 userName: s.payerName || s.userId || 'Customer',
                 amount: Number(s.amount) || 0,
-                method: s.method || (String(s.channelName || '').toLowerCase().includes('nagad') ? 'Nagad' : 'bKash'),
-                channel: s.channelName || s.channel || 'Nekpay (চ্যানেল ১)',
+                method: isNagad ? 'Nagad' : isRocket ? 'Rocket' : (s.method || 'bKash'),
+                channel: isNagad ? 'চ্যানেল ১ (Nagad)' : (s.channelName || s.channel || 'Nekpay (চ্যানেল ১)'),
                 trxId: s.trxId || key,
                 senderNumber: s.senderPhone || '',
                 senderPhone: s.senderPhone || '',
@@ -1638,24 +1666,52 @@ export default function AdminPanel() {
                         </td>
                         <td style={{ padding: "10px" }}>
                           <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap", marginBottom: "3px" }}>
-                            <span
-                              style={{
-                                padding: "2px 8px",
-                                borderRadius: "4px",
-                                fontSize: "11px",
-                                fontWeight: "bold",
-                                background: String(d.method || '').toLowerCase().includes('nagad')
-                                  ? "#f7941d"
-                                  : String(d.method || '').toLowerCase().includes('rocket')
-                                  ? "#8c3494"
-                                  : "#e2136e",
-                                color: String(d.method || '').toLowerCase().includes('nagad') ? "#000" : "#fff",
-                              }}
-                            >
-                              {String(d.method || '').toLowerCase().includes('nagad') ? 'Nagad (নগদ)' : 'bKash (বিকাশ)'}
-                            </span>
+                            {(() => {
+                              const resolved = resolveDepositMethod(d);
+                              const isNagad = resolved === 'Nagad';
+                              const isRocket = resolved === 'Rocket';
+                              return (
+                                <button
+                                  type="button"
+                                  onClick={async (e) => {
+                                    e.stopPropagation();
+                                    const nextMethod = isNagad ? 'bKash' : 'Nagad';
+                                    const nextChannel = nextMethod === 'Nagad' ? 'চ্যানেল ১ (Nagad)' : 'চ্যানেল ১ (bKash)';
+                                    setDeposits((prev) =>
+                                      prev.map((item) =>
+                                        item.id === d.id ? { ...item, method: nextMethod, channel: nextChannel } : item
+                                      )
+                                    );
+                                    try {
+                                      const tDoc = safeDoc('deposits', d.id);
+                                      if (tDoc) {
+                                        safeSetDoc(tDoc, { method: nextMethod, channel: nextChannel, updatedAt: serverTimestamp() }, { merge: true }).catch(() => {});
+                                      }
+                                      fetch('/api/payments/update-method', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ orderNo: d.orderNo || d.id || d.trxId, method: nextMethod })
+                                      }).catch(() => {});
+                                    } catch (_) {}
+                                  }}
+                                  title="ক্লিক করে বিকাশ/নগদ পরিবর্তন করুন"
+                                  style={{
+                                    padding: "2px 8px",
+                                    borderRadius: "4px",
+                                    fontSize: "11px",
+                                    fontWeight: "bold",
+                                    border: "none",
+                                    cursor: "pointer",
+                                    background: isNagad ? "#f7941d" : isRocket ? "#8c3494" : "#e2136e",
+                                    color: isNagad ? "#000" : "#fff",
+                                  }}
+                                >
+                                  {isNagad ? 'Nagad (নগদ)' : isRocket ? 'Rocket (রকেট)' : 'bKash (বিকাশ)'}
+                                </button>
+                              );
+                            })()}
                             <span style={{ fontSize: "11px", color: "#6ee7b7", background: "rgba(16, 185, 129, 0.15)", padding: "1px 6px", borderRadius: "3px" }}>
-                              {d.channel || "চ্যানেল ১"}
+                              {d.channel || (resolveDepositMethod(d) === 'Nagad' ? "চ্যানেল ১ (Nagad)" : "চ্যানেল ১")}
                             </span>
                           </div>
                           <div style={{ fontSize: "12px", color: "#cbd5e1" }}>{d.senderNumber || d.senderPhone || d.phone || "N/A"}</div>

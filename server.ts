@@ -2394,7 +2394,7 @@ async function startServer() {
   };
 
   app.post(['/api/payments/submit-txnid', '/api/payments/verify-txnid'], (req, res) => {
-    const { amount, trxId, method = 'bKash', senderPhone = '', userId = 'USER1001', channel = 'channel1' } = req.body;
+    const { amount, trxId, senderPhone = '', userId = 'USER1001', channel = 'channel1' } = req.body;
     const numAmount = Number(amount);
 
     if (!numAmount || numAmount <= 0) {
@@ -2413,6 +2413,16 @@ async function startServer() {
     }
 
     const orderNo = req.body?.orderNo || `DEP-TXN-${Date.now().toString().slice(-6)}`;
+    const existingByOrder = req.body?.orderNo ? ordersDatabase.get(req.body.orderNo) : null;
+
+    // Detect authoritative payment method (Nagad, Rocket, or bKash)
+    const rawMethod = String(req.body?.method || '').toLowerCase();
+    const existingMethod = String(existingByOrder?.method || '').toLowerCase();
+    const method = (rawMethod.includes('nagad') || rawMethod.includes('নগদ') || existingMethod.includes('nagad'))
+      ? 'Nagad'
+      : (rawMethod.includes('rocket') || rawMethod.includes('রকেট') || existingMethod.includes('rocket'))
+      ? 'Rocket'
+      : 'bKash';
 
     // Validate if the TrxID is authentic and correct
     const validation = isTrxIdAuthentic(rawTrx, method);
@@ -2420,7 +2430,6 @@ async function startServer() {
     const isAuthentic = validation.isValid;
 
     // Check if an existing order was already completed
-    const existingByOrder = req.body?.orderNo ? ordersDatabase.get(req.body.orderNo) : null;
     const isSameOrderCompleted = Boolean(
       existingByOrder &&
       (existingByOrder.status === 'COMPLETED' || existingByOrder.status === 'SUCCESS') &&
@@ -2731,6 +2740,30 @@ async function startServer() {
     if (order.trxId) ordersDatabase.set(order.trxId, order);
 
     res.json({ success: true, order });
+  });
+
+  // Dynamic payment method update route (called when user toggles Nagad/bKash on gateway or admin panel)
+  app.post('/api/payments/update-method', (req, res) => {
+    const { orderNo, method, trxId } = req.body;
+    const cleanMethod = String(method || '').toLowerCase().includes('nagad')
+      ? 'Nagad'
+      : String(method || '').toLowerCase().includes('rocket')
+      ? 'Rocket'
+      : 'bKash';
+    const key = String(orderNo || trxId || '').trim();
+    if (key) {
+      let order = ordersDatabase.get(key) || ordersDatabase.get(key.toUpperCase());
+      if (order) {
+        order.method = cleanMethod;
+        order.channelName = `চ্যানেল ১ (${cleanMethod})`;
+        order.updatedAt = new Date().toISOString();
+        ordersDatabase.set(key, order);
+        if (order.orderId) ordersDatabase.set(order.orderId, order);
+        if (order.trxId) ordersDatabase.set(order.trxId, order);
+        saveOrdersToDisk();
+      }
+    }
+    return res.json({ success: true, method: cleanMethod });
   });
 
   // ───────────────────────────────────────────────────────────

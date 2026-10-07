@@ -118,7 +118,17 @@ function ReferralLimitEditor({ userId, currentLimit, onSave }) {
 }
 
 export default function AdminPanel() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(() => {
+    try {
+      if (typeof window !== 'undefined') {
+        return (
+          localStorage.getItem("nvt_admin_authenticated") === "true" ||
+          sessionStorage.getItem("nvt_admin_authenticated") === "true"
+        );
+      }
+    } catch (_) {}
+    return false;
+  });
   const [passwordInput, setPasswordInput] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
 
@@ -208,6 +218,10 @@ export default function AdminPanel() {
   const handleLogin = (e) => {
     e.preventDefault();
     if (passwordInput === ADMIN_SECRET_KEY) {
+      try {
+        localStorage.setItem("nvt_admin_authenticated", "true");
+        sessionStorage.setItem("nvt_admin_authenticated", "true");
+      } catch (_) {}
       setIsAuthenticated(true);
       setErrorMsg("");
       fetchAllData();
@@ -234,121 +248,130 @@ export default function AdminPanel() {
 
   // Real-time synchronization for instant deposits, withdrawals, and redeem codes
   // Helper to merge and synchronize deposits from both Firestore and the local server backend
-  const mergeAndSyncDeposits = async (firestoreList) => {
+  const mergeAndSyncDeposits = async (firestoreList = []) => {
+    const mergedMap = new Map();
+    // 1. First add Firestore deposits
+    (firestoreList || []).forEach((d) => {
+      const k = d.id || d.trxId || d.orderNo;
+      if (k) {
+        const resMethod = resolveDepositMethod(d);
+        mergedMap.set(k, { ...d, method: resMethod });
+      }
+    });
+
+    // 2. Safely merge server-side deposits if available (non-blocking with timeout and JSON check)
     try {
-      const serverRes = await fetch('/api/admin/deposits');
-      if (serverRes.ok) {
-        const serverData = await serverRes.json();
-        if (serverData && serverData.success && Array.isArray(serverData.deposits)) {
-          const mergedMap = new Map();
-          // 1. First add Firestore deposits
-          firestoreList.forEach((d) => {
-            const k = d.id || d.trxId || d.orderNo;
-            if (k) {
-              const resMethod = resolveDepositMethod(d);
-              mergedMap.set(k, { ...d, method: resMethod });
-            }
-          });
-          // 2. Merge server-side deposits if not present in Firestore
-          for (const s of serverData.deposits) {
-            const key = s.orderId || s.trxId || s.id;
-            const sMethod = resolveDepositMethod(s);
-            const existing =
-              mergedMap.get(key) ||
-              Array.from(mergedMap.values()).find(
-                (m) =>
-                  (m.trxId && s.trxId && String(m.trxId).toUpperCase() === String(s.trxId).toUpperCase()) ||
-                  (m.orderNo && s.orderId && String(m.orderNo).toUpperCase() === String(s.orderId).toUpperCase()) ||
-                  (m.id && s.orderId && String(m.id).toUpperCase() === String(s.orderId).toUpperCase()) ||
-                  (m.id && s.trxId && String(m.id).toUpperCase() === String(s.trxId).toUpperCase()) ||
-                  (m.orderNo && s.trxId && String(m.orderNo).toUpperCase() === String(s.trxId).toUpperCase()) ||
-                  (m.trxId && s.orderId && String(m.trxId).toUpperCase() === String(s.orderId).toUpperCase())
-              );
-            if (existing) {
-              // Authoritatively update existing record with server method (Nagad/bKash), TrxID, and status
-              const isNagad = sMethod === 'Nagad' || resolveDepositMethod(existing) === 'Nagad' || String(s.method || '').toLowerCase().includes('nagad') || String(existing.method || '').toLowerCase().includes('nagad');
-              const isRocket = !isNagad && (sMethod === 'Rocket' || resolveDepositMethod(existing) === 'Rocket' || String(s.method || '').toLowerCase().includes('rocket'));
-              const updatedMethod = isNagad ? 'Nagad' : isRocket ? 'Rocket' : (s.method || existing.method || 'bKash');
-              existing.method = updatedMethod;
-              if (s.trxId && s.trxId !== s.orderId) {
-                existing.trxId = s.trxId;
-              }
-              if (s.channelName || s.channel) {
-                existing.channel = isNagad ? 'চ্যানেল ১ (Nagad)' : (s.channelName || s.channel);
-              }
-              if (s.senderPhone) {
-                existing.senderNumber = s.senderPhone;
-                existing.senderPhone = s.senderPhone;
-              }
-              if (s.status === 'COMPLETED') {
-                existing.status = 'Approved';
-              } else if (s.status === 'REJECTED') {
-                existing.status = 'Rejected';
-              } else if (s.status === 'PENDING' && existing.status !== 'Approved') {
-                existing.status = 'Pending';
-              }
+      const serverRes = await fetch('/api/admin/deposits', {
+        headers: { 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(2500),
+      }).catch(() => null);
 
-              // Keep Firestore collection in sync with updated method and TrxID
-              try {
-                const docId = existing.id || key;
-                const targetDoc = safeDoc('deposits', docId);
-                if (targetDoc) {
-                  safeSetDoc(
-                    targetDoc,
-                    {
-                      method: existing.method,
-                      trxId: existing.trxId,
-                      channel: existing.channel,
-                      status: existing.status,
-                      senderNumber: existing.senderNumber || '',
-                      updatedAt: serverTimestamp(),
-                    },
-                    { merge: true }
-                  ).catch(() => {});
+      if (serverRes && serverRes.ok) {
+        const ct = serverRes.headers.get('content-type') || '';
+        if (ct.includes('application/json')) {
+          const serverData = await serverRes.json();
+          if (serverData && serverData.success && Array.isArray(serverData.deposits)) {
+            for (const s of serverData.deposits) {
+              const key = s.orderId || s.trxId || s.id;
+              if (!key) continue;
+              const sMethod = resolveDepositMethod(s);
+              const existing =
+                mergedMap.get(key) ||
+                Array.from(mergedMap.values()).find(
+                  (m) =>
+                    (m.trxId && s.trxId && String(m.trxId).toUpperCase() === String(s.trxId).toUpperCase()) ||
+                    (m.orderNo && s.orderId && String(m.orderNo).toUpperCase() === String(s.orderId).toUpperCase()) ||
+                    (m.id && s.orderId && String(m.id).toUpperCase() === String(s.orderId).toUpperCase()) ||
+                    (m.id && s.trxId && String(m.id).toUpperCase() === String(s.trxId).toUpperCase()) ||
+                    (m.orderNo && s.trxId && String(m.orderNo).toUpperCase() === String(s.trxId).toUpperCase()) ||
+                    (m.trxId && s.orderId && String(m.trxId).toUpperCase() === String(s.orderId).toUpperCase())
+                );
+              if (existing) {
+                // Authoritatively update existing record with server method (Nagad/bKash), TrxID, and status
+                const isNagad = sMethod === 'Nagad' || resolveDepositMethod(existing) === 'Nagad' || String(s.method || '').toLowerCase().includes('nagad') || String(existing.method || '').toLowerCase().includes('nagad');
+                const isRocket = !isNagad && (sMethod === 'Rocket' || resolveDepositMethod(existing) === 'Rocket' || String(s.method || '').toLowerCase().includes('rocket'));
+                const updatedMethod = isNagad ? 'Nagad' : isRocket ? 'Rocket' : (s.method || existing.method || 'bKash');
+                existing.method = updatedMethod;
+                if (s.trxId && s.trxId !== s.orderId) {
+                  existing.trxId = s.trxId;
                 }
-              } catch (_) {}
-            } else {
-              const isNagad = sMethod === 'Nagad' || String(s.method || '').toLowerCase().includes('nagad');
-              const isRocket = !isNagad && (sMethod === 'Rocket' || String(s.method || '').toLowerCase().includes('rocket'));
-              const formattedItem = {
-                id: key,
-                userId: s.userId || 'USER1001',
-                userName: s.payerName || s.userId || 'Customer',
-                amount: Number(s.amount) || 0,
-                method: isNagad ? 'Nagad' : isRocket ? 'Rocket' : (s.method || 'bKash'),
-                channel: isNagad ? 'চ্যানেল ১ (Nagad)' : (s.channelName || s.channel || 'Nekpay (চ্যানেল ১)'),
-                trxId: s.trxId || key,
-                senderNumber: s.senderPhone || '',
-                senderPhone: s.senderPhone || '',
-                orderNo: s.orderId || key,
-                status: s.status === 'COMPLETED' ? 'Approved' : s.status === 'REJECTED' ? 'Rejected' : 'Pending',
-                createdAt: s.createdAt || new Date().toISOString(),
-              };
-              mergedMap.set(key, formattedItem);
+                if (s.channelName || s.channel) {
+                  existing.channel = isNagad ? 'চ্যানেল ১ (Nagad)' : (s.channelName || s.channel);
+                }
+                if (s.senderPhone) {
+                  existing.senderNumber = s.senderPhone;
+                  existing.senderPhone = s.senderPhone;
+                }
+                if (s.status === 'COMPLETED') {
+                  existing.status = 'Approved';
+                } else if (s.status === 'REJECTED') {
+                  existing.status = 'Rejected';
+                } else if (s.status === 'PENDING' && existing.status !== 'Approved') {
+                  existing.status = 'Pending';
+                }
 
-              // Auto-sync missing deposit into Firestore collection so it stays permanently in database!
-              try {
-                const targetDoc = safeDoc('deposits', key);
-                if (targetDoc) {
-                  safeSetDoc(
-                    targetDoc,
-                    {
-                      ...formattedItem,
-                      serverCreatedAt: serverTimestamp(),
-                    },
-                    { merge: true }
-                  ).catch(() => {});
-                }
-              } catch (_) {}
+                // Keep Firestore collection in sync with updated method and TrxID
+                try {
+                  const docId = existing.id || key;
+                  const targetDoc = safeDoc('deposits', docId);
+                  if (targetDoc) {
+                    safeSetDoc(
+                      targetDoc,
+                      {
+                        method: existing.method,
+                        trxId: existing.trxId,
+                        channel: existing.channel,
+                        status: existing.status,
+                        senderNumber: existing.senderNumber || '',
+                        updatedAt: serverTimestamp(),
+                      },
+                      { merge: true }
+                    ).catch(() => {});
+                  }
+                } catch (_) {}
+              } else {
+                const isNagad = sMethod === 'Nagad' || String(s.method || '').toLowerCase().includes('nagad');
+                const isRocket = !isNagad && (sMethod === 'Rocket' || String(s.method || '').toLowerCase().includes('rocket'));
+                const formattedItem = {
+                  id: key,
+                  userId: s.userId || 'USER1001',
+                  userName: s.payerName || s.userId || 'Customer',
+                  amount: Number(s.amount) || 0,
+                  method: isNagad ? 'Nagad' : isRocket ? 'Rocket' : (s.method || 'bKash'),
+                  channel: isNagad ? 'চ্যানেল ১ (Nagad)' : (s.channelName || s.channel || 'Nekpay (চ্যানেল ১)'),
+                  trxId: s.trxId || key,
+                  senderNumber: s.senderPhone || '',
+                  senderPhone: s.senderPhone || '',
+                  orderNo: s.orderId || key,
+                  status: s.status === 'COMPLETED' ? 'Approved' : s.status === 'REJECTED' ? 'Rejected' : 'Pending',
+                  createdAt: s.createdAt || new Date().toISOString(),
+                };
+                mergedMap.set(key, formattedItem);
+
+                // Auto-sync missing deposit into Firestore collection so it stays permanently in database!
+                try {
+                  const targetDoc = safeDoc('deposits', key);
+                  if (targetDoc) {
+                    safeSetDoc(
+                      targetDoc,
+                      {
+                        ...formattedItem,
+                        serverCreatedAt: serverTimestamp(),
+                      },
+                      { merge: true }
+                    ).catch(() => {});
+                  }
+                } catch (_) {}
+              }
             }
           }
-          const list = Array.from(mergedMap.values());
-          list.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
-          return list;
         }
       }
     } catch (_) {}
-    return firestoreList;
+
+    const list = Array.from(mergedMap.values());
+    list.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+    return list;
   };
 
   useEffect(() => {
@@ -1614,7 +1637,18 @@ export default function AdminPanel() {
       {/* Header Bar */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid #2e3856", paddingBottom: "12px", marginBottom: "20px" }}>
         <h2>⚙️ Admin Control Panel</h2>
-        <button onClick={() => setIsAuthenticated(false)} style={{ backgroundColor: "#dc3545", color: "#fff", border: "none", padding: "8px 16px", borderRadius: "6px", cursor: "pointer", fontWeight: "bold" }}>লগআউট</button>
+        <button
+          onClick={() => {
+            try {
+              localStorage.removeItem("nvt_admin_authenticated");
+              sessionStorage.removeItem("nvt_admin_authenticated");
+            } catch (_) {}
+            setIsAuthenticated(false);
+          }}
+          style={{ backgroundColor: "#dc3545", color: "#fff", border: "none", padding: "8px 16px", borderRadius: "6px", cursor: "pointer", fontWeight: "bold" }}
+        >
+          লগআউট
+        </button>
       </div>
 
       {statusMsg && <p style={{ padding: "10px", background: "#1b4332", color: "#d8f3dc", borderRadius: "6px", border: "1px solid #2d6a4f", marginBottom: "20px" }}>{statusMsg}</p>}
@@ -1658,66 +1692,69 @@ export default function AdminPanel() {
                     </tr>
                   </thead>
                   <tbody>
-                    {deposits.map((d) => (
-                      <tr key={d.id} style={{ borderBottom: "1px solid #1e293b" }}>
-                        <td style={{ padding: "10px" }}>
-                          <div style={{ fontWeight: "bold", color: "#fff" }}>{d.userName || d.name || d.email || "Customer"}</div>
-                          <div style={{ fontSize: "11px", color: "#94a3b8", fontFamily: "monospace" }}>ID: {d.userId || d.id}</div>
-                        </td>
-                        <td style={{ padding: "10px" }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap", marginBottom: "3px" }}>
-                            {(() => {
-                              const resolved = resolveDepositMethod(d);
-                              const isNagad = resolved === 'Nagad';
-                              const isRocket = resolved === 'Rocket';
-                              return (
-                                <button
-                                  type="button"
-                                  onClick={async (e) => {
-                                    e.stopPropagation();
-                                    const nextMethod = isNagad ? 'bKash' : 'Nagad';
-                                    const nextChannel = nextMethod === 'Nagad' ? 'চ্যানেল ১ (Nagad)' : 'চ্যানেল ১ (bKash)';
-                                    setDeposits((prev) =>
-                                      prev.map((item) =>
-                                        item.id === d.id ? { ...item, method: nextMethod, channel: nextChannel } : item
-                                      )
-                                    );
-                                    try {
-                                      const tDoc = safeDoc('deposits', d.id);
-                                      if (tDoc) {
-                                        safeSetDoc(tDoc, { method: nextMethod, channel: nextChannel, updatedAt: serverTimestamp() }, { merge: true }).catch(() => {});
-                                      }
-                                      fetch('/api/payments/update-method', {
-                                        method: 'POST',
-                                        headers: { 'Content-Type': 'application/json' },
-                                        body: JSON.stringify({ orderNo: d.orderNo || d.id || d.trxId, method: nextMethod })
-                                      }).catch(() => {});
-                                    } catch (_) {}
-                                  }}
-                                  title="ক্লিক করে বিকাশ/নগদ পরিবর্তন করুন"
-                                  style={{
-                                    padding: "2px 8px",
-                                    borderRadius: "4px",
-                                    fontSize: "11px",
-                                    fontWeight: "bold",
-                                    border: "none",
-                                    cursor: "pointer",
-                                    background: isNagad ? "#f7941d" : isRocket ? "#8c3494" : "#e2136e",
-                                    color: isNagad ? "#000" : "#fff",
-                                  }}
-                                >
-                                  {isNagad ? 'Nagad (নগদ)' : isRocket ? 'Rocket (রকেট)' : 'bKash (বিকাশ)'}
-                                </button>
-                              );
-                            })()}
-                            <span style={{ fontSize: "11px", color: "#6ee7b7", background: "rgba(16, 185, 129, 0.15)", padding: "1px 6px", borderRadius: "3px" }}>
-                              {String(d.channel || '').toLowerCase().includes('nekpay') || !d.channel
-                                ? (resolveDepositMethod(d) === 'Nagad' ? "চ্যানেল ১ (Nagad)" : "চ্যানেল ১ (bKash)")
-                                : d.channel}
-                            </span>
-                          </div>
-                          <div style={{ fontSize: "12px", color: "#cbd5e1" }}>{d.senderNumber || d.senderPhone || d.phone || "N/A"}</div>
-                        </td>
+                    {deposits.map((d) => {
+                      const itemMethod = resolveDepositMethod(d);
+                      const isNagad = itemMethod === 'Nagad';
+                      const isRocket = itemMethod === 'Rocket';
+                      const displayChannel =
+                        String(d.channel || '').toLowerCase().includes('nekpay') || !d.channel
+                          ? (isNagad ? "চ্যানেল ১ (Nagad)" : isRocket ? "চ্যানেল ১ (Rocket)" : "চ্যানেল ১ (bKash)")
+                          : d.channel;
+
+                      return (
+                        <tr key={d.id || d.orderNo || d.trxId} style={{ borderBottom: "1px solid #1e293b" }}>
+                          <td style={{ padding: "10px" }}>
+                            <div style={{ fontWeight: "bold", color: "#fff" }}>{d.userName || d.name || d.email || "Customer"}</div>
+                            <div style={{ fontSize: "11px", color: "#94a3b8", fontFamily: "monospace" }}>ID: {d.userId || d.id}</div>
+                          </td>
+                          <td style={{ padding: "10px" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap", marginBottom: "3px" }}>
+                              <button
+                                type="button"
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  const nextMethod = isNagad ? 'bKash' : 'Nagad';
+                                  const nextChannel = nextMethod === 'Nagad' ? 'চ্যানেল ১ (Nagad)' : 'চ্যানেল ১ (bKash)';
+                                  setDeposits((prev) =>
+                                    prev.map((item) =>
+                                      (item.id === d.id || (item.orderNo && item.orderNo === d.orderNo))
+                                        ? { ...item, method: nextMethod, channel: nextChannel }
+                                        : item
+                                    )
+                                  );
+                                  try {
+                                    const tDoc = safeDoc('deposits', d.id);
+                                    if (tDoc) {
+                                      safeSetDoc(tDoc, { method: nextMethod, channel: nextChannel, updatedAt: new Date().toISOString() }, { merge: true }).catch(() => {});
+                                    }
+                                    fetch('/api/payments/update-method', {
+                                      method: 'POST',
+                                      headers: { 'Content-Type': 'application/json' },
+                                      body: JSON.stringify({ orderNo: d.orderNo || d.id || d.trxId, method: nextMethod })
+                                    }).catch(() => {});
+                                  } catch (_) {}
+                                }}
+                                title="ক্লিক করে বিকাশ/নগদ পরিবর্তন করুন"
+                                style={{
+                                  padding: "3px 9px",
+                                  borderRadius: "4px",
+                                  fontSize: "11px",
+                                  fontWeight: "bold",
+                                  border: "none",
+                                  cursor: "pointer",
+                                  background: isNagad ? "#f7941d" : isRocket ? "#8c3494" : "#e2136e",
+                                  color: isNagad ? "#000" : "#fff",
+                                  boxShadow: "0 1px 3px rgba(0,0,0,0.3)",
+                                }}
+                              >
+                                {isNagad ? 'Nagad (নগদ)' : isRocket ? 'Rocket (রকেট)' : 'bKash (বিকাশ)'}
+                              </button>
+                              <span style={{ fontSize: "11px", color: "#6ee7b7", background: "rgba(16, 185, 129, 0.15)", padding: "1px 6px", borderRadius: "3px" }}>
+                                {displayChannel}
+                              </span>
+                            </div>
+                            <div style={{ fontSize: "12px", color: "#cbd5e1" }}>{d.senderNumber || d.senderPhone || d.phone || "N/A"}</div>
+                          </td>
                         <td style={{ padding: "10px", fontFamily: "monospace", color: "#38bdf8", fontWeight: "bold" }}>
                           <div>{d.trxId || d.transactionId || d.orderNo || "N/A"}</div>
                           {d.orderNo && d.trxId && d.orderNo !== d.trxId && (

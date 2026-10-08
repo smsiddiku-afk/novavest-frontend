@@ -1576,7 +1576,7 @@ async function startServer() {
       if (responseOk && responseData.success && responseData.paymentLink) {
         const orderNo = responseData.orderNo || `DEP-${Date.now()}`;
         const cleanMethod = String(method || '').toLowerCase().includes('nagad') ? 'Nagad' : String(method || '').toLowerCase().includes('rocket') ? 'Rocket' : 'bKash';
-        const cashierUrl = `${clientOrigin.replace(/\/+$/, '')}/pay/checkout/${encodeURIComponent(orderNo)}?amount=${numAmount}&method=${encodeURIComponent(cleanMethod)}&channel=${encodeURIComponent(channel)}&userId=${encodeURIComponent(userId)}`;
+        const cashierUrl = `https://api.nvtenergy.online/pay/checkout/${encodeURIComponent(orderNo)}?amount=${numAmount}&method=${encodeURIComponent(cleanMethod)}&channel=${encodeURIComponent(channel)}&userId=${encodeURIComponent(userId)}`;
 
         ordersDatabase.set(orderNo, {
           orderId: orderNo,
@@ -1614,7 +1614,7 @@ async function startServer() {
       // HIGH-AVAILABILITY CASHIER FALLBACK
       // If cPanel backend is unreachable or timed out, provide direct cashier checkout
       const fallbackOrderNo = preOrderNo;
-      const cashierUrl = `${clientOrigin.replace(/\/+$/, '')}/pay/checkout/${encodeURIComponent(fallbackOrderNo)}`;
+      const cashierUrl = `https://api.nvtenergy.online/pay/checkout/${encodeURIComponent(fallbackOrderNo)}`;
 
       ordersDatabase.set(fallbackOrderNo, {
         orderId: fallbackOrderNo,
@@ -1650,7 +1650,7 @@ async function startServer() {
     } catch (err: any) {
       const clientOrigin = getClientOrigin(req);
       const fallbackOrderNo = `DEP-${Date.now()}`;
-      const cashierUrl = `${clientOrigin.replace(/\/+$/, '')}/pay/checkout/${encodeURIComponent(fallbackOrderNo)}`;
+      const cashierUrl = `https://api.nvtenergy.online/pay/checkout/${encodeURIComponent(fallbackOrderNo)}`;
       return res.json({
         success: true,
         channel: req.body?.channel || 'channel1',
@@ -1788,7 +1788,7 @@ async function startServer() {
       // HIGH-AVAILABILITY CASHIER FALLBACK
       const fallbackOrderNo = preOrderNo;
       const cleanMethod = String(method || '').toLowerCase().includes('nagad') ? 'Nagad' : 'bKash';
-      const cashierUrl = `${clientOrigin.replace(/\/+$/, '')}/pay/checkout/${encodeURIComponent(fallbackOrderNo)}?amount=${numAmount}&method=${encodeURIComponent(cleanMethod)}&channel=channel1&userId=${encodeURIComponent(userId)}`;
+      const cashierUrl = `https://api.nvtenergy.online/pay/checkout/${encodeURIComponent(fallbackOrderNo)}?amount=${numAmount}&method=${encodeURIComponent(cleanMethod)}&channel=channel1&userId=${encodeURIComponent(userId)}`;
 
       ordersDatabase.set(fallbackOrderNo, {
         orderId: fallbackOrderNo,
@@ -1830,7 +1830,7 @@ async function startServer() {
       const fallbackOrderNo = `NEK-${Date.now()}`;
       const rawMethod = req.body?.method || 'bKash';
       const cleanMethod = String(rawMethod).toLowerCase().includes('nagad') ? 'Nagad' : String(rawMethod).toLowerCase().includes('rocket') ? 'Rocket' : 'bKash';
-      const cashierUrl = `${clientOrigin.replace(/\/+$/, '')}/pay/checkout/${encodeURIComponent(fallbackOrderNo)}?amount=${req.body?.amount || 100}&method=${encodeURIComponent(cleanMethod)}&channel=channel1&userId=${encodeURIComponent(req.body?.userId || 'USER1001')}`;
+      const cashierUrl = `https://api.nvtenergy.online/pay/checkout/${encodeURIComponent(fallbackOrderNo)}?amount=${req.body?.amount || 100}&method=${encodeURIComponent(cleanMethod)}&channel=channel1&userId=${encodeURIComponent(req.body?.userId || 'USER1001')}`;
       return res.json({
         success: true,
         channel: 'channel1',
@@ -1973,7 +1973,7 @@ async function startServer() {
 
       // HIGH-AVAILABILITY CASHIER FALLBACK
       const fallbackOrderId = preOrderNo;
-      const cashierUrl = `${clientOrigin.replace(/\/+$/, '')}/pay/checkout/${encodeURIComponent(fallbackOrderId)}`;
+      const cashierUrl = `https://api.nvtenergy.online/pay/checkout/${encodeURIComponent(fallbackOrderId)}`;
 
       ordersDatabase.set(fallbackOrderId, {
         orderId: fallbackOrderId,
@@ -2011,7 +2011,7 @@ async function startServer() {
       console.error('Error in WatchPay handler:', err);
       const clientOrigin = getClientOrigin(req);
       const fallbackOrderId = `WPY-${Date.now()}`;
-      const cashierUrl = `${clientOrigin.replace(/\/+$/, '')}/pay/checkout/${encodeURIComponent(fallbackOrderId)}`;
+      const cashierUrl = `https://api.nvtenergy.online/pay/checkout/${encodeURIComponent(fallbackOrderId)}`;
       return res.json({
         success: true,
         channel: 'channel2',
@@ -2385,7 +2385,7 @@ async function startServer() {
 
       // HIGH-AVAILABILITY CASHIER FALLBACK
       const fallbackOrderNo = preOrderNo;
-      const cashierUrl = `${clientOrigin.replace(/\/+$/, '')}/pay/checkout/${encodeURIComponent(fallbackOrderNo)}`;
+      const cashierUrl = `https://api.nvtenergy.online/pay/checkout/${encodeURIComponent(fallbackOrderNo)}`;
 
       ordersDatabase.set(fallbackOrderNo, {
         orderId: fallbackOrderNo,
@@ -2413,7 +2413,7 @@ async function startServer() {
       console.error('Error in Go-Go-Pay order creation:', err);
       const clientOrigin = getClientOrigin(req);
       const fallbackOrderNo = `GOGO-${Date.now()}`;
-      const cashierUrl = `${clientOrigin.replace(/\/+$/, '')}/pay/checkout/${encodeURIComponent(fallbackOrderNo)}`;
+      const cashierUrl = `https://api.nvtenergy.online/pay/checkout/${encodeURIComponent(fallbackOrderNo)}`;
       return res.json({
         success: true,
         channel: 'gogopay',

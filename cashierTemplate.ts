@@ -802,7 +802,7 @@ export function generateCashierHtml(
       // Safe same-origin return URL - always lands on /profile with query params
       const returnPath = '/profile?' + queryParams.toString();
       const currentOrigin = (typeof window !== 'undefined' && window.location && window.location.origin)
-        ? window.location.origin.replace(/\/+$/, '')
+        ? window.location.origin.replace(/\\/+$/, '')
         : '';
       const fullUrl = currentOrigin ? (currentOrigin + returnPath) : returnPath;
 

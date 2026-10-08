@@ -785,13 +785,36 @@ export const registerWithFirebase = async (
   }
 
   if (inviterData && inviterData.canRefer === false) {
-    return {
-      success: false,
-      error:
-        lang === 'bn'
-          ? 'এই রেফারেল কোডটির ব্যবহারের অনুমতি নেই। দয়া করে ব্যবস্থাপক প্রতিনিধির সঙ্গে যোগাযোগ করুন।'
-          : 'This referral code requires manager permission. Please contact manager representative.',
-    };
+    // Check server database and local cache to verify if permission was granted by admin
+    let serverCanRefer = false;
+    for (const v of variants) {
+      if (typeof window !== 'undefined' && window.localStorage?.getItem(`nvt_admin_saved_limit_${v}`)) {
+        serverCanRefer = true;
+        break;
+      }
+      try {
+        const sRes = await fetch(`/api/referral/check-permission/${encodeURIComponent(v)}`);
+        if (sRes.ok) {
+          const sData = await sRes.json();
+          if (sData?.canRefer) {
+            serverCanRefer = true;
+            break;
+          }
+        }
+      } catch (_) {}
+    }
+
+    if (!serverCanRefer) {
+      return {
+        success: false,
+        error:
+          lang === 'bn'
+            ? 'এই রেফারেল কোডটির ব্যবহারের অনুমতি নেই। দয়া করে ব্যবস্থাপক প্রতিনিধির সঙ্গে যোগাযোগ করুন।'
+            : 'This referral code requires manager permission. Please contact manager representative.',
+      };
+    } else {
+      inviterData.canRefer = true;
+    }
   }
 
   // Cache phone-to-email mapping locally so phone sign-in always works instantly

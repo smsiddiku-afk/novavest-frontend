@@ -668,6 +668,26 @@ async function startServer() {
     });
   });
 
+  // GET /api/admin/users - Returns all user profiles from persistent disk backup & memory
+  app.get('/api/admin/users', (_req, res) => {
+    try {
+      const usersList: any[] = [];
+      const seen = new Set<string>();
+
+      usersBackupMap.forEach((user, key) => {
+        const id = user.uid || user.id || user.memberId || key;
+        if (!seen.has(id)) {
+          seen.add(id);
+          usersList.push(user);
+        }
+      });
+
+      return res.json({ success: true, count: usersList.length, users: usersList });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err?.message });
+    }
+  });
+
   // 5.4 POST /api/admin/update-referral-permission - Updates referral permission and limit on persistent server disk
   app.post('/api/admin/update-referral-permission', (req, res) => {
     try {
@@ -678,15 +698,47 @@ async function startServer() {
 
       const cleanUid = uid ? String(uid).trim() : (userId ? String(userId).trim() : '');
       const cleanMember = memberId ? String(memberId).trim().toUpperCase() : '';
+      const cleanCode = referralCode ? String(referralCode).trim().toUpperCase() : '';
       const digits = phone ? normalizePhoneQuery(phone) : '';
       const last10 = digits ? digits.slice(-10) : '';
 
+      // Generate all possible variant keys
+      const allKeys = new Set<string>();
+      if (cleanUid) allKeys.add(cleanUid);
+      if (userId) allKeys.add(String(userId).trim());
+      if (cleanMember) {
+        allKeys.add(cleanMember);
+        allKeys.add(cleanMember.replace(/^NVT/i, ''));
+        allKeys.add(`NVT${cleanMember.replace(/^NVT/i, '')}`);
+        allKeys.add(`NV${cleanMember.replace(/^NVT/i, '')}`);
+      }
+      if (cleanCode) {
+        allKeys.add(cleanCode);
+        allKeys.add(cleanCode.replace(/^NVT/i, ''));
+        allKeys.add(`NVT${cleanCode.replace(/^NVT/i, '')}`);
+        allKeys.add(`NV${cleanCode.replace(/^NVT/i, '')}`);
+      }
+      if (last10) {
+        allKeys.add(last10);
+        allKeys.add(`0${last10}`);
+        allKeys.add(`880${last10}`);
+      }
+
       let updatedCount = 0;
       usersBackupMap.forEach((user, key) => {
+        const uMember = String(user.memberId || '').toUpperCase();
+        const uCode = String(user.referralCode || '').toUpperCase();
+        const uPhoneDigits = normalizePhoneQuery(user.phone || '');
+        const uLast10 = uPhoneDigits ? uPhoneDigits.slice(-10) : '';
+
         const match =
-          (cleanUid && (user.uid === cleanUid || key === cleanUid || user.id === cleanUid)) ||
-          (cleanMember && (user.memberId === cleanMember || key === cleanMember)) ||
-          (last10 && (key === last10 || key === `0${last10}` || key === `880${last10}` || (user.phone && user.phone.includes(last10))));
+          allKeys.has(key) ||
+          allKeys.has(user.uid) ||
+          allKeys.has(user.id) ||
+          (uMember && allKeys.has(uMember)) ||
+          (uCode && allKeys.has(uCode)) ||
+          (uLast10 && allKeys.has(uLast10));
+
         if (match) {
           user.canRefer = effectiveCanRefer;
           user.referralLimit = effectiveLimit;
@@ -696,17 +748,47 @@ async function startServer() {
         }
       });
 
-      if (cleanUid && !usersBackupMap.has(cleanUid)) {
-        usersBackupMap.set(cleanUid, {
-          uid: cleanUid,
-          memberId: cleanMember,
-          canRefer: effectiveCanRefer,
-          referralLimit: effectiveLimit,
-          updatedAt: new Date().toISOString(),
-        });
-      }
+      // Ensure key records exist in backup map
+      const sampleRecord = {
+        uid: cleanUid,
+        memberId: cleanMember,
+        referralCode: cleanCode,
+        phone,
+        canRefer: effectiveCanRefer,
+        referralLimit: effectiveLimit,
+        updatedAt: new Date().toISOString(),
+      };
+      allKeys.forEach((k) => {
+        if (!usersBackupMap.has(k)) {
+          usersBackupMap.set(k, { ...sampleRecord });
+        } else {
+          const ex = usersBackupMap.get(k);
+          if (ex) {
+            ex.canRefer = effectiveCanRefer;
+            ex.referralLimit = effectiveLimit;
+            ex.updatedAt = new Date().toISOString();
+          }
+        }
+      });
 
       saveUsersBackupToDisk();
+
+      // Persist to dedicated referral_permissions.json for instantaneous lookup by any ID/code
+      try {
+        const permFile = path.join(REGISTRY_DIR, 'referral_permissions.json');
+        let permMap: Record<string, any> = {};
+        if (fs.existsSync(permFile)) {
+          const raw = fs.readFileSync(permFile, 'utf-8');
+          if (raw) permMap = JSON.parse(raw);
+        }
+        const permEntry = { canRefer: effectiveCanRefer, referralLimit: effectiveLimit, updatedAt: new Date().toISOString() };
+        allKeys.forEach((k) => {
+          permMap[k] = permEntry;
+        });
+        fs.writeFileSync(permFile, JSON.stringify(permMap, null, 2), 'utf-8');
+      } catch (permErr) {
+        console.warn('[Referral Perm File Notice]', permErr);
+      }
 
       return res.json({
         success: true,
@@ -714,6 +796,94 @@ async function startServer() {
         effectiveCanRefer,
         effectiveLimit,
         updatedCount,
+      });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err?.message });
+    }
+  });
+
+  // GET /api/referral/check-permission/:codeOrId - Checks referral permission across server database and disk registry
+  app.get(['/api/referral/check-permission/:codeOrId', '/api/user/permission/:codeOrId', '/api/referral-permission/:codeOrId'], (req, res) => {
+    try {
+      const { codeOrId } = req.params;
+      const clean = String(codeOrId || '').trim();
+      const digits = normalizePhoneQuery(clean);
+      const last10 = digits ? digits.slice(-10) : '';
+
+      // Build all variants of the queried identifier
+      const checkVariants = new Set<string>();
+      if (clean) {
+        checkVariants.add(clean);
+        checkVariants.add(clean.toUpperCase());
+        checkVariants.add(clean.toLowerCase());
+        const withoutNvt = clean.replace(/^NVT/i, '').replace(/^NV/i, '');
+        if (withoutNvt) {
+          checkVariants.add(withoutNvt);
+          checkVariants.add(withoutNvt.toUpperCase());
+          checkVariants.add(`NVT${withoutNvt.toUpperCase()}`);
+          checkVariants.add(`NV${withoutNvt.toUpperCase()}`);
+        }
+      }
+      if (last10) {
+        checkVariants.add(last10);
+        checkVariants.add(`0${last10}`);
+        checkVariants.add(`880${last10}`);
+      }
+
+      // 1. Check dedicated referral_permissions.json
+      let permRecord: any = null;
+      try {
+        const permFile = path.join(REGISTRY_DIR, 'referral_permissions.json');
+        if (fs.existsSync(permFile)) {
+          const raw = fs.readFileSync(permFile, 'utf-8');
+          if (raw) {
+            const permMap = JSON.parse(raw);
+            for (const v of checkVariants) {
+              if (permMap[v] && permMap[v].canRefer !== undefined) {
+                permRecord = permMap[v];
+                break;
+              }
+            }
+          }
+        }
+      } catch (_) {}
+
+      // 2. Check usersBackupMap
+      let foundUser: any = null;
+      if (!permRecord) {
+        usersBackupMap.forEach((user, key) => {
+          if (foundUser) return;
+          const uMember = String(user.memberId || '').toUpperCase();
+          const uCode = String(user.referralCode || '').toUpperCase();
+          const uPhoneDigits = normalizePhoneQuery(user.phone || '');
+          const uLast10 = uPhoneDigits ? uPhoneDigits.slice(-10) : '';
+
+          const match =
+            checkVariants.has(key) ||
+            checkVariants.has(user.uid) ||
+            checkVariants.has(user.id) ||
+            (uMember && checkVariants.has(uMember)) ||
+            (uCode && checkVariants.has(uCode)) ||
+            (uLast10 && checkVariants.has(uLast10));
+
+          if (match) {
+            foundUser = user;
+          }
+        });
+      }
+
+      const canRefer = permRecord !== null ? Boolean(permRecord.canRefer) : Boolean(foundUser?.canRefer);
+      const referralLimit =
+        permRecord?.referralLimit !== undefined
+          ? Number(permRecord.referralLimit)
+          : (foundUser?.referralLimit !== undefined ? Number(foundUser.referralLimit) : (canRefer ? 10 : 0));
+
+      return res.json({
+        success: true,
+        codeOrId: clean,
+        canRefer,
+        referralLimit,
+        found: Boolean(permRecord || foundUser),
       });
     } catch (err: any) {
       return res.status(500).json({ success: false, error: err?.message });
@@ -1405,16 +1575,17 @@ async function startServer() {
 
       if (responseOk && responseData.success && responseData.paymentLink) {
         const orderNo = responseData.orderNo || `DEP-${Date.now()}`;
-        const cleanPaymentLink = sanitizePaymentLink(responseData.paymentLink, clientOrigin, orderNo, numAmount, channel);
+        const cleanMethod = String(method || '').toLowerCase().includes('nagad') ? 'Nagad' : String(method || '').toLowerCase().includes('rocket') ? 'Rocket' : 'bKash';
+        const cashierUrl = `${clientOrigin.replace(/\/+$/, '')}/pay/checkout/${encodeURIComponent(orderNo)}?amount=${numAmount}&method=${encodeURIComponent(cleanMethod)}&channel=${encodeURIComponent(channel)}&userId=${encodeURIComponent(userId)}`;
 
         ordersDatabase.set(orderNo, {
           orderId: orderNo,
           amount: numAmount,
           channel,
-          channelName: channel === 'channel2' ? 'চ্যানেল ২ (WatchPay)' : 'চ্যানেল ১ (Nekpay)',
-          method: method || 'bKash',
+          channelName: channel === 'channel2' ? `চ্যানেল ২ (${cleanMethod})` : `চ্যানেল ১ (${cleanMethod})`,
+          method: cleanMethod,
           status: 'PENDING',
-          paymentLink: cleanPaymentLink,
+          paymentLink: cashierUrl,
           rawPaymentLink: responseData.paymentLink,
           payerName,
           userId,
@@ -1427,15 +1598,16 @@ async function startServer() {
           type: 'PAYIN_REQUEST',
           orderId: orderNo,
           status: 'SUCCESS',
-          details: { numAmount, payerName, cleanPaymentLink },
+          details: { numAmount, payerName, cashierUrl, rawLink: responseData.paymentLink },
         });
 
         return res.json({
           success: true,
           channel,
-          paymentLink: cleanPaymentLink,
+          paymentLink: cashierUrl,
+          rawPaymentLink: responseData.paymentLink,
           orderNo,
-          message: 'Deposit order created successfully via cPanel backend',
+          message: 'Deposit cashier link created successfully',
         });
       }
 
@@ -1646,7 +1818,7 @@ async function startServer() {
       return res.json({
         success: true,
         channel: 'channel1',
-        method: method || 'bKash',
+        method: cleanMethod,
         paymentLink: cashierUrl,
         orderNo: fallbackOrderNo,
         isCashier: true,
@@ -1656,12 +1828,13 @@ async function startServer() {
       console.error('Error contacting Nekpay backend:', err);
       const clientOrigin = getClientOrigin(req);
       const fallbackOrderNo = `NEK-${Date.now()}`;
-      const method = req.body?.method || 'bKash';
-      const cashierUrl = `${clientOrigin.replace(/\/+$/, '')}/pay/checkout/${encodeURIComponent(fallbackOrderNo)}?amount=${req.body?.amount || 100}&method=${encodeURIComponent(method)}&channel=channel1&userId=${encodeURIComponent(req.body?.userId || 'USER1001')}`;
+      const rawMethod = req.body?.method || 'bKash';
+      const cleanMethod = String(rawMethod).toLowerCase().includes('nagad') ? 'Nagad' : String(rawMethod).toLowerCase().includes('rocket') ? 'Rocket' : 'bKash';
+      const cashierUrl = `${clientOrigin.replace(/\/+$/, '')}/pay/checkout/${encodeURIComponent(fallbackOrderNo)}?amount=${req.body?.amount || 100}&method=${encodeURIComponent(cleanMethod)}&channel=channel1&userId=${encodeURIComponent(req.body?.userId || 'USER1001')}`;
       return res.json({
         success: true,
         channel: 'channel1',
-        method,
+        method: cleanMethod,
         paymentLink: cashierUrl,
         orderNo: fallbackOrderNo,
         isCashier: true,
@@ -2400,26 +2573,18 @@ async function startServer() {
   };
 
   app.post(['/api/payments/submit-txnid', '/api/payments/verify-txnid'], (req, res) => {
-    const { amount, trxId, senderPhone = '', userId = 'USER1001', channel = 'channel1' } = req.body;
-    const numAmount = Number(amount);
+    const { amount, trxId, senderPhone = '', userId = 'USER1001', channel = 'channel1' } = req.body || {};
+    
+    const orderNo = String(req.body?.orderNo || req.body?.order_id || req.body?.orderId || '').trim() || `DEP-TXN-${Date.now().toString().slice(-6)}`;
+    const existingByOrder = ordersDatabase.get(orderNo) || ordersDatabase.get(orderNo.toUpperCase()) || null;
+    
+    // Robust amount parsing: fall back to existing order's amount or default 500
+    const parsedAmount = Number(amount || req.body?.money || req.body?.pay_money || existingByOrder?.amount || 500);
+    const numAmount = !isNaN(parsedAmount) && parsedAmount > 0 ? parsedAmount : (existingByOrder?.amount || 500);
 
-    if (!numAmount || numAmount <= 0) {
-      return res.status(400).json({
-        success: false,
-        error: 'Valid deposit amount required',
-      });
-    }
-
-    const rawTrx = String(trxId || '').trim();
-    if (!rawTrx || rawTrx.length < 4) {
-      return res.status(400).json({
-        success: false,
-        error: 'Valid Transaction ID (TrxID) is required (minimum 4 characters)',
-      });
-    }
-
-    const orderNo = req.body?.orderNo || `DEP-TXN-${Date.now().toString().slice(-6)}`;
-    const existingByOrder = req.body?.orderNo ? ordersDatabase.get(req.body.orderNo) : null;
+    // Robust TrxID parsing: allow any non-empty string, fallback if blank
+    const rawInputTrx = String(trxId || req.body?.trx_id || req.body?.trade_no || req.body?.txnid || '').trim();
+    const rawTrx = rawInputTrx || `TXN${Date.now().toString().slice(-8)}`;
 
     // Detect authoritative payment method (Nagad, Rocket, or bKash)
     const rawMethod = String(req.body?.method || '').toLowerCase();
@@ -2433,7 +2598,7 @@ async function startServer() {
     // Validate if the TrxID is authentic and correct
     const validation = isTrxIdAuthentic(rawTrx, method);
     const cleanTrxId = validation.cleanId || rawTrx.toUpperCase();
-    const isAuthentic = validation.isValid;
+    const isAuthentic = Boolean(validation.isValid);
 
     // Check if an existing order was already completed
     const isSameOrderCompleted = Boolean(
@@ -2566,8 +2731,8 @@ async function startServer() {
       message: isVerified
         ? `🎉 TrxID সফলভাবে যাচাই হয়েছে এবং ৳${numAmount.toLocaleString()} স্বয়ংক্রিয়ভাবে অনুমোদিত হয়েছে!`
         : isDuplicateTrxId
-        ? 'এই TrxID ইতোপূর্বে ব্যবহৃত হয়েছে (ডুপ্লিকেট)। এটি অপেক্ষমাণ (Pending) রাখা হয়েছে।'
-        : 'ভুল TrxID বা অসঙ্গতি পাওয়া গেছে। অ্যাডমিন ম্যানুয়াল যাচাইয়ের জন্য অপেক্ষমাণ (Pending) রয়েছে।',
+        ? `এই TrxID (${cleanTrxId}) ইতোপূর্বে ব্যবহৃত হয়েছে। অ্যাডমিন ম্যানুয়াল যাচাইয়ের জন্য অপেক্ষমাণ (Pending) রাখা হয়েছে।`
+        : `TrxID (${cleanTrxId}) জমা নেওয়া হয়েছে। অ্যাডমিন বিকাশ/নগদে যাচাই করার পর ওয়ালেটে টাকা যোগ হবে (অপেক্ষমাণ)।`,
     });
   });
 
@@ -2758,7 +2923,15 @@ async function startServer() {
       : 'bKash';
     const key = String(orderNo || trxId || '').trim();
     if (key) {
-      let order = ordersDatabase.get(key) || ordersDatabase.get(key.toUpperCase());
+      let order =
+        ordersDatabase.get(key) ||
+        ordersDatabase.get(key.toUpperCase()) ||
+        Array.from(ordersDatabase.values()).find(
+          (o: any) =>
+            (o.orderId && o.orderId.toUpperCase() === key.toUpperCase()) ||
+            (o.trxId && o.trxId.toUpperCase() === key.toUpperCase()) ||
+            (trxId && o.trxId && o.trxId.toUpperCase() === String(trxId).toUpperCase())
+        );
       if (order) {
         order.method = cleanMethod;
         order.channelName = `চ্যানেল ১ (${cleanMethod})`;

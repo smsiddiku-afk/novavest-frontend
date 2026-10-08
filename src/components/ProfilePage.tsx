@@ -116,7 +116,7 @@ import {
 
 interface ProfilePageProps {
   initialUser?: Partial<UserProfile>;
-  initialTab?: 'home' | 'invest' | 'positions' | 'transactions' | 'wallet' | 'referral' | 'profile';
+  initialTab?: 'home' | 'invest' | 'positions' | 'transactions' | 'wallet' | 'referral' | 'profile' | 'deposit' | 'recharge';
   currentLang?: Language;
   onToggleLang?: (lang: Language) => void;
   onNavigateBack: () => void;
@@ -570,7 +570,18 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       setIsPromoModalOpen(true);
     };
     window.addEventListener('open_nvt_promo_banner', handleOpenPromo);
-    return () => window.removeEventListener('open_nvt_promo_banner', handleOpenPromo);
+
+    const handleOpenDepositEvent = () => {
+      setActiveSubModal('recharge');
+    };
+    window.addEventListener('open_deposit_modal', handleOpenDepositEvent);
+    window.addEventListener('open_recharge_modal', handleOpenDepositEvent);
+
+    return () => {
+      window.removeEventListener('open_nvt_promo_banner', handleOpenPromo);
+      window.removeEventListener('open_deposit_modal', handleOpenDepositEvent);
+      window.removeEventListener('open_recharge_modal', handleOpenDepositEvent);
+    };
   }, []);
 
   const [isCopied, setIsCopied] = useState(false);
@@ -590,12 +601,33 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     | 'engineering'
     | 'esg'
     | null
-  >(null);
+  >(() => {
+    if (initialTab === 'deposit' || initialTab === 'recharge') return 'recharge';
+    if (typeof window !== 'undefined') {
+      const p = window.location.pathname.toLowerCase();
+      const s = window.location.search.toLowerCase();
+      const h = window.location.hash.toLowerCase();
+      if (p.includes('/deposit') || p.includes('/recharge') || s.includes('deposit') || s.includes('recharge') || h.includes('deposit') || h.includes('recharge')) {
+        return 'recharge';
+      }
+    }
+    return null;
+  });
 
   const [localTab, setLocalTab] = useState<
     'home' | 'invest' | 'positions' | 'transactions' | 'wallet' | 'referral' | 'profile'
-  >(initialTab || 'home');
-  const currentTab = initialTab || localTab;
+  >(() => {
+    if (initialTab === 'deposit' || initialTab === 'recharge') return 'home';
+    return (initialTab as any) || 'home';
+  });
+
+  const currentTab = (initialTab === 'deposit' || initialTab === 'recharge' ? 'home' : initialTab) || localTab;
+
+  useEffect(() => {
+    if (initialTab === 'deposit' || initialTab === 'recharge') {
+      setActiveSubModal('recharge');
+    }
+  }, [initialTab]);
   const [isWalletHistoryModalOpen, setIsWalletHistoryModalOpen] = useState(false);
   const [isTreasureModalOpen, setIsTreasureModalOpen] = useState(false);
   const [isProjectManagerOpen, setIsProjectManagerOpen] = useState(false);
@@ -628,22 +660,62 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
   };
 
   // Real-time synchronization whenever referral tab is active so approval opens immediately
-  useEffect(() => {
-    if (currentTab === 'referral') {
-      const activeUid = user.uid || auth.currentUser?.uid || user.memberId;
-      if (activeUid) {
-        getFirestoreUserProfile(activeUid).then((latestProfile) => {
-          if (latestProfile && (Boolean(latestProfile.canRefer) !== Boolean(user.canRefer) || (latestProfile.referralLimit !== undefined && latestProfile.referralLimit !== user.referralLimit))) {
-            updateUser((prev) => ({
-              ...prev,
-              canRefer: Boolean(latestProfile.canRefer),
-              referralLimit: typeof latestProfile.referralLimit === 'number' ? latestProfile.referralLimit : (prev.referralLimit ?? 0),
-            }));
-          }
-        }).catch(() => {});
+  const checkLiveReferralPermission = async (): Promise<{ canRefer: boolean; limit: number }> => {
+    const activeUid = user.uid || auth.currentUser?.uid || user.memberId || '';
+    const memberId = user.memberId || '';
+    const refCode = user.referralCode || '';
+    const phone = user.phone || '';
+
+    // 1. Check local admin saved limit cache
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const keys = [activeUid, memberId, refCode];
+      for (const k of keys) {
+        if (k && window.localStorage.getItem(`nvt_admin_saved_limit_${k}`)) {
+          const lim = Number(window.localStorage.getItem(`nvt_admin_saved_limit_${k}`)) || 10;
+          return { canRefer: true, limit: lim };
+        }
       }
     }
-  }, [currentTab, user.uid, user.memberId, user.canRefer, user.referralLimit]);
+
+    // 2. Check Firestore
+    try {
+      if (activeUid) {
+        const profile = await getFirestoreUserProfile(activeUid);
+        if (profile && profile.canRefer) {
+          return { canRefer: true, limit: profile.referralLimit || 10 };
+        }
+      }
+    } catch (_) {}
+
+    // 3. Check Server endpoint
+    const lookupKeys = [activeUid, memberId, refCode, phone].filter(Boolean);
+    for (const key of lookupKeys) {
+      try {
+        const res = await fetch(`/api/referral/check-permission/${encodeURIComponent(key)}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.success && data.canRefer) {
+            return { canRefer: true, limit: data.referralLimit || 10 };
+          }
+        }
+      } catch (_) {}
+    }
+
+    return { canRefer: false, limit: 0 };
+  };
+
+  useEffect(() => {
+    // Check permission on mount and when tab changes or if user has canRefer: false
+    checkLiveReferralPermission().then((res) => {
+      if (res.canRefer) {
+        updateUser((prev) => ({
+          ...prev,
+          canRefer: true,
+          referralLimit: res.limit || prev.referralLimit || 10,
+        }));
+      }
+    }).catch(() => {});
+  }, [currentTab, user.uid, user.memberId]);
 
   // Auto-scroll window to top whenever currentTab changes (ensures user always lands at the top of Profile, Promo Bonus, etc.)
   useEffect(() => {
@@ -2082,22 +2154,14 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       }
     }
 
-    // VIP requirement check (VIP 1 required for packages larger than Basic Plan 1200 BDT)
+    // VIP requirement check: Strictly adhere to package's configured requiredVipLevel (0 = open to all)
     const effectiveVip = computedVipLevel;
-    const isLargerPackage = matchedPlan && (matchedPlan.minInvestmentBdt > 1200 || matchedPlan.requiredVipLevel >= 1);
-    if (isLargerPackage && effectiveVip < 1) {
+    const reqVip = matchedPlan ? Number(matchedPlan.requiredVipLevel || 0) : 0;
+    if (reqVip > 0 && effectiveVip < reqVip) {
       showToast(
         currentLang === 'bn'
-          ? 'VIP 1 ছাড়া বড় প্যাকেজগুলো কিনতে পারবেন না! ১ম লেভেলে ৩ জন সক্রিয় রেফারেল যুক্ত করে VIP 1 সক্রিয় করুন।'
-          : 'VIP 1 is required to buy larger packages! Please activate VIP 1 with 3 active Level 1 referrals first.'
-      );
-      return;
-    }
-    if (matchedPlan && matchedPlan.requiredVipLevel > 0 && effectiveVip < matchedPlan.requiredVipLevel) {
-      showToast(
-        currentLang === 'bn'
-          ? `এই প্যাকেজে বিনিয়োগ করতে অন্তত VIP ${matchedPlan.requiredVipLevel} মেম্বারশিপ প্রয়োজন!`
-          : `VIP ${matchedPlan.requiredVipLevel} level required for this package!`
+          ? `এই প্যাকেজে বিনিয়োগ করতে অন্তত VIP ${reqVip} মেম্বারশিপ প্রয়োজন!`
+          : `VIP ${reqVip} level required for this package!`
       );
       return;
     }
@@ -2285,14 +2349,32 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     setTimeout(() => setIsCopied(false), 2000);
   };
 
-  const handleCopyReferral = () => {
-    if (!user.canRefer) {
+  const handleCopyReferral = async () => {
+    let currentCanRefer = user.canRefer;
+    let currentLimit = user.referralLimit || 10;
+
+    if (!currentCanRefer) {
+      try {
+        const liveRes = await checkLiveReferralPermission();
+        if (liveRes.canRefer) {
+          currentCanRefer = true;
+          currentLimit = liveRes.limit || 10;
+          updateUser((prev) => ({
+            ...prev,
+            canRefer: true,
+            referralLimit: currentLimit,
+          }));
+        }
+      } catch (_) {}
+    }
+
+    if (!currentCanRefer) {
       setReferralBlockReason('no_permission');
       setIsManagerReferralModalOpen(true);
       return;
     }
     const directCount = referralTree?.level1Count || 0;
-    if (user.referralLimit !== undefined && Number(user.referralLimit) > 0 && directCount >= Number(user.referralLimit)) {
+    if (currentLimit > 0 && directCount >= currentLimit) {
       setReferralBlockReason('limit_reached');
       setIsManagerReferralModalOpen(true);
       return;
@@ -2774,35 +2856,33 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               currentLang={currentLang}
               onBack={() => switchTab('home')}
               onContactManager={() => openCrispChat()}
-              onCheckPermission={() => {
-                const activeUid = user.uid || auth.currentUser?.uid || user.memberId;
-                if (activeUid) {
-                  getFirestoreUserProfile(activeUid).then((latestProfile) => {
-                    if (latestProfile && latestProfile.canRefer) {
-                      updateUser((prev) => ({
-                        ...prev,
-                        canRefer: true,
-                        referralLimit: typeof latestProfile.referralLimit === 'number' ? latestProfile.referralLimit : (prev.referralLimit ?? 0),
-                      }));
-                      showToast(
-                        currentLang === 'bn'
-                          ? '✅ রেফারেল পারমিশন সক্রিয় হয়েছে!'
-                          : '✅ Referral permission activated!'
-                      );
-                    } else {
-                      showToast(
-                        currentLang === 'bn'
-                          ? '⏳ এখনো ম্যানেজারের অনুমোদন পেন্ডিং রয়েছে।'
-                          : '⏳ Manager authorization is still pending.'
-                      );
-                    }
-                  }).catch(() => {
+              onCheckPermission={async () => {
+                try {
+                  const res = await checkLiveReferralPermission();
+                  if (res.canRefer) {
+                    updateUser((prev) => ({
+                      ...prev,
+                      canRefer: true,
+                      referralLimit: res.limit || prev.referralLimit || 10,
+                    }));
                     showToast(
                       currentLang === 'bn'
-                        ? 'অনুমোদন যাচাই করতে সমস্যা হয়েছে।'
-                        : 'Failed to verify permission.'
+                        ? '✅ রেফারেল পারমিশন সক্রিয় হয়েছে!'
+                        : '✅ Referral permission activated!'
                     );
-                  });
+                  } else {
+                    showToast(
+                      currentLang === 'bn'
+                        ? '⏳ এখনো ম্যানেজারের অনুমোদন পেন্ডিং রয়েছে।'
+                        : '⏳ Manager authorization is still pending.'
+                    );
+                  }
+                } catch {
+                  showToast(
+                    currentLang === 'bn'
+                      ? 'অনুমোদন যাচাই করতে সমস্যা হয়েছে।'
+                      : 'Failed to verify permission.'
+                  );
                 }
               }}
             />
@@ -3848,6 +3928,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           onOpenHistory={() => {
             setIsWalletHistoryModalOpen(true);
           }}
+          showToast={showToast}
         />
       )}
 

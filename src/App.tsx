@@ -20,9 +20,9 @@ import {
 import { registerUserInReferralNetwork, extractPendingReferralCode } from './utils/referralService';
 import { initCrisp, syncUserWithCrisp, fetchSupportSettings } from './utils/crispService';
 
-type ProtectedTab = 'home' | 'invest' | 'positions' | 'transactions' | 'wallet' | 'referral' | 'profile';
+type ProtectedTab = 'home' | 'invest' | 'positions' | 'transactions' | 'wallet' | 'referral' | 'profile' | 'deposit' | 'recharge';
 
-const PROTECTED_TABS: ProtectedTab[] = ['home', 'invest', 'positions', 'transactions', 'wallet', 'referral', 'profile'];
+const PROTECTED_TABS: ProtectedTab[] = ['home', 'invest', 'positions', 'transactions', 'wallet', 'referral', 'profile', 'deposit', 'recharge'];
 
 // Helper to get normalized path
 const getCleanPath = (): string => {
@@ -342,7 +342,9 @@ export default function App() {
   // ─────────────────────────────────────────────────────────────
   const pathSegment = currentPath.replace('/', '').toLowerCase();
   let currentTab: ProtectedTab = 'home';
-  if (pathSegment === 'promo' || pathSegment === 'bonus') {
+  if (pathSegment === 'deposit' || pathSegment === 'recharge' || pathSegment === 'payin') {
+    currentTab = 'deposit';
+  } else if (pathSegment === 'promo' || pathSegment === 'bonus') {
     currentTab = 'wallet';
   } else if (pathSegment === 'history' || pathSegment === 'transactions' || pathSegment === 'positions' || pathSegment === 'position') {
     currentTab = 'positions';

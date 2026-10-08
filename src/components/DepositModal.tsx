@@ -20,6 +20,7 @@ interface DepositModalProps {
   isAuthenticatorSet?: boolean;
   authenticatorSecret?: string;
   onOpenSecuritySettings?: () => void;
+  showToast?: (msg: string) => void;
 }
 
 export const DepositModal: React.FC<DepositModalProps> = ({
@@ -33,13 +34,15 @@ export const DepositModal: React.FC<DepositModalProps> = ({
   isAuthenticatorSet = false,
   authenticatorSecret,
   onOpenSecuritySettings,
+  showToast,
 }) => {
   if (!isOpen) return null;
 
   return (
     <div
       id="deposit-modal-full-overlay"
-      className="fixed inset-0 z-50 overflow-y-auto bg-[#06483A] flex flex-col items-center justify-start animate-in fade-in"
+      className="fixed inset-0 z-[99999] overflow-y-auto bg-[#06483A] flex flex-col items-center justify-start animate-in fade-in"
+      style={{ isolation: 'isolate' }}
     >
       <CleanWalletScreen
         currentBalance={currentBalance}
@@ -54,6 +57,7 @@ export const DepositModal: React.FC<DepositModalProps> = ({
         isAuthenticatorSet={isAuthenticatorSet}
         authenticatorSecret={authenticatorSecret}
         onOpenSecuritySettings={onOpenSecuritySettings}
+        showToast={showToast}
       />
     </div>
   );

@@ -56,32 +56,63 @@ export const RegisterCard: React.FC<RegisterCardProps> = ({
       // Check manager permission for inviter if referral code is provided
       if (inviterCode) {
         try {
-          const usersQuery = query(collection(db, 'users'), where('referralCode', '==', inviterCode));
-          const inviterSnap = await getDocs(usersQuery);
-          if (!inviterSnap.empty) {
-            const inviterData = inviterSnap.docs[0].data();
-            if (!inviterData.canRefer) {
-              const permErr = currentLang === 'bn'
-                ? 'এই রেফারেল কোডটির ব্যবহারের অনুমতি নেই। দয়া করে ব্যবস্থাপক প্রতিনিধির সঙ্গে যোগাযোগ করুন।'
-                : 'This referral code requires manager permission. Please contact manager representative.';
-              setErrorMsg(permErr);
-              if (showToast) showToast(permErr);
+          const variants = [inviterCode, inviterCode.toUpperCase(), inviterCode.toLowerCase()];
+          let inviterCanRefer = false;
+          let checked = false;
+
+          for (const v of variants) {
+            if (typeof window !== 'undefined' && window.localStorage?.getItem(`nvt_admin_saved_limit_${v}`)) {
+              inviterCanRefer = true;
+              checked = true;
+              break;
+            }
+            try {
+              const sRes = await fetch(`/api/referral/check-permission/${encodeURIComponent(v)}`);
+              if (sRes.ok) {
+                const sData = await sRes.json();
+                if (sData?.canRefer) {
+                  inviterCanRefer = true;
+                  checked = true;
+                  break;
+                }
+              }
+            } catch (_) {}
+          }
+
+          let inviterData: any = null;
+          if (!inviterCanRefer) {
+            const usersQuery = query(collection(db, 'users'), where('referralCode', '==', inviterCode));
+            const inviterSnap = await getDocs(usersQuery);
+            if (!inviterSnap.empty) {
+              inviterData = inviterSnap.docs[0].data();
+              if (inviterData?.canRefer) {
+                inviterCanRefer = true;
+              }
+              checked = true;
+            }
+          }
+
+          if (checked && !inviterCanRefer) {
+            const permErr = currentLang === 'bn'
+              ? 'এই রেফারেল কোডটির ব্যবহারের অনুমতি নেই। দয়া করে ব্যবস্থাপক প্রতিনিধির সঙ্গে যোগাযোগ করুন।'
+              : 'This referral code requires manager permission. Please contact manager representative.';
+            setErrorMsg(permErr);
+            if (showToast) showToast(permErr);
+            setIsLoading(false);
+            return;
+          }
+
+          if (inviterData && inviterData.referralLimit !== undefined && Number(inviterData.referralLimit) > 0) {
+            const qCount = query(collection(db, 'users'), where('referredBy', '==', inviterCode));
+            const cSnap = await getDocs(qCount);
+            if (cSnap.size >= Number(inviterData.referralLimit)) {
+              const limitErr = currentLang === 'bn'
+                ? 'এই রেফারেল কোডের সর্বোচ্চ রেফার সীমা পূর্ণ হয়েছে। দয়া করে ব্যবস্থাপক প্রতিনিধির সঙ্গে যোগাযোগ করুন।'
+                : 'Referral limit reached for this code. Please contact manager representative.';
+              setErrorMsg(limitErr);
+              if (showToast) showToast(limitErr);
               setIsLoading(false);
               return;
-            }
-
-            if (inviterData.referralLimit !== undefined && Number(inviterData.referralLimit) > 0) {
-              const qCount = query(collection(db, 'users'), where('referredBy', '==', inviterCode));
-              const cSnap = await getDocs(qCount);
-              if (cSnap.size >= Number(inviterData.referralLimit)) {
-                const limitErr = currentLang === 'bn'
-                  ? 'এই রেফারেল কোডের সর্বোচ্চ রেফার সীমা পূর্ণ হয়েছে। দয়া করে ব্যবস্থাপক প্রতিনিধির সঙ্গে যোগাযোগ করুন।'
-                  : 'Referral limit reached for this code. Please contact manager representative.';
-                setErrorMsg(limitErr);
-                if (showToast) showToast(limitErr);
-                setIsLoading(false);
-                return;
-              }
             }
           }
         } catch (vErr: any) {

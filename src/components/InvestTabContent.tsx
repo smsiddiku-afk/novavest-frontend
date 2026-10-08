@@ -76,6 +76,24 @@ export const INVESTMENT_PLANS: InvestmentPlan[] = [
     requiredVipLevel: 0,
   },
   {
+    id: 'eco-growth-3000',
+    category: 'solar',
+    badgeCategoryEn: 'Solar & Wind',
+    badgeCategoryBn: 'সোলার ও উইন্ড',
+    badgeIconType: 'sun',
+    nameEn: 'Growth Plan (৳3,000)',
+    nameBn: 'গ্রোথ প্ল্যান (৳৩,০০০)',
+    taglineEn: 'High Daily Returns | Open to All (VIP 0)',
+    taglineBn: 'উচ্চ দৈনিক লাভ | সবার জন্য উন্মুক্ত (VIP 0)',
+    image: '/images/solar_ai_substation_1788465992131.jpg',
+    minInvestmentUsd: 25,
+    minInvestmentBdt: 3000,
+    durationDays: 35,
+    dailyReturnPercent: 2.5,
+    totalReturnPercent: 87.5,
+    requiredVipLevel: 0,
+  },
+  {
     id: 'standard-plan',
     category: 'wind',
     badgeCategoryEn: 'Wind Energy',
@@ -292,18 +310,13 @@ export const InvestTabContent: React.FC<InvestTabContentProps> = ({
   const handleOpenInvest = (plan: InvestmentPlan) => {
     setInsufficientError(null);
 
-    // Rule 1: VIP 1 is strictly required for all packages larger than Basic Plan (1200 BDT)
-    const isLargerPackage = plan.minInvestmentBdt > 1200 || plan.requiredVipLevel >= 1;
-    if (isLargerPackage && userVipLevel < 1) {
+    // VIP Level Requirement Check: Strictly adhere to the package's configured requiredVipLevel (0 = open for all users)
+    const reqVip = Number(plan.requiredVipLevel || 0);
+    if (reqVip > 0 && userVipLevel < reqVip) {
       setVipLockModal({
         ...plan,
-        requiredVipLevel: 1,
+        requiredVipLevel: reqVip,
       });
-      return;
-    }
-
-    if (plan.requiredVipLevel > 0 && userVipLevel < plan.requiredVipLevel) {
-      setVipLockModal(plan);
       return;
     }
 
@@ -648,7 +661,7 @@ export const InvestTabContent: React.FC<InvestTabContentProps> = ({
                         <Lock className="w-4 h-4" />
                       </div>
                       <span className="text-[10px] font-black text-amber-300 tracking-wider uppercase">
-                        {isBn ? 'VIP 1 প্রয়োজন' : 'VIP 1 Required'}
+                        {isBn ? `VIP ${plan.requiredVipLevel} প্রয়োজন` : `VIP ${plan.requiredVipLevel} Required`}
                       </span>
                     </div>
                   )}
@@ -681,7 +694,7 @@ export const InvestTabContent: React.FC<InvestTabContentProps> = ({
                             : 'bg-[#00e676]/20 border-[#00e676]/40 text-[#00e676]'
                         }`}>
                           {isVipLocked ? <Lock className="w-3 h-3 text-amber-400" /> : <ShieldCheck className="w-3 h-3 text-[#00e676]" />}
-                          <span>{isVipLocked ? (isBn ? 'VIP 1 লক' : 'VIP 1 Locked') : (isBn ? 'VIP 1 আনলকড' : 'VIP 1 Unlocked')}</span>
+                          <span>{isVipLocked ? (isBn ? `VIP ${plan.requiredVipLevel} লক` : `VIP ${plan.requiredVipLevel} Locked`) : (isBn ? `VIP ${plan.requiredVipLevel} আনলকড` : `VIP ${plan.requiredVipLevel} Unlocked`)}</span>
                         </span>
                       )}
                     </div>
@@ -750,7 +763,7 @@ export const InvestTabContent: React.FC<InvestTabContentProps> = ({
                       className="px-4 py-2.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/40 text-amber-300 font-extrabold text-xs flex items-center gap-1.5 transition-all cursor-pointer active:scale-95 shadow-md shadow-amber-950/30"
                     >
                       <Lock className="w-3.5 h-3.5 text-amber-400" />
-                      <span>{isBn ? 'VIP 1 প্রয়োজন' : 'VIP 1 Required'}</span>
+                      <span>{isBn ? `VIP ${plan.requiredVipLevel} প্রয়োজন` : `VIP ${plan.requiredVipLevel} Required`}</span>
                     </button>
                   ) : isLimitExceeded ? (
                     <button
@@ -899,12 +912,12 @@ export const InvestTabContent: React.FC<InvestTabContentProps> = ({
                 <Lock className="w-7 h-7" />
               </div>
               <h3 className="text-lg font-black text-white">
-                {isBn ? 'VIP 1 মেম্বারশিপ লক' : 'VIP 1 Level Required'}
+                {isBn ? `VIP ${vipLockModal.requiredVipLevel} মেম্বারশিপ লক` : `VIP ${vipLockModal.requiredVipLevel} Level Required`}
               </h3>
               <p className="text-xs text-amber-300 font-semibold mt-1">
                 {isBn
-                  ? `"${vipLockModal.nameBn}" প্ল্যানটি শুধুমাত্র VIP 1 ও তদূর্ধ্ব গ্রাহকদের জন্য সংরক্ষিত।`
-                  : `"${vipLockModal.nameEn}" is reserved exclusively for VIP 1 members.`}
+                  ? `"${vipLockModal.nameBn}" প্ল্যানটি শুধুমাত্র VIP ${vipLockModal.requiredVipLevel} ও তদূর্ধ্ব গ্রাহকদের জন্য সংরক্ষিত।`
+                  : `"${vipLockModal.nameEn}" is reserved exclusively for VIP ${vipLockModal.requiredVipLevel} members.`}
               </p>
             </div>
 
@@ -921,8 +934,8 @@ export const InvestTabContent: React.FC<InvestTabContentProps> = ({
                 <span className="w-5 h-5 rounded-full bg-amber-500/20 border border-amber-400/40 text-amber-300 font-bold flex items-center justify-center shrink-0 text-[11px]">2</span>
                 <p>
                   {isBn
-                    ? 'VIP 1 ছাড়া বড় প্যাকেজগুলো কেনা যাবে না। শুধুমাত্র বেসিক প্ল্যান (Basic Plan - ৳১,২০০) সকল নতুন ব্যবহারকারীর জন্য উন্মুক্ত।'
-                    : 'Packages larger than Basic Plan require VIP 1. Only Basic Plan (৳1,200) is open to entry-level accounts.'}
+                    ? `এই প্যাকেজটি অ্যাক্টিভ করতে আপনার একাউন্টে অন্তত VIP ${vipLockModal.requiredVipLevel} স্তর প্রয়োজন। রেফারেল বৃদ্ধি করে VIP স্তর বৃদ্ধি করুন।`
+                    : `Activating this package requires at least VIP ${vipLockModal.requiredVipLevel} level. Grow your referrals to level up.`}
                 </p>
               </div>
               <div className="flex items-start gap-2">

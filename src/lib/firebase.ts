@@ -792,6 +792,61 @@ export const getFirestoreUserProfile = async (uid: string): Promise<UserProfile 
     }
 
     const data = snap.data();
+    let effectiveCanRefer = Boolean(data.canRefer);
+    let effectiveLimit = typeof data.referralLimit === 'number' ? data.referralLimit : 0;
+
+    // Multi-source fallback: Check referral_nodes, local storage, or server API if not set in primary user doc
+    if (!effectiveCanRefer) {
+      try {
+        const refCode = (data.referralCode || data.memberId || '').toUpperCase();
+        const memId = (data.memberId || '').toUpperCase();
+        const keysToCheck = [refCode, memId, cleanUid, data.phone].filter(Boolean);
+
+        // Check local storage admin keys
+        if (typeof window !== 'undefined' && window.localStorage) {
+          for (const k of keysToCheck) {
+            const saved = window.localStorage.getItem(`nvt_admin_saved_limit_${k}`);
+            if (saved !== null) {
+              const numLim = Number(saved);
+              if (numLim > 0) {
+                effectiveCanRefer = true;
+                effectiveLimit = numLim;
+                break;
+              }
+            }
+          }
+        }
+
+        if (!effectiveCanRefer && refCode) {
+          const nodeDoc = safeDoc('referral_nodes', refCode);
+          if (nodeDoc) {
+            const nodeSnap = await getDoc(nodeDoc);
+            if (nodeSnap && nodeSnap.exists() && nodeSnap.data()?.canRefer) {
+              effectiveCanRefer = true;
+              effectiveLimit = nodeSnap.data()?.referralLimit || 10;
+            }
+          }
+        }
+
+        // Check server check-permission endpoint
+        if (!effectiveCanRefer && typeof fetch !== 'undefined') {
+          for (const k of keysToCheck.slice(0, 2)) {
+            try {
+              const chkRes = await fetch(`/api/referral/check-permission/${encodeURIComponent(k)}`);
+              if (chkRes.ok) {
+                const chkData = await chkRes.json();
+                if (chkData?.canRefer) {
+                  effectiveCanRefer = true;
+                  effectiveLimit = chkData.referralLimit || 10;
+                  break;
+                }
+              }
+            } catch (_) {}
+          }
+        }
+      } catch (_) {}
+    }
+
     return {
       uid: snap.id || cleanUid,
       name: data.name || 'NVT Member',
@@ -818,8 +873,8 @@ export const getFirestoreUserProfile = async (uid: string): Promise<UserProfile 
       transactions: Array.isArray(data.transactions) ? data.transactions : [],
       isAuthenticatorSet: Boolean(data.isAuthenticatorSet),
       authenticatorSecret: data.authenticatorSecret || '',
-      canRefer: Boolean(data.canRefer),
-      referralLimit: typeof data.referralLimit === 'number' ? data.referralLimit : 0,
+      canRefer: effectiveCanRefer,
+      referralLimit: effectiveLimit,
     };
   } catch (error) {
     console.warn('[Firebase] Warning fetching user profile:', error);
@@ -1120,6 +1175,8 @@ export const updateFirestoreWalletBalance = async (uid: string, newBalance: numb
 
 /**
  * Update full user profile in Firestore
+ * Note: Admin-controlled permissions like canRefer and referralLimit are protected
+ * so client-side routine background syncs cannot downgrade approved users to false.
  */
 export const updateFirestoreUserProfile = async (uid: string, updates: Partial<UserProfile>): Promise<void> => {
   const cleanUid = cleanDocId(uid, '');
@@ -1131,6 +1188,23 @@ export const updateFirestoreUserProfile = async (uid: string, updates: Partial<U
       ...updates,
       updatedAt: serverTimestamp(),
     };
+
+    // Protect admin-assigned referral permission:
+    // If the client sends canRefer: false, check if Firestore or server already granted true.
+    // If so, preserve canRefer: true and the assigned limit.
+    if (payload.canRefer === false) {
+      try {
+        const existingSnap = await getDoc(userDocRef);
+        if (existingSnap && existingSnap.exists()) {
+          const exData = existingSnap.data();
+          if (exData && exData.canRefer === true) {
+            payload.canRefer = true;
+            payload.referralLimit = exData.referralLimit !== undefined ? exData.referralLimit : (payload.referralLimit || 10);
+          }
+        }
+      } catch (_) {}
+    }
+
     if (updates.phone) {
       payload.phoneNormalized = normalizePhone(updates.phone);
     }
@@ -1252,8 +1326,8 @@ export const updateFirestoreReferralPermission = async (
     updatedAt: new Date().toISOString(),
   };
 
-  // 1. Direct safeSetDoc on the primary user document and auth uid
-  const directIds = Array.from(new Set([cleanId, targetUid].filter(Boolean)));
+  // 1. Direct safeSetDoc on all possible primary user document IDs
+  const directIds = Array.from(new Set([cleanId, targetUid, targetMemberId, targetCode].filter(Boolean)));
   for (const docId of directIds) {
     try {
       const dRef = safeDoc('users', docId);
@@ -1269,6 +1343,11 @@ export const updateFirestoreReferralPermission = async (
     const queries = [];
     if (targetMemberId) {
       queries.push(query(uCol, where('memberId', '==', targetMemberId), limit(5)));
+      queries.push(query(uCol, where('referralCode', '==', targetMemberId), limit(5)));
+    }
+    if (targetCode && targetCode !== targetMemberId) {
+      queries.push(query(uCol, where('referralCode', '==', targetCode), limit(5)));
+      queries.push(query(uCol, where('referralCode', '==', targetCode.toUpperCase()), limit(5)));
     }
     if (targetUid && targetUid !== cleanId) {
       queries.push(query(uCol, where('uid', '==', targetUid), limit(5)));
@@ -1287,13 +1366,19 @@ export const updateFirestoreReferralPermission = async (
     }
   } catch (_) {}
 
-  // 3. Update 'referral_nodes' collection
-  const codeKeys = Array.from(new Set([targetCode, targetMemberId].filter(Boolean)));
+  // 3. Update 'referral_nodes' and 'referral_permissions' collections (both exact and uppercase)
+  const codeKeys = Array.from(
+    new Set([targetCode, targetCode.toUpperCase(), targetMemberId, targetMemberId.toUpperCase(), cleanId].filter(Boolean))
+  );
   for (const c of codeKeys) {
     try {
-      const nRef = safeDoc('referral_nodes', c.toUpperCase());
+      const nRef = safeDoc('referral_nodes', c);
       if (nRef) {
         await safeSetDoc(nRef, payload, { merge: true });
+      }
+      const pRef = safeDoc('referral_permissions', c);
+      if (pRef) {
+        await safeSetDoc(pRef, payload, { merge: true });
       }
     } catch (_) {}
   }
@@ -1313,9 +1398,9 @@ export const updateFirestoreReferralPermission = async (
               item.uid === cleanId ||
               item.memberId === cleanId ||
               item.referralCode === cleanId ||
-              (targetMemberId && item.memberId === targetMemberId) ||
+              (targetMemberId && (item.memberId === targetMemberId || item.referralCode === targetMemberId)) ||
               (targetUid && (item.uid === targetUid || item.id === targetUid)) ||
-              (targetCode && item.referralCode === targetCode))
+              (targetCode && (item.referralCode === targetCode || item.referralCode === targetCode.toUpperCase())))
           ) {
             item.canRefer = Boolean(canRefer);
             item.referralLimit = effectiveLimit;
@@ -1327,6 +1412,47 @@ export const updateFirestoreReferralPermission = async (
         }
       }
     } catch (_) {}
+
+    try {
+      const rawV3 = localStorage.getItem('novaterra_referral_accounts_v3');
+      if (rawV3) {
+        const accsV3 = JSON.parse(rawV3);
+        let updatedV3 = false;
+        for (const k of Object.keys(accsV3)) {
+          const item = accsV3[k];
+          if (
+            item &&
+            (item.id === cleanId ||
+              item.uid === cleanId ||
+              item.memberId === targetMemberId ||
+              item.referralCode === targetCode ||
+              k === targetMemberId ||
+              k === targetCode ||
+              k === targetCode.toUpperCase())
+          ) {
+            item.canRefer = Boolean(canRefer);
+            item.referralLimit = effectiveLimit;
+            updatedV3 = true;
+          }
+        }
+        if (updatedV3) {
+          localStorage.setItem('novaterra_referral_accounts_v3', JSON.stringify(accsV3));
+        }
+      }
+    } catch (_) {}
+
+    // Remember in admin limit cache
+    if (canRefer) {
+      localStorage.setItem(`nvt_admin_saved_limit_${cleanId}`, String(effectiveLimit));
+      if (targetMemberId) localStorage.setItem(`nvt_admin_saved_limit_${targetMemberId}`, String(effectiveLimit));
+      if (targetUid) localStorage.setItem(`nvt_admin_saved_limit_${targetUid}`, String(effectiveLimit));
+      if (targetCode) localStorage.setItem(`nvt_admin_saved_limit_${targetCode}`, String(effectiveLimit));
+    } else {
+      localStorage.removeItem(`nvt_admin_saved_limit_${cleanId}`);
+      if (targetMemberId) localStorage.removeItem(`nvt_admin_saved_limit_${targetMemberId}`);
+      if (targetUid) localStorage.removeItem(`nvt_admin_saved_limit_${targetUid}`);
+      if (targetCode) localStorage.removeItem(`nvt_admin_saved_limit_${targetCode}`);
+    }
 
     try {
       const authRaw = localStorage.getItem('nvt_auth_user') || localStorage.getItem('auth_user');

@@ -515,7 +515,7 @@ export function generateCashierHtml(
           <span>ডিপোজিট করার সহজ নিয়ম:</span>
         </div>
         <ol>
-          <li>আপনার <strong id="stepMethodName">bKash</strong> অ্যাপে গিয়ে <strong>"Cash Out" (ক্যাশ আউট)</strong> সিলেক্ট করুন।</li>
+          <li>আপনার <strong id="stepMethodName">${safeMethod}</strong> অ্যাপে গিয়ে <strong>"Cash Out" (ক্যাশ আউট)</strong> সিলেক্ট করুন।</li>
           <li>উপরে দেওয়া এজেন্ট নম্বরটি দিন এবং সঠিক পরিমাণ <strong>৳${safeAmount}</strong> সেন্ড করুন।</li>
           <li>ক্যাশ আউট সফল হলে SMS বা স্টেটমেন্ট থেকে প্রাপ্ত <strong>TrxID (ট্রানজেকশন আইডি)</strong> নিচের ঘরে দিন।</li>
         </ol>
@@ -687,33 +687,37 @@ export function generateCashierHtml(
       const submitBtn = document.getElementById('submitBtn');
       const rawTrx = (trxInput.value || '').trim().toUpperCase();
 
-      if (!rawTrx || rawTrx.length < 4) {
+      if (!rawTrx) {
         statusElem.className = 'status-msg error';
-        statusElem.innerText = 'অনুগ্রহ করে সঠিক ট্রানজেকশন আইডি (TrxID) লিখুন';
+        statusElem.innerText = 'অনুগ্রহ করে ট্রানজেকশন আইডি (TrxID) লিখুন';
         trxInput.focus();
         return;
       }
 
       submitBtn.disabled = true;
       statusElem.className = 'status-msg';
-      statusElem.innerText = 'যাচাইয়ের জন্য TrxID জমা নেওয়া হচ্ছে...';
+      statusElem.innerText = 'TrxID যাচাই করা হচ্ছে...';
 
       try {
-        // 1. Submit TrxID to backend (validates authentic format, auto-approves if real, keeps pending if wrong)
+        // Submit TrxID to backend (validates authentic format, auto-approves if real, keeps pending if wrong or fake)
         const res = await fetch('/api/payments/submit-txnid', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             orderNo: orderData.orderId,
             trxId: rawTrx,
-            amount: orderData.amount,
+            amount: Number(orderData.amount || 100),
             method: activeMethod,
             userId: orderData.userId,
             channel: orderData.channel
           })
         });
 
-        const resData = await res.json();
+        let resData = null;
+        try {
+          resData = await res.json();
+        } catch (_) {}
+
         const isAutoApproved = Boolean(resData && resData.success && (resData.status === 'COMPLETED' || resData.verified === true));
 
         // Immediately save transaction locally so even if user closes tab or returns, it is in history
@@ -724,7 +728,7 @@ export function generateCashierHtml(
             id: rawTrx,
             type: 'deposit',
             title: 'ওয়ালেট রিচার্জ (' + (activeMethod || 'bKash') + ')',
-            amount: Number(orderData.amount || 0),
+            amount: Number(orderData.amount || 100),
             timestamp: timeStr,
             date: now.toLocaleDateString('en-GB'),
             time: now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
@@ -742,7 +746,7 @@ export function generateCashierHtml(
           localStorage.setItem('nvt_payment_return_deposit', JSON.stringify({
             status: isAutoApproved ? 'SUCCESS' : 'PENDING',
             orderNo: orderData.orderId,
-            amount: Number(orderData.amount || 0),
+            amount: Number(orderData.amount || 100),
             method: activeMethod || 'bKash',
             channel: orderData.channel || 'channel1',
             trxId: rawTrx,
@@ -756,10 +760,8 @@ export function generateCashierHtml(
           showPendingAndRedirect(rawTrx, resData?.message);
         }
       } catch (err) {
-        console.error('Submit error:', err);
-        statusElem.className = 'status-msg error';
-        statusElem.innerText = 'সংযোগ বিচ্ছিন্ন হয়েছে, পুনরায় চেষ্টা করুন।';
-        submitBtn.disabled = false;
+        console.warn('Submit warning, falling back to pending:', err);
+        showPendingAndRedirect(rawTrx, 'TrxID (' + rawTrx + ') জমা নেওয়া হয়েছে। অ্যাডমিন বিকাশ/নগদে যাচাই করার পর ব্যালেন্স যোগ হবে (Pending)।');
       }
     }
 

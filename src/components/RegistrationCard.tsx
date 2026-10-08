@@ -342,6 +342,27 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
         } catch (_) {}
       }
 
+      // Check server backup and permission registry if not found yet
+      if (!inviterFound) {
+        for (const v of variants) {
+          try {
+            const sRes = await fetch(`/api/referral/check-permission/${encodeURIComponent(v)}`);
+            if (sRes.ok) {
+              const sData = await sRes.json();
+              if (sData?.found) {
+                inviterFound = true;
+                inviterData = {
+                  canRefer: Boolean(sData.canRefer),
+                  referralLimit: sData.referralLimit || 10,
+                  referralCode: v,
+                };
+                break;
+              }
+            }
+          } catch (_) {}
+        }
+      }
+
       // If the database has 0 users (e.g. freshly created or purged), allow master root bootstrapping
       if (!inviterFound && isMasterBootCode) {
         try {
@@ -373,15 +394,38 @@ export const RegistrationCard: React.FC<RegistrationCardProps> = ({
       }
 
       // Check manager permission
-      if (inviterData && inviterData.canRefer === false) {
-        const permErr =
-          lang === 'bn'
-            ? 'এই রেফারেল কোডটির ব্যবহারের অনুমতি নেই। দয়া করে ব্যবস্থাপক প্রতিনিধির সঙ্গে যোগাযোগ করুন।'
-            : 'This referral code requires manager permission. Please contact manager representative.';
-        setGeneralError(permErr);
-        setErrors((prev) => ({ ...prev, referralCode: permErr }));
-        setIsSubmitting(false);
-        return;
+      if (inviterData && !inviterData.canRefer) {
+        let serverCanRefer = false;
+        for (const v of variants) {
+          if (typeof window !== 'undefined' && window.localStorage?.getItem(`nvt_admin_saved_limit_${v}`)) {
+            serverCanRefer = true;
+            break;
+          }
+          try {
+            const sRes = await fetch(`/api/referral/check-permission/${encodeURIComponent(v)}`);
+            if (sRes.ok) {
+              const sData = await sRes.json();
+              if (sData?.canRefer) {
+                serverCanRefer = true;
+                if (sData.referralLimit) inviterData.referralLimit = sData.referralLimit;
+                break;
+              }
+            }
+          } catch (_) {}
+        }
+
+        if (!serverCanRefer) {
+          const permErr =
+            lang === 'bn'
+              ? 'এই রেফারেল কোডটির ব্যবহারের অনুমতি নেই। দয়া করে ব্যবস্থাপক প্রতিনিধির সঙ্গে যোগাযোগ করুন।'
+              : 'This referral code requires manager permission. Please contact manager representative.';
+          setGeneralError(permErr);
+          setErrors((prev) => ({ ...prev, referralCode: permErr }));
+          setIsSubmitting(false);
+          return;
+        } else {
+          inviterData.canRefer = true;
+        }
       }
 
       // Check referral limit

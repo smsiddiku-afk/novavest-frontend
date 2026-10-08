@@ -130,9 +130,14 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
       await new Promise(r => setTimeout(r, 400));
       setLoadingStep(2);
 
-      await Promise.resolve(
+      const res: any = await Promise.resolve(
         onConfirmRecharge(num, selectedMethod, selectedChannel)
       );
+
+      const targetUrl = res?.paymentLink || res?.cashierUrl || res?.order?.paymentLink;
+      if (targetUrl) {
+        setRedirectUrl(targetUrl);
+      }
 
       displayToast(
         currentLang === 'bn'

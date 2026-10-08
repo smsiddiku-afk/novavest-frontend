@@ -142,6 +142,7 @@ export const PromoBonusScreen: React.FC<PromoBonusScreenProps> = ({
   onNavigateToReferral,
   onClaimReward,
   showToast,
+  onOpenWalletDeposit,
 }) => {
   // Support easy toggle between English and Bengali matching screenshot
   const [lang, setLang] = useState<'en' | 'bn'>(() => {
@@ -392,10 +393,20 @@ export const PromoBonusScreen: React.FC<PromoBonusScreenProps> = ({
             </h1>
           </button>
 
-          {/* Right Controls: Currency & Language Switcher */}
-          <div className="flex items-center gap-2">
+          {/* Right Controls: Deposit Button, Currency & Language Switcher */}
+          <div className="flex items-center gap-1.5 sm:gap-2">
+            {onOpenWalletDeposit && (
+              <button
+                type="button"
+                onClick={onOpenWalletDeposit}
+                className="flex items-center gap-1 px-3 py-1 rounded-full text-[12px] font-black bg-gradient-to-r from-emerald-400 to-[#00e676] text-slate-950 transition-all cursor-pointer shadow-md shadow-emerald-950/40 active:scale-95"
+              >
+                <span>{lang === 'en' ? 'Deposit' : 'ডিপোজিট'}</span>
+              </button>
+            )}
+
             {/* Currency Pill: '৳ BDT >' */}
-            <div className="flex items-center gap-1 px-3 py-1 rounded-full text-[12px] font-bold bg-[#04281c] border border-[#10b981]/50 text-[#34d399] shadow-sm">
+            <div className="flex items-center gap-1 px-2.5 sm:px-3 py-1 rounded-full text-[12px] font-bold bg-[#04281c] border border-[#10b981]/50 text-[#34d399] shadow-sm">
               <span>৳ BDT</span>
               <ChevronRight className="w-3.5 h-3.5 text-[#34d399]" />
             </div>
@@ -405,7 +416,7 @@ export const PromoBonusScreen: React.FC<PromoBonusScreenProps> = ({
               id="language-selector-pill"
               type="button"
               onClick={toggleLanguage}
-              className="flex items-center gap-1.5 px-3 py-1 rounded-full text-[12px] font-medium bg-[#04281c] hover:bg-[#063b2a] border border-[#10b981]/40 text-slate-100 transition-colors cursor-pointer shadow-sm active:scale-95"
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1 rounded-full text-[12px] font-medium bg-[#04281c] hover:bg-[#063b2a] border border-[#10b981]/40 text-slate-100 transition-colors cursor-pointer shadow-sm active:scale-95"
             >
               <span>{lang === 'en' ? '🇺🇸 English' : '🇧🇩 বাংলা'}</span>
               <ChevronRight className="w-3.5 h-3.5 text-slate-400" />

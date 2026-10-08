@@ -376,6 +376,7 @@ export default function AdminPanel() {
 
   useEffect(() => {
     if (!isAuthenticated) return;
+    fetchAllData();
     let unsubDeposits = () => {};
     let unsubWithdrawals = () => {};
     let unsubCodes = () => {};
@@ -425,7 +426,8 @@ export default function AdminPanel() {
         packagesRes,
         ratesRes,
         bannersRes,
-        codesRes
+        codesRes,
+        serverUsersRes,
       ] = await Promise.allSettled([
         getDocs(collection(db, "users")),
         getDocs(query(collection(db, "withdrawals"), orderBy("createdAt", "desc"))).catch(() => getDocs(collection(db, "withdrawals"))),
@@ -435,13 +437,35 @@ export default function AdminPanel() {
         loadCommissionRatesFromFirestore(),
         fetch('/api/admin/charity-banners').then(r => r.ok ? r.json() : null).catch(() => null),
         getDocs(collection(db, "treasure_codes")).catch(() => null),
+        fetch('/api/admin/users').then(r => r.ok ? r.json() : null).catch(() => null),
       ]);
 
+      const userList = [];
+      const seenUserKeys = new Set();
+
       if (userSnapRes.status === 'fulfilled' && userSnapRes.value) {
-        const userList = [];
         userSnapRes.value.forEach((docSnap) => {
-          userList.push({ id: docSnap.id, ...docSnap.data() });
+          const uData = docSnap.data();
+          const docId = docSnap.id;
+          seenUserKeys.add(docId);
+          if (uData.uid) seenUserKeys.add(uData.uid);
+          if (uData.memberId) seenUserKeys.add(uData.memberId);
+          userList.push({ id: docId, ...uData });
         });
+      }
+
+      // Merge users from server backup registry so no registered user is ever missed
+      if (serverUsersRes && serverUsersRes.status === 'fulfilled' && serverUsersRes.value?.users) {
+        serverUsersRes.value.users.forEach((su) => {
+          const sId = su.uid || su.id || su.memberId || su.phone;
+          if (sId && !seenUserKeys.has(sId) && (!su.uid || !seenUserKeys.has(su.uid)) && (!su.memberId || !seenUserKeys.has(su.memberId))) {
+            seenUserKeys.add(sId);
+            if (su.uid) seenUserKeys.add(su.uid);
+            if (su.memberId) seenUserKeys.add(su.memberId);
+            userList.push({ id: sId, ...su });
+          }
+        });
+      }
         setUsers((prevUsers) => {
           const prevMap = new Map();
           (prevUsers || []).forEach((p) => {
@@ -469,7 +493,6 @@ export default function AdminPanel() {
             return u;
           });
         });
-      }
 
       if (withdrawRes.status === 'fulfilled' && withdrawRes.value) {
         const withdrawList = [];
@@ -479,14 +502,14 @@ export default function AdminPanel() {
         setWithdrawals(withdrawList);
       }
 
+      const depositList = [];
       if (depositRes.status === 'fulfilled' && depositRes.value) {
-        const depositList = [];
         depositRes.value.forEach((docSnap) => {
           depositList.push({ id: docSnap.id, ...docSnap.data() });
         });
-        const mergedList = await mergeAndSyncDeposits(depositList);
-        setDeposits(mergedList);
       }
+      const mergedList = await mergeAndSyncDeposits(depositList);
+      setDeposits(mergedList);
 
       if (settingsRes.status === 'fulfilled' && settingsRes.value && settingsRes.value.exists()) {
         const data = settingsRes.value.data();
@@ -953,6 +976,7 @@ export default function AdminPanel() {
         dailyReturnPercent: daily,
         totalReturnPercent: total,
         requiredVipLevel: Number(packageFormData.requiredVipLevel) || 0,
+        vipLevel: Number(packageFormData.requiredVipLevel) || 0,
         maxPurchaseLimit: Number(packageFormData.maxPurchaseLimit) || 0,
         isActive: packageFormData.isActive !== false,
       };
@@ -1476,9 +1500,22 @@ export default function AdminPanel() {
           (u.phone && String(u.phone).slice(-10) === String(cleanId).slice(-10))
       );
       const effectiveLimit = newStatus ? (Number(currentLimit) > 0 ? Number(currentLimit) : 10) : 0;
+      const finalMemberId = targetUser?.memberId || targetUser?.userCode || "";
+      const finalCode = targetUser?.referralCode || (finalMemberId ? finalMemberId.replace(/[^A-Z0-9]/gi, '').slice(-6) : "");
+      const finalPhone = targetUser?.phone || "";
+      const finalUid = targetUser?.uid || cleanId;
 
       // Instant optimistic update
       const now = Date.now();
+      try {
+        const cacheKeys = [cleanId, finalUid, finalMemberId, finalCode, finalPhone].filter(Boolean);
+        if (newStatus) {
+          cacheKeys.forEach((k) => localStorage.setItem(`nvt_admin_saved_limit_${k}`, String(effectiveLimit)));
+        } else {
+          cacheKeys.forEach((k) => localStorage.removeItem(`nvt_admin_saved_limit_${k}`));
+        }
+      } catch (_) {}
+
       setUsers((prev) =>
         prev.map((u) =>
           u.id === cleanId || u.uid === cleanId || u.memberId === cleanId || (targetUser && (u.id === targetUser.id || u.uid === targetUser.uid || u.memberId === targetUser.memberId))
@@ -1489,7 +1526,7 @@ export default function AdminPanel() {
 
       await updateFirestoreReferralPermission(
         cleanId,
-        targetUser,
+        { ...targetUser, uid: finalUid, memberId: finalMemberId, referralCode: finalCode, phone: finalPhone },
         newStatus,
         effectiveLimit
       );
@@ -1501,10 +1538,10 @@ export default function AdminPanel() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             userId: cleanId,
-            uid: targetUser?.uid || cleanId,
-            memberId: targetUser?.memberId,
-            phone: targetUser?.phone,
-            referralCode: targetUser?.referralCode,
+            uid: finalUid,
+            memberId: finalMemberId,
+            phone: finalPhone,
+            referralCode: finalCode,
             canRefer: newStatus,
             referralLimit: effectiveLimit,
           }),
@@ -1534,14 +1571,16 @@ export default function AdminPanel() {
           u.memberId === cleanId ||
           (u.phone && String(u.phone).slice(-10) === String(cleanId).slice(-10))
       );
+      const finalMemberId = targetUser?.memberId || targetUser?.userCode || "";
+      const finalCode = targetUser?.referralCode || (finalMemberId ? finalMemberId.replace(/[^A-Z0-9]/gi, '').slice(-6) : "");
+      const finalPhone = targetUser?.phone || "";
+      const finalUid = targetUser?.uid || cleanId;
 
       // Instant optimistic state update
       const now = Date.now();
       try {
-        localStorage.setItem(`nvt_admin_saved_limit_${cleanId}`, String(numLimit));
-        if (targetUser?.uid) localStorage.setItem(`nvt_admin_saved_limit_${targetUser.uid}`, String(numLimit));
-        if (targetUser?.memberId) localStorage.setItem(`nvt_admin_saved_limit_${targetUser.memberId}`, String(numLimit));
-        if (targetUser?.phone) localStorage.setItem(`nvt_admin_saved_limit_${targetUser.phone}`, String(numLimit));
+        const cacheKeys = [cleanId, finalUid, finalMemberId, finalCode, finalPhone].filter(Boolean);
+        cacheKeys.forEach((k) => localStorage.setItem(`nvt_admin_saved_limit_${k}`, String(numLimit)));
       } catch (_) {}
 
       setUsers((prev) =>
@@ -1554,7 +1593,7 @@ export default function AdminPanel() {
 
       await updateFirestoreReferralPermission(
         cleanId,
-        targetUser,
+        { ...targetUser, uid: finalUid, memberId: finalMemberId, referralCode: finalCode, phone: finalPhone },
         numLimit > 0,
         numLimit
       );
@@ -1566,10 +1605,10 @@ export default function AdminPanel() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             userId: cleanId,
-            uid: targetUser?.uid || cleanId,
-            memberId: targetUser?.memberId,
-            phone: targetUser?.phone,
-            referralCode: targetUser?.referralCode,
+            uid: finalUid,
+            memberId: finalMemberId,
+            phone: finalPhone,
+            referralCode: finalCode,
             canRefer: numLimit > 0,
             referralLimit: numLimit,
           }),
@@ -1709,12 +1748,11 @@ export default function AdminPanel() {
                           </td>
                           <td style={{ padding: "10px" }}>
                             <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap", marginBottom: "3px" }}>
-                              <button
-                                type="button"
-                                onClick={async (e) => {
-                                  e.stopPropagation();
-                                  const nextMethod = isNagad ? 'bKash' : 'Nagad';
-                                  const nextChannel = nextMethod === 'Nagad' ? 'চ্যানেল ১ (Nagad)' : 'চ্যানেল ১ (bKash)';
+                              <select
+                                value={isNagad ? 'Nagad' : isRocket ? 'Rocket' : 'bKash'}
+                                onChange={async (e) => {
+                                  const nextMethod = e.target.value;
+                                  const nextChannel = nextMethod === 'Nagad' ? 'চ্যানেল ১ (Nagad)' : nextMethod === 'Rocket' ? 'চ্যানেল ১ (Rocket)' : 'চ্যানেল ১ (bKash)';
                                   setDeposits((prev) =>
                                     prev.map((item) =>
                                       (item.id === d.id || (item.orderNo && item.orderNo === d.orderNo))
@@ -1734,21 +1772,22 @@ export default function AdminPanel() {
                                     }).catch(() => {});
                                   } catch (_) {}
                                 }}
-                                title="ক্লিক করে বিকাশ/নগদ পরিবর্তন করুন"
                                 style={{
-                                  padding: "3px 9px",
+                                  padding: "3px 8px",
                                   borderRadius: "4px",
                                   fontSize: "11px",
                                   fontWeight: "bold",
-                                  border: "none",
+                                  border: "1px solid #3b476c",
                                   cursor: "pointer",
                                   background: isNagad ? "#f7941d" : isRocket ? "#8c3494" : "#e2136e",
                                   color: isNagad ? "#000" : "#fff",
-                                  boxShadow: "0 1px 3px rgba(0,0,0,0.3)",
+                                  outline: "none",
                                 }}
                               >
-                                {isNagad ? 'Nagad (নগদ)' : isRocket ? 'Rocket (রকেট)' : 'bKash (বিকাশ)'}
-                              </button>
+                                <option value="bKash" style={{ background: "#161d2f", color: "#ff5b99" }}>bKash (বিকাশ)</option>
+                                <option value="Nagad" style={{ background: "#161d2f", color: "#fbbf24" }}>Nagad (নগদ)</option>
+                                <option value="Rocket" style={{ background: "#161d2f", color: "#c084fc" }}>Rocket (রকেট)</option>
+                              </select>
                               <span style={{ fontSize: "11px", color: "#6ee7b7", background: "rgba(16, 185, 129, 0.15)", padding: "1px 6px", borderRadius: "3px" }}>
                                 {displayChannel}
                               </span>
@@ -1803,7 +1842,8 @@ export default function AdminPanel() {
                           )}
                         </td>
                       </tr>
-                    ))}
+                    );
+                  })}
                   </tbody>
                 </table>
               </div>

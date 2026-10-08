@@ -82,7 +82,7 @@ export function sanitizePaymentLink(
   const cleanOrderNo = orderNo || `ORD-${Date.now()}`;
   const numAmount = amount || 0;
   const cleanMethod = String(method || '').toLowerCase().includes('nagad') ? 'Nagad' : String(method || '').toLowerCase().includes('rocket') ? 'Rocket' : 'bKash';
-  const returnTarget = `${cleanOrigin}/profile?payment_status=PENDING&orderNo=${encodeURIComponent(cleanOrderNo)}`;
+  const returnTarget = `${cleanOrigin}/profile?payment_status=PENDING&payment_return=1&orderNo=${encodeURIComponent(cleanOrderNo)}&amount=${numAmount}&channel=${encodeURIComponent(channel)}&method=${encodeURIComponent(cleanMethod)}&gateway=${encodeURIComponent(channel)}`;
 
   let processed = rawLink;
 
@@ -90,18 +90,23 @@ export function sanitizePaymentLink(
   try {
     processed = processed
       .replace(/https%3A%2F%2Fnovavest-a711c\.web\.app[^&"'\s]*/gi, encodeURIComponent(returnTarget))
-      .replace(/https:\/\/novavest-a711c\.web\.app[^&"'\s]*/gi, encodeURIComponent(returnTarget))
+      .replace(/https:\/\/novavest-a711c\.web\.app[^&"'\s]*/gi, returnTarget)
       .replace(/https%3A%2F%2Fnovavest-a711c\.firebaseapp\.com[^&"'\s]*/gi, encodeURIComponent(returnTarget))
-      .replace(/https:\/\/novavest-a711c\.firebaseapp\.com[^&"'\s]*/gi, encodeURIComponent(returnTarget));
+      .replace(/https:\/\/novavest-a711c\.firebaseapp\.com[^&"'\s]*/gi, returnTarget);
   } catch (_) {}
 
   try {
     const url = new URL(processed);
     const redirectKeys = ['returnUrl', 'return_url', 'redirectUrl', 'redirect_url', 'callbackUrl', 'callback_url', 'successUrl', 'success_url'];
+    let matchedAny = false;
     for (const k of redirectKeys) {
       if (url.searchParams.has(k)) {
         url.searchParams.set(k, returnTarget);
+        matchedAny = true;
       }
+    }
+    if (!matchedAny) {
+      url.searchParams.set('returnUrl', returnTarget);
     }
     return url.toString();
   } catch (e) {
@@ -208,12 +213,8 @@ export async function createCpanelDepositOrder(
 
     if (proxyRes.ok) {
       const data = await proxyRes.json();
-      if (data && data.success) {
-        const orderId = data.orderNo || `DEP-${Date.now()}`;
-        const cashierUrl = `${cleanOrigin}/pay/checkout/${encodeURIComponent(orderId)}?amount=${amount}&method=${encodeURIComponent(method)}&channel=${encodeURIComponent(channel)}&userId=${encodeURIComponent(userId)}`;
-        data.rawPaymentLink = data.paymentLink;
-        data.paymentLink = data.paymentLink && data.paymentLink.includes('/pay/checkout') ? data.paymentLink : cashierUrl;
-        data.orderNo = orderId;
+      if (data && data.success && data.paymentLink) {
+        data.paymentLink = sanitizePaymentLink(data.paymentLink, clientOrigin, data.orderNo, amount, channel);
         return data;
       }
     }
@@ -235,12 +236,8 @@ export async function createCpanelDepositOrder(
     clearTimeout(timeoutId);
 
     const directData = await directRes.json();
-    if (directData && directData.success) {
-      const orderId = directData.orderNo || `DEP-${Date.now()}`;
-      const cashierUrl = `${cleanOrigin}/pay/checkout/${encodeURIComponent(orderId)}?amount=${amount}&method=${encodeURIComponent(method)}&channel=${encodeURIComponent(channel)}&userId=${encodeURIComponent(userId)}`;
-      directData.rawPaymentLink = directData.paymentLink;
-      directData.paymentLink = cashierUrl;
-      directData.orderNo = orderId;
+    if (directData && directData.success && directData.paymentLink) {
+      directData.paymentLink = sanitizePaymentLink(directData.paymentLink, clientOrigin, directData.orderNo, amount, channel);
       return directData;
     }
   } catch (directErr: any) {

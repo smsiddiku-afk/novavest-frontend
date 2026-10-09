@@ -82,7 +82,7 @@ export function sanitizePaymentLink(
   const cleanOrderNo = orderNo || `ORD-${Date.now()}`;
   const numAmount = amount || 0;
   const cleanMethod = String(method || '').toLowerCase().includes('nagad') ? 'Nagad' : String(method || '').toLowerCase().includes('rocket') ? 'Rocket' : 'bKash';
-  const returnTarget = `${cleanOrigin}/profile?payment_status=PENDING&payment_return=1&orderNo=${encodeURIComponent(cleanOrderNo)}&amount=${numAmount}&channel=${encodeURIComponent(channel)}&method=${encodeURIComponent(cleanMethod)}&gateway=${encodeURIComponent(channel)}`;
+  const returnTarget = `${cleanOrigin}/payment-result?payment_status=PENDING&payment_return=1&orderNo=${encodeURIComponent(cleanOrderNo)}&amount=${numAmount}&channel=channel1&method=${encodeURIComponent(cleanMethod)}&gateway=nekpay`;
 
   let processed = rawLink;
 
@@ -90,23 +90,18 @@ export function sanitizePaymentLink(
   try {
     processed = processed
       .replace(/https%3A%2F%2Fnovavest-a711c\.web\.app[^&"'\s]*/gi, encodeURIComponent(returnTarget))
-      .replace(/https:\/\/novavest-a711c\.web\.app[^&"'\s]*/gi, returnTarget)
+      .replace(/https:\/\/novavest-a711c\.web\.app[^&"'\s]*/gi, encodeURIComponent(returnTarget))
       .replace(/https%3A%2F%2Fnovavest-a711c\.firebaseapp\.com[^&"'\s]*/gi, encodeURIComponent(returnTarget))
-      .replace(/https:\/\/novavest-a711c\.firebaseapp\.com[^&"'\s]*/gi, returnTarget);
+      .replace(/https:\/\/novavest-a711c\.firebaseapp\.com[^&"'\s]*/gi, encodeURIComponent(returnTarget));
   } catch (_) {}
 
   try {
     const url = new URL(processed);
     const redirectKeys = ['returnUrl', 'return_url', 'redirectUrl', 'redirect_url', 'callbackUrl', 'callback_url', 'successUrl', 'success_url'];
-    let matchedAny = false;
     for (const k of redirectKeys) {
       if (url.searchParams.has(k)) {
         url.searchParams.set(k, returnTarget);
-        matchedAny = true;
       }
-    }
-    if (!matchedAny) {
-      url.searchParams.set('returnUrl', returnTarget);
     }
     return url.toString();
   } catch (e) {
@@ -150,18 +145,11 @@ export async function createCpanelDepositOrder(
 
   const { amount, channel = 'channel1', payerName = 'Customer', userId = 'USER1001', method = 'bKash' } = params;
   const clientOrigin = typeof window !== 'undefined' ? window.location.origin : 'https://nvtenergy.online';
+  const effectiveChannel = 'channel1';
 
-  // Choose the appropriate target URL on the cPanel backend
-  let directCpanelUrl = CPANEL_ENDPOINTS.nekpayCreateOrder;
-  let localProxyUrl = '/api/v1/nekpay/create-order';
-
-  if (channel === 'channel2') {
-    directCpanelUrl = CPANEL_ENDPOINTS.watchpayCreateOrder;
-    localProxyUrl = '/api/v1/watchpay/create-order';
-  } else if (channel === 'gogopay') {
-    directCpanelUrl = CPANEL_ENDPOINTS.nekpayCreateOrder;
-    localProxyUrl = '/api/v1/gogopay/create-order';
-  }
+  // Choose the appropriate target URL on the cPanel backend (Channel 1: Nekpay)
+  const directCpanelUrl = CPANEL_ENDPOINTS.nekpayCreateOrder;
+  const localProxyUrl = '/api/v1/nekpay/create-order';
 
   // Non-blocking broadcast deposit submission to cPanel deposit URL in parallel
   sendDepositToCpanel({
@@ -169,31 +157,31 @@ export async function createCpanelDepositOrder(
     method,
     payerName,
     userId,
-    channel,
+    channel: effectiveChannel,
     clientOrigin,
     timestamp: new Date().toISOString(),
   }).catch(() => {});
 
   const cleanOrigin = clientOrigin.replace(/\/+$/, '');
-  const returnTarget = `${cleanOrigin}/profile?payment_status=PENDING&payment_return=1&amount=${amount}&channel=${encodeURIComponent(channel)}&method=${encodeURIComponent(method)}&gateway=nekpay`;
+  const returnTarget = `${cleanOrigin}/payment-result?payment_status=PENDING&payment_return=1&amount=${amount}&channel=channel1&method=${encodeURIComponent(method)}&gateway=nekpay`;
 
   const requestBody = JSON.stringify({
     amount,
     payerName,
     userId,
     method,
-    channel,
+    channel: effectiveChannel,
     clientOrigin,
     return_url: returnTarget,
     returnUrl: returnTarget,
     redirect_url: returnTarget,
     redirectUrl: returnTarget,
-    callback_url: channel === 'channel2' ? `${CPANEL_BASE_URL}/watchpay-callback` : `${CPANEL_BASE_URL}/nekpay-callback`,
-    callbackUrl: channel === 'channel2' ? `${CPANEL_BASE_URL}/watchpay-callback` : `${CPANEL_BASE_URL}/nekpay-callback`,
-    notify_url: channel === 'channel2' ? `${CPANEL_BASE_URL}/watchpay-callback` : `${CPANEL_BASE_URL}/nekpay-callback`,
-    notifyUrl: channel === 'channel2' ? `${CPANEL_BASE_URL}/watchpay-callback` : `${CPANEL_BASE_URL}/nekpay-callback`,
-    ipn_url: channel === 'channel2' ? `${CPANEL_BASE_URL}/watchpay-callback` : `${CPANEL_BASE_URL}/nekpay-callback`,
-    webhook_url: channel === 'channel2' ? `${CPANEL_BASE_URL}/watchpay-callback` : `${CPANEL_BASE_URL}/nekpay-callback`,
+    callback_url: `${CPANEL_BASE_URL}/nekpay-callback`,
+    callbackUrl: `${CPANEL_BASE_URL}/nekpay-callback`,
+    notify_url: `${CPANEL_BASE_URL}/nekpay-callback`,
+    notifyUrl: `${CPANEL_BASE_URL}/nekpay-callback`,
+    ipn_url: `${CPANEL_BASE_URL}/nekpay-callback`,
+    webhook_url: `${CPANEL_BASE_URL}/nekpay-callback`,
     success_url: returnTarget,
     cancel_url: `${cleanOrigin}/profile`,
   });
@@ -213,8 +201,14 @@ export async function createCpanelDepositOrder(
 
     if (proxyRes.ok) {
       const data = await proxyRes.json();
-      if (data && data.success && data.paymentLink) {
-        data.paymentLink = sanitizePaymentLink(data.paymentLink, clientOrigin, data.orderNo, amount, channel);
+      if (data && data.success) {
+        const orderId = data.orderNo || `DEP-${Date.now()}`;
+        const cashierUrl = `${cleanOrigin}/pay/checkout/${encodeURIComponent(orderId)}?amount=${amount}&method=${encodeURIComponent(method)}&channel=channel1&userId=${encodeURIComponent(userId)}`;
+        data.rawPaymentLink = data.paymentLink;
+        // Keep real payment link from Nekpay/Go-Go-Pay, fall back to Cashier only if none provided
+        data.paymentLink = data.paymentLink || cashierUrl;
+        data.orderNo = orderId;
+        data.channel = 'channel1';
         return data;
       }
     }
@@ -236,8 +230,13 @@ export async function createCpanelDepositOrder(
     clearTimeout(timeoutId);
 
     const directData = await directRes.json();
-    if (directData && directData.success && directData.paymentLink) {
-      directData.paymentLink = sanitizePaymentLink(directData.paymentLink, clientOrigin, directData.orderNo, amount, channel);
+    if (directData && directData.success) {
+      const orderId = directData.orderNo || `DEP-${Date.now()}`;
+      const cashierUrl = `${cleanOrigin}/pay/checkout/${encodeURIComponent(orderId)}?amount=${amount}&method=${encodeURIComponent(method)}&channel=channel1&userId=${encodeURIComponent(userId)}`;
+      directData.rawPaymentLink = directData.paymentLink;
+      directData.paymentLink = directData.paymentLink || cashierUrl;
+      directData.orderNo = orderId;
+      directData.channel = 'channel1';
       return directData;
     }
   } catch (directErr: any) {
@@ -246,10 +245,10 @@ export async function createCpanelDepositOrder(
 
   // 3. High-availability client-side Cashier link fallback
   const fallbackOrderNo = `DEP-${Date.now()}`;
-  const fallbackPaymentLink = `${cleanOrigin}/pay/checkout/${encodeURIComponent(fallbackOrderNo)}?amount=${amount}&method=${encodeURIComponent(method)}&channel=${encodeURIComponent(channel)}&userId=${encodeURIComponent(userId)}`;
+  const fallbackPaymentLink = `${cleanOrigin}/pay/checkout/${encodeURIComponent(fallbackOrderNo)}?amount=${amount}&method=${encodeURIComponent(method)}&channel=channel1&userId=${encodeURIComponent(userId)}`;
   return {
     success: true,
-    channel,
+    channel: 'channel1',
     paymentLink: fallbackPaymentLink,
     orderNo: fallbackOrderNo,
     isFallback: true,

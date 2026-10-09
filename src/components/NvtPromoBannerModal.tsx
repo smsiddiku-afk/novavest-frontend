@@ -45,11 +45,11 @@ export const NvtPromoBannerModal: React.FC<NvtPromoBannerModalProps> = ({
     if (!isOpen) {
       if (timerRef.current) clearTimeout(timerRef.current);
       if (intervalRef.current) clearInterval(intervalRef.current);
-      setSecondsLeft(10);
+      setSecondsLeft((prev) => (prev !== 10 ? 10 : prev));
       return;
     }
 
-    setSecondsLeft(10);
+    setSecondsLeft((prev) => (prev !== 10 ? 10 : prev));
 
     // Decrement seconds every 1000ms
     intervalRef.current = setInterval(() => {

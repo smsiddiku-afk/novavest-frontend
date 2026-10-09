@@ -43,7 +43,7 @@ export const AppDownloadModal: React.FC<AppDownloadModalProps> = ({
       setHasTriggered(true);
       triggerApkDownload();
     }
-    if (!isOpen) {
+    if (!isOpen && hasTriggered) {
       setHasTriggered(false);
     }
   }, [isOpen, hasTriggered]);

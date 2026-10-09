@@ -137,6 +137,15 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
       const targetUrl = res?.paymentLink || res?.cashierUrl || res?.order?.paymentLink;
       if (targetUrl) {
         setRedirectUrl(targetUrl);
+        // Immediately navigate to the payment gateway so user is not stuck
+        try {
+          const opened = window.open(targetUrl, '_top');
+          if (!opened || opened.closed || typeof opened.closed === 'undefined') {
+            window.location.href = targetUrl;
+          }
+        } catch (_) {
+          window.location.href = targetUrl;
+        }
       }
 
       displayToast(
@@ -460,137 +469,43 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
               <div className="flex items-center justify-between">
                 <span className="text-slate-100 text-sm sm:text-base font-extrabold flex items-center gap-1.5">
                   <Layers className="w-4 h-4 text-emerald-400" />
-                  <span>{currentLang === 'bn' ? '২. পেমেন্ট চ্যানেল নির্বাচন করুন' : '2. Select Payment Channel'}</span>
+                  <span>{currentLang === 'bn' ? '২. পেমেন্ট চ্যানেল' : '2. Payment Channel'}</span>
                 </span>
                 <span className="text-xs sm:text-sm text-emerald-400 font-mono font-bold">
-                  {selectedChannel === 'channel1' && 'চ্যানেল ১'}
-                  {selectedChannel === 'channel2' && 'চ্যানেল ২'}
-                  {!selectedChannel && (currentLang === 'bn' ? 'চ্যানেল সিলেক্ট করুন' : 'Select channel')}
+                  {currentLang === 'bn' ? 'চ্যানেল ১ (অনলাইন রিচার্জ)' : 'Channel 1 (Online Recharge)'}
                 </span>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
                 <div
                   id="payment-channel-1"
                   onClick={() => setSelectedChannel('channel1')}
-                  className={`relative overflow-hidden p-4 sm:p-5 rounded-2xl flex items-center justify-between cursor-pointer transition-all duration-300 border-2 group ${
-                    selectedChannel === 'channel1'
-                      ? 'bg-gradient-to-br from-[#063b2f] to-[#042018] border-emerald-400 shadow-[0_0_24px_rgba(16,185,129,0.3)] text-white scale-[1.01]'
-                      : 'bg-[#042018] border-emerald-500/25 text-slate-300 hover:border-emerald-500/40 hover:bg-[#062c22]'
-                  }`}
+                  className="relative overflow-hidden p-4 sm:p-5 rounded-2xl flex items-center justify-between cursor-pointer transition-all duration-300 border-2 bg-gradient-to-br from-[#063b2f] to-[#042018] border-emerald-400 shadow-[0_0_24px_rgba(16,185,129,0.3)] text-white scale-[1.01]"
                 >
-                  {selectedChannel === 'channel1' && (
-                    <div className="absolute top-0 left-0 right-0 h-[3px] bg-gradient-to-r from-transparent via-emerald-400 to-transparent animate-pulse" />
-                  )}
+                  <div className="absolute top-0 left-0 right-0 h-[3px] bg-gradient-to-r from-transparent via-emerald-400 to-transparent animate-pulse" />
 
                   <div className="flex items-center gap-3.5">
-                    <div
-                      className={`relative w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 transition-all duration-300 ${
-                        selectedChannel === 'channel1'
-                          ? 'bg-emerald-500/20 border border-emerald-400/50 shadow-[0_0_16px_rgba(16,185,129,0.4)]'
-                          : 'bg-[#031812] border border-emerald-500/20 group-hover:border-emerald-500/40'
-                      }`}
-                    >
-                      {selectedChannel === 'channel1' && (
-                        <span className="absolute -top-1 -right-1 flex h-3 w-3">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                          <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
-                        </span>
-                      )}
-                      <Zap
-                        className={`w-6 h-6 transition-transform duration-300 ${
-                          selectedChannel === 'channel1'
-                            ? 'text-amber-300 fill-amber-300/60 scale-110 drop-shadow-[0_0_8px_rgba(252,211,77,0.8)] animate-pulse'
-                            : 'text-emerald-400 group-hover:scale-110'
-                        }`}
-                      />
+                    <div className="relative w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 transition-all duration-300 bg-emerald-500/20 border border-emerald-400/50 shadow-[0_0_16px_rgba(16,185,129,0.4)]">
+                      <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+                      </span>
+                      <Zap className="w-6 h-6 transition-transform duration-300 text-amber-300 fill-amber-300/60 scale-110 drop-shadow-[0_0_8px_rgba(252,211,77,0.8)] animate-pulse" />
                     </div>
 
                     <div className="text-left">
                       <div className="flex items-center gap-1.5">
-                        <span className="text-base sm:text-lg font-black text-white block leading-tight">চ্যানেল ১</span>
+                        <span className="text-base sm:text-lg font-black text-white block leading-tight">চ্যানেল ১ (Nekpay)</span>
                       </div>
                       <span className="text-xs sm:text-sm text-emerald-400 font-bold flex items-center gap-1.5 mt-1">
                         <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                        {currentLang === 'bn' ? 'অনলাইন রিচার্জ' : 'Online Recharge'}
+                        {currentLang === 'bn' ? 'স্বয়ংক্রিয় ইনস্ট্যান্ট ডিপোজিট' : 'Instant Auto Deposit'}
                       </span>
                     </div>
                   </div>
 
-                  <div
-                    className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-all duration-300 ${
-                      selectedChannel === 'channel1'
-                        ? 'border-emerald-400 bg-emerald-400 scale-110'
-                        : 'border-slate-700 bg-slate-900/50'
-                    }`}
-                  >
-                    {selectedChannel === 'channel1' ? (
-                      <Check className="w-3.5 h-3.5 text-slate-950 stroke-[3]" />
-                    ) : (
-                      <span className="w-1.5 h-1.5 rounded-full bg-slate-600" />
-                    )}
-                  </div>
-                </div>
-
-                <div
-                  id="payment-channel-2"
-                  onClick={() => setSelectedChannel('channel2')}
-                  className={`relative overflow-hidden p-4 sm:p-5 rounded-2xl flex items-center justify-between cursor-pointer transition-all duration-300 border-2 group ${
-                    selectedChannel === 'channel2'
-                      ? 'bg-gradient-to-br from-[#063b2f] to-[#042018] border-emerald-400 shadow-[0_0_24px_rgba(16,185,129,0.3)] text-white scale-[1.01]'
-                      : 'bg-[#042018] border-emerald-500/25 text-slate-300 hover:border-emerald-500/40 hover:bg-[#062c22]'
-                  }`}
-                >
-                  {selectedChannel === 'channel2' && (
-                    <div className="absolute top-0 left-0 right-0 h-[3px] bg-gradient-to-r from-transparent via-emerald-400 to-transparent animate-pulse" />
-                  )}
-
-                  <div className="flex items-center gap-3.5">
-                    <div
-                      className={`relative w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 transition-all duration-300 ${
-                        selectedChannel === 'channel2'
-                          ? 'bg-emerald-500/20 border border-emerald-400/50 shadow-[0_0_16px_rgba(16,185,129,0.4)]'
-                          : 'bg-[#031812] border border-emerald-500/20 group-hover:border-emerald-500/40'
-                      }`}
-                    >
-                      {selectedChannel === 'channel2' && (
-                        <span className="absolute -top-1 -right-1 flex h-3 w-3">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                          <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
-                        </span>
-                      )}
-                      <ShieldCheck
-                        className={`w-6 h-6 transition-transform duration-300 ${
-                          selectedChannel === 'channel2'
-                            ? 'text-emerald-300 scale-110 drop-shadow-[0_0_8px_rgba(16,185,129,0.8)] animate-pulse'
-                            : 'text-emerald-400 group-hover:scale-110'
-                        }`}
-                      />
-                    </div>
-
-                    <div className="text-left">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-base sm:text-lg font-black text-white block leading-tight">চ্যানেল ২</span>
-                      </div>
-                      <span className="text-xs sm:text-sm text-emerald-300 font-bold flex items-center gap-1.5 mt-1">
-                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                        {currentLang === 'bn' ? 'বিকল্প রিচার্জ' : 'Alternative Recharge'}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div
-                    className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-all duration-300 ${
-                      selectedChannel === 'channel2'
-                        ? 'border-emerald-400 bg-emerald-400 scale-110'
-                        : 'border-slate-700 bg-slate-900/50'
-                    }`}
-                  >
-                    {selectedChannel === 'channel2' ? (
-                      <Check className="w-3.5 h-3.5 text-slate-950 stroke-[3]" />
-                    ) : (
-                      <span className="w-1.5 h-1.5 rounded-full bg-slate-600" />
-                    )}
+                  <div className="w-6 h-6 rounded-full border-2 border-emerald-400 bg-emerald-400 flex items-center justify-center shrink-0 shadow-[0_0_10px_rgba(16,185,129,0.6)]">
+                    <Check className="w-4 h-4 text-slate-950 stroke-[3]" />
                   </div>
                 </div>
               </div>
@@ -627,8 +542,8 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
                     <Zap className="w-6 h-6 fill-current animate-pulse" />
                     <span>
                       {currentLang === 'bn'
-                        ? `${selectedMethod === 'Nagad' ? 'নগদ' : 'বিকাশ'} দিয়ে রিচার্জ • ৳${amount || '১০০'} (${selectedChannel === 'channel2' ? 'চ্যানেল ২' : 'চ্যানেল ১'})`
-                        : `Recharge with ${selectedMethod} • ৳${amount || '100'} (${selectedChannel === 'channel2' ? 'Ch 2' : 'Ch 1'})`}
+                        ? `${selectedMethod === 'Nagad' ? 'নগদ' : 'বিকাশ'} দিয়ে রিচার্জ • ৳${amount || '১০০'} (চ্যানেল ১)`
+                        : `Recharge with ${selectedMethod} • ৳${amount || '100'} (Channel 1)`}
                     </span>
                   </>
                 )}
@@ -891,7 +806,7 @@ export const CleanWalletScreen: React.FC<CleanWalletScreenProps> = ({
                 {currentLang === 'bn' ? 'পেমেন্ট গেটওয়ে প্রস্তুত হচ্ছে...' : 'Connecting to Gateway...'}
               </h3>
               <p className="text-xs sm:text-sm text-emerald-300 font-semibold mt-1">
-                ৳{amount || '100'} • {selectedChannel === 'channel2' ? 'চ্যানেল ২' : 'চ্যানেল ১'}
+                ৳{amount || '100'} • {currentLang === 'bn' ? 'চ্যানেল ১' : 'Channel 1'}
               </p>
             </div>
 

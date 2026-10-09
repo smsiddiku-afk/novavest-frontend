@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { CosmicBackground } from './components/CosmicBackground';
 import { RegistrationCard } from './components/RegistrationCard';
 import { LoginCard } from './components/LoginCard';
@@ -165,9 +165,31 @@ export default function App() {
     // /admin পাথে থাকলে অন্য কোথাও রিডাইরেক্ট করবে না
     if (currentPath === '/admin') return;
 
+    const pathname = typeof window !== 'undefined' ? window.location.pathname : '';
+    const search = typeof window !== 'undefined' ? window.location.search : '';
+
+    // Handle gateway return to /payment-result seamlessly
+    if (currentPath === '/payment-result' || pathname.startsWith('/payment-result')) {
+      if (!authUser) {
+        const stored = getPersistedAuthUser();
+        if (stored) setAuthUser(stored);
+      }
+      navigate(`/profile${search}`, true);
+      return;
+    }
+
+    const isPaymentReturn =
+      currentPath.includes('payment-result') ||
+      pathname.includes('payment-result') ||
+      search.includes('payment_status') ||
+      search.includes('orderNo') ||
+      search.includes('order_id') ||
+      search.includes('out_trade_no') ||
+      search.includes('trade_no') ||
+      search.includes('trx_id') ||
+      search.includes('trxId');
+
     if (!authUser) {
-      const search = typeof window !== 'undefined' ? window.location.search : '';
-      const isPaymentReturn = search.includes('payment_status') || search.includes('orderNo') || search.includes('trade_no') || search.includes('trx_id');
       if (isPaymentReturn) {
         const stored = getPersistedAuthUser();
         if (stored) {
@@ -185,9 +207,7 @@ export default function App() {
         }
       }
     } else {
-      const search = typeof window !== 'undefined' ? window.location.search : '';
-      const isPaymentReturn = search.includes('payment_status') || search.includes('orderNo') || search.includes('trade_no') || search.includes('trx_id');
-      if (isPaymentReturn && currentPath !== '/profile') {
+      if (isPaymentReturn && !currentPath.startsWith('/profile')) {
         navigate('/profile', true);
         return;
       }
@@ -228,14 +248,21 @@ export default function App() {
     };
   }, [authUser, isAuthLoading]);
 
-  const handleToggleLang = (newLang: Language) => {
+  const handleToggleLang = useCallback((newLang: Language) => {
     setCurrentLang(newLang);
     try {
       localStorage.setItem('app_language', newLang);
     } catch {
       // ignore
     }
-  };
+  }, []);
+
+  const handleUpdateUser = useCallback((updated: UserProfile) => {
+    setAuthUser((prev) => {
+      if (prev && isSameUser(prev, updated)) return prev;
+      return updated;
+    });
+  }, []);
 
   const handleRegistrationSuccess = (data: RegisterFormData) => {
     try {
@@ -361,12 +388,7 @@ export default function App() {
           currentLang={currentLang}
           onToggleLang={handleToggleLang}
           initialUser={authUser}
-          onUpdateUser={(updated) => {
-            setAuthUser((prev) => {
-              if (prev && isSameUser(prev, updated)) return prev;
-              return updated;
-            });
-          }}
+          onUpdateUser={handleUpdateUser}
           onNavigateBack={() => navigate('/home')}
           onLogout={handleLogout}
           onGoToHome={() => navigate('/home')}

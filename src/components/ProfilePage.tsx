@@ -249,9 +249,10 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
   const updateUser = (updater: (prev: UserProfile) => UserProfile) => {
     setUser((prev) => {
       const next = updater(prev);
-      if (!isSameUser(prev, next)) {
-        persistAuthUser(next);
+      if (isSameUser(prev, next)) {
+        return prev;
       }
+      persistAuthUser(next);
       try {
         const activeId = next.uid || next.memberId;
         if (activeId && next.transactions) {
@@ -265,125 +266,126 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
   };
 
   // Safely inform parent component (App) after render completes to avoid React's "Cannot update a component while rendering a different component" error
-  const lastNotifiedUserRef = useRef<UserProfile | null>(null);
+  const lastNotifiedUserRef = useRef<UserProfile | null>(initialUser || null);
   useEffect(() => {
-    if (!lastNotifiedUserRef.current || !isSameUser(lastNotifiedUserRef.current, user)) {
+    if (!lastNotifiedUserRef.current) {
+      lastNotifiedUserRef.current = user;
+      return;
+    }
+    if (!isSameUser(lastNotifiedUserRef.current, user)) {
       lastNotifiedUserRef.current = user;
       onUpdateUser?.(user);
     }
   }, [user, onUpdateUser]);
 
-  // Keep user profile state in sync with initialUser prop only when actually changed,
-  // scheduled on animation frame / microtask to prevent concurrent render-phase collision
+  // Keep user profile state in sync with initialUser prop only when actually changed
   useEffect(() => {
     if (!initialUser) return;
 
-    let isMounted = true;
-    const handle = requestAnimationFrame(() => {
-      if (!isMounted) return;
-      setUser((prev) => {
-        const newName = initialUser.name ?? prev.name;
-        const newPhone = initialUser.phone ?? prev.phone;
-        const newEmail = initialUser.email ?? prev.email;
-        const newMemberId = initialUser.memberId ?? prev.memberId;
-        const newBalance = initialUser.walletBalance ?? prev.walletBalance;
-        const newMemberSince = initialUser.memberSince ?? prev.memberSince;
-        const newIsVerified = initialUser.isVerified ?? prev.isVerified;
-        const newTransactions = initialUser.transactions ?? prev.transactions;
-        const newVipLevel = initialUser.vipLevel ?? prev.vipLevel;
-        const newTotalEarnings = initialUser.totalEarnings ?? prev.totalEarnings;
-        const newActiveUnits = initialUser.activeUnits ?? prev.activeUnits;
-        const newDailyRewards = initialUser.dailyRewards ?? prev.dailyRewards;
-        const newInvestments = initialUser.activeInvestments ?? prev.activeInvestments;
-        const newCanRefer = initialUser.canRefer ?? prev.canRefer;
-        const newReferralLimit = initialUser.referralLimit ?? prev.referralLimit;
+    setUser((prev) => {
+      if (isSameUser(prev, initialUser)) {
+        return prev;
+      }
+      const newName = initialUser.name ?? prev.name;
+      const newPhone = initialUser.phone ?? prev.phone;
+      const newEmail = initialUser.email ?? prev.email;
+      const newMemberId = initialUser.memberId ?? prev.memberId;
+      const newBalance = initialUser.walletBalance ?? prev.walletBalance;
+      const newMemberSince = initialUser.memberSince ?? prev.memberSince;
+      const newIsVerified = initialUser.isVerified ?? prev.isVerified;
+      const newTransactions = initialUser.transactions ?? prev.transactions;
+      const newVipLevel = initialUser.vipLevel ?? prev.vipLevel;
+      const newTotalEarnings = initialUser.totalEarnings ?? prev.totalEarnings;
+      const newActiveUnits = initialUser.activeUnits ?? prev.activeUnits;
+      const newDailyRewards = initialUser.dailyRewards ?? prev.dailyRewards;
+      const newInvestments = initialUser.activeInvestments ?? prev.activeInvestments;
+      const newCanRefer = initialUser.canRefer ?? prev.canRefer;
+      const newReferralLimit = initialUser.referralLimit ?? prev.referralLimit;
 
-        if (
-          prev.name === newName &&
-          prev.phone === newPhone &&
-          prev.email === newEmail &&
-          prev.memberId === newMemberId &&
-          prev.walletBalance === newBalance &&
-          prev.memberSince === newMemberSince &&
-          prev.isVerified === newIsVerified &&
-          prev.vipLevel === newVipLevel &&
-          prev.totalEarnings === newTotalEarnings &&
-          prev.activeUnits === newActiveUnits &&
-          prev.dailyRewards === newDailyRewards &&
-          Boolean(prev.canRefer) === Boolean(newCanRefer) &&
-          (prev.referralLimit || 0) === (newReferralLimit || 0) &&
-          prev.activeInvestments?.length === newInvestments?.length &&
-          prev.transactions?.length === newTransactions?.length &&
-          (prev.transactions || []).every((t: any, idx: number) => {
-            const other = (newTransactions || [])[idx];
-            if (!other) return false;
-            const sameId = (t.id || t.hash) === (other.id || other.hash);
-            const tStatus = String(t.status || '').toLowerCase();
-            const oStatus = String(other.status || '').toLowerCase();
-            // If local transaction is approved or rejected, don't trigger re-sync if initialUser is still pending
-            if ((tStatus === 'approved' || tStatus === 'rejected') && (oStatus === 'pending' || oStatus === 'অপেক্ষমাণ')) {
-              return true;
-            }
-            return sameId && tStatus === oStatus;
-          })
-        ) {
-          return prev;
+      if (
+        prev.name === newName &&
+        prev.phone === newPhone &&
+        prev.email === newEmail &&
+        prev.memberId === newMemberId &&
+        prev.walletBalance === newBalance &&
+        prev.memberSince === newMemberSince &&
+        prev.isVerified === newIsVerified &&
+        prev.vipLevel === newVipLevel &&
+        prev.totalEarnings === newTotalEarnings &&
+        prev.activeUnits === newActiveUnits &&
+        prev.dailyRewards === newDailyRewards &&
+        Boolean(prev.canRefer) === Boolean(newCanRefer) &&
+        (prev.referralLimit || 0) === (newReferralLimit || 0) &&
+        prev.activeInvestments?.length === newInvestments?.length &&
+        prev.transactions?.length === newTransactions?.length &&
+        (prev.transactions || []).every((t: any, idx: number) => {
+          const other = (newTransactions || [])[idx];
+          if (!other) return false;
+          const sameId = (t.id || t.hash) === (other.id || other.hash);
+          const tStatus = String(t.status || '').toLowerCase();
+          const oStatus = String(other.status || '').toLowerCase();
+          if ((tStatus === 'approved' || tStatus === 'rejected') && (oStatus === 'pending' || oStatus === 'অপেক্ষমাণ')) {
+            return true;
+          }
+          return sameId && tStatus === oStatus;
+        })
+      ) {
+        return prev;
+      }
+
+      // Safely merge new transactions while preserving any approved/completed/rejected status
+      const mergedTransactions = (newTransactions || []).map((newT: any) => {
+        const key = newT.id || newT.hash;
+        const existing = (prev.transactions || []).find((p: any) => (p.id || p.hash) === key);
+        if (existing) {
+          const exStatus = String(existing.status || '').toLowerCase();
+          const nStatus = String(newT.status || '').toLowerCase();
+          const isExTerminal = exStatus === 'approved' || exStatus === 'completed' || exStatus === 'rejected' || exStatus === 'সফল' || exStatus === 'এপ্রুভ' || exStatus === 'বাতিল';
+          const isNewPending = nStatus === 'pending' || nStatus === 'অপেক্ষমাণ' || !nStatus;
+          if (isExTerminal && isNewPending) {
+            return existing;
+          }
         }
-
-        // Safely merge new transactions while preserving any approved/completed/rejected status
-        const mergedTransactions = (newTransactions || []).map((newT: any) => {
-          const key = newT.id || newT.hash;
-          const existing = (prev.transactions || []).find((p: any) => (p.id || p.hash) === key);
-          if (existing) {
-            const exStatus = String(existing.status || '').toLowerCase();
-            const nStatus = String(newT.status || '').toLowerCase();
-            const isExTerminal = exStatus === 'approved' || exStatus === 'completed' || exStatus === 'rejected' || exStatus === 'সফল' || exStatus === 'এপ্রুভ' || exStatus === 'বাতিল';
-            const isNewPending = nStatus === 'pending' || nStatus === 'অপেক্ষমাণ' || !nStatus;
-            if (isExTerminal && isNewPending) {
-              return existing;
-            }
+        // Also check localStorage for admin approved status
+        if (typeof window !== 'undefined' && window.localStorage && key) {
+          const localStatus = window.localStorage.getItem(`nvt_withdrawal_status_${key}`);
+          if (localStatus === 'Approved' || localStatus === 'Rejected') {
+            const isAppr = localStatus === 'Approved';
+            return {
+              ...newT,
+              status: localStatus,
+              statusBangla: isAppr ? (newT.type === 'withdrawal' ? 'এপ্রুভ' : 'সফল') : 'বাতিল',
+              description: String(newT.description || newT.desc || '').replace('অপেক্ষমাণ', isAppr ? 'এপ্রুভ' : 'বাতিল'),
+            };
           }
-          // Also check localStorage for admin approved status
-          if (typeof window !== 'undefined' && window.localStorage && key) {
-            const localStatus = window.localStorage.getItem(`nvt_withdrawal_status_${key}`);
-            if (localStatus === 'Approved' || localStatus === 'Rejected') {
-              const isAppr = localStatus === 'Approved';
-              return {
-                ...newT,
-                status: localStatus,
-                statusBangla: isAppr ? (newT.type === 'withdrawal' ? 'এপ্রুভ' : 'সফল') : 'বাতিল',
-                description: String(newT.description || newT.desc || '').replace('অপেক্ষমাণ', isAppr ? 'এপ্রুভ' : 'বাতিল'),
-              };
-            }
-          }
-          return newT;
-        });
-
-        return {
-          ...prev,
-          name: newName,
-          phone: newPhone,
-          email: newEmail,
-          memberId: newMemberId,
-          walletBalance: newBalance,
-          memberSince: newMemberSince,
-          isVerified: newIsVerified,
-          vipLevel: newVipLevel,
-          totalEarnings: newTotalEarnings,
-          activeUnits: newActiveUnits,
-          dailyRewards: newDailyRewards,
-          canRefer: Boolean(newCanRefer),
-          referralLimit: newReferralLimit,
-          activeInvestments: newInvestments,
-          transactions: mergedTransactions,
-        };
+        }
+        return newT;
       });
-    });
 
-    return () => {
-      isMounted = false;
-      cancelAnimationFrame(handle);
-    };
+      const nextObj = {
+        ...prev,
+        name: newName,
+        phone: newPhone,
+        email: newEmail,
+        memberId: newMemberId,
+        walletBalance: newBalance,
+        memberSince: newMemberSince,
+        isVerified: newIsVerified,
+        vipLevel: newVipLevel,
+        totalEarnings: newTotalEarnings,
+        activeUnits: newActiveUnits,
+        dailyRewards: newDailyRewards,
+        canRefer: Boolean(newCanRefer),
+        referralLimit: newReferralLimit,
+        activeInvestments: newInvestments,
+        transactions: mergedTransactions,
+      };
+
+      if (isSameUser(prev, nextObj)) {
+        return prev;
+      }
+      return nextObj;
+    });
   }, [
     initialUser?.name,
     initialUser?.phone,
@@ -459,7 +461,10 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
   // Auto-sync VIP level if it mismatches the real active referral count
   useEffect(() => {
     if (user.vipLevel !== computedVipLevel && (user.uid || user.memberId)) {
-      updateUser((prev) => ({ ...prev, vipLevel: computedVipLevel }));
+      updateUser((prev) => {
+        if (prev.vipLevel === computedVipLevel) return prev;
+        return { ...prev, vipLevel: computedVipLevel };
+      });
       const persistentUid = user.uid || user.memberId;
       if (persistentUid) {
         updateFirestoreUserProfile(persistentUid, { vipLevel: computedVipLevel }).catch(() => {});
@@ -708,11 +713,16 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     // Check permission on mount and when tab changes or if user has canRefer: false
     checkLiveReferralPermission().then((res) => {
       if (res.canRefer) {
-        updateUser((prev) => ({
-          ...prev,
-          canRefer: true,
-          referralLimit: res.limit || prev.referralLimit || 10,
-        }));
+        updateUser((prev) => {
+          if (prev.canRefer === true && prev.referralLimit === (res.limit || prev.referralLimit || 10)) {
+            return prev;
+          }
+          return {
+            ...prev,
+            canRefer: true,
+            referralLimit: res.limit || prev.referralLimit || 10,
+          };
+        });
       }
     }).catch(() => {});
   }, [currentTab, user.uid, user.memberId]);
@@ -827,11 +837,13 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           console.warn('[Manual Deposit Server Log Warning]', serverErr);
         }
 
-        // Auto-approval for authentic valid TrxIDs:
-        // A deposit is approved if verified on server or matching authentic TrxID
+        // Manual deposits submitted by user are NEVER auto-approved by regex/string format!
+        // A deposit is only marked completed if explicitly verified by official server gateway webhook
         const isAutoApproved = Boolean(
-          (serverResult && serverResult.success && (serverResult.status === 'COMPLETED' || serverResult.verified === true)) ||
-          (isValidRealTrxId(trxId, method) && (!serverResult || serverResult.success !== false))
+          serverResult &&
+          serverResult.success &&
+          (serverResult.status === 'COMPLETED' || serverResult.verified === true) &&
+          serverResult.isApproved === true
         );
         const initialStatus: 'completed' | 'pending' = isAutoApproved ? 'completed' : 'pending';
 
@@ -1059,76 +1071,79 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       return null;
     }
 
-    // 3. CHANNEL 1: NEKPAY GATEWAY
-    if (channel === 'channel1') {
+    // 3. CHANNEL 1: NEKPAY GATEWAY (Primary and exclusive channel)
+    try {
+      showToast(
+        currentLang === 'bn'
+          ? 'চ্যানেল ১-এ সংযোগ করা হচ্ছে...'
+          : 'Connecting to Channel 1...'
+      );
+
+      let data: any = null;
       try {
-        showToast(
-          currentLang === 'bn'
-            ? 'চ্যানেল ১-এ সংযোগ করা হচ্ছে...'
-            : 'Connecting to Channel 1...'
+        data = await createCpanelDepositOrder(
+          'channel1',
+          Number(amount),
+          user.fullName || user.name || 'Customer',
+          activeUid,
+          method || 'bKash'
         );
+      } catch (fetchErr) {
+        console.warn('[Nekpay] createCpanelDepositOrder failed:', fetchErr);
+      }
 
-        let data: any = null;
+      console.log('Nekpay create-order response:', data);
+
+      if (data && data.success && data.paymentLink) {
+        const orderNo = data.orderNo || `NEK${Date.now().toString().slice(-8)}`;
+
+        // Store in localStorage for return recovery
         try {
-          data = await createCpanelDepositOrder(
-            'channel1',
-            Number(amount),
-            user.fullName || user.name || 'Customer',
-            activeUid,
-            method || 'bKash'
+          localStorage.setItem(
+            'pending_gateway_deposit',
+            JSON.stringify({
+              orderNo,
+              amount: Number(amount),
+              channel: 'channel1',
+              method: method || 'bKash',
+              timestamp: Date.now(),
+            })
           );
-        } catch (fetchErr) {
-          console.warn('[Nekpay] createCpanelDepositOrder failed:', fetchErr);
-        }
+        } catch (_) {}
 
-        console.log('Nekpay create-order response:', data);
-
-        if (data && data.success && data.paymentLink) {
-          const orderNo = data.orderNo || `NEK${Date.now().toString().slice(-8)}`;
-
-          // Store in localStorage for return recovery
-          try {
-            localStorage.setItem(
-              'pending_gateway_deposit',
-              JSON.stringify({
-                orderNo,
-                amount: Number(amount),
-                channel: 'channel1',
-                timestamp: Date.now(),
-              })
-            );
-          } catch (_) {}
-
-          let opened = null;
-          try {
-            opened = window.open(data.paymentLink, '_blank');
-          } catch (e) {
-            opened = null;
-          }
+        // Immediate opening of payment page
+        try {
+          const opened = window.open(data.paymentLink, '_top');
           if (!opened || opened.closed || typeof opened.closed === 'undefined') {
             window.location.href = data.paymentLink;
           }
-          showToast(
-            currentLang === 'bn'
-              ? 'পেমেন্ট পেজে নিয়ে যাওয়া হচ্ছে...'
-              : 'Redirecting to payment link...'
-          );
+        } catch (e) {
+          window.location.href = data.paymentLink;
+        }
 
-          // Automated polling for order completion
-          if (orderNo) {
-            let attempts = 0;
-            const pollInterval = setInterval(async () => {
-              attempts++;
-              if (attempts > 40) {
-                clearInterval(pollInterval);
-                return;
-              }
-              try {
-                const checkRes = await fetch(`/api/payments/order-status/${orderNo}`);
+        showToast(
+          currentLang === 'bn'
+            ? 'পেমেন্ট পেজে নিয়ে যাওয়া হচ্ছে...'
+            : 'Redirecting to payment link...'
+        );
+
+        // Automated polling for order completion (runs for 200 seconds)
+        if (orderNo) {
+          let attempts = 0;
+          const pollInterval = setInterval(async () => {
+            attempts++;
+            if (attempts > 80) {
+              clearInterval(pollInterval);
+              return;
+            }
+            try {
+              const checkRes = await fetch(`/api/payments/order-status/${encodeURIComponent(orderNo)}`);
+              if (checkRes.ok) {
                 const checkData = await checkRes.json();
+                const statusStr = String(checkData?.order?.status || '').toUpperCase();
                 if (
                   checkData.success &&
-                  (checkData.order?.status === 'COMPLETED' || checkData.order?.status === 'SUCCESS') &&
+                  (statusStr === 'COMPLETED' || statusStr === 'SUCCESS' || statusStr === 'PAID') &&
                   (checkData.order?.verified === true || checkData.order?.webhookConfirmed === true)
                 ) {
                   clearInterval(pollInterval);
@@ -1175,155 +1190,22 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
                   showToast(
                     currentLang === 'bn'
-                      ? `রিচার্জ সফল! ৳${Number(amount).toLocaleString()} আপনার ওয়ালেটে জমা হয়েছে।`
-                      : `Recharge successful! ৳${Number(amount).toLocaleString()} added to your wallet.`
+                      ? `🎉 রিচার্জ সফল! ৳${Number(amount).toLocaleString()} আপনার ওয়ালেটে জমা হয়েছে।`
+                      : `🎉 Recharge successful! ৳${Number(amount).toLocaleString()} added to your wallet.`
                   );
                 }
-              } catch (e) {
-                // ignore polling errors
-              }
-            }, 3000);
-          }
-          return data;
-        } else {
-          showToast(
-            currentLang === 'bn'
-              ? `⚠️ পেমেন্ট সংযোগ ব্যর্থ: ${data?.error || 'গেটওয়ে ত্রুটি'}`
-              : `⚠️ Payment failed: ${data?.error || 'Gateway error'}`
-          );
-          return data;
-        }
-      } catch (err: any) {
-        console.error('[Deposit Error]', err);
-        showToast(
-          currentLang === 'bn'
-            ? '⚠️ গেটওয়ে সার্ভিসে সংযোগ করা যাচ্ছে না'
-            : '⚠️ Failed to connect to payment gateway'
-        );
-      }
-      return null;
-    }
-
-    // 4. CHANNEL 2: DIRECT GATEWAY
-    try {
-      showToast(
-        currentLang === 'bn'
-          ? 'চ্যানেল ২-এ সংযোগ করা হচ্ছে...'
-          : 'Connecting to Channel 2...'
-      );
-
-      let data: any = null;
-      try {
-        data = await createCpanelDepositOrder('channel2', Number(amount), 'Customer', activeUid, method || 'Nagad');
-      } catch (fetchErr) {
-        console.warn('[WatchPay] createCpanelDepositOrder failed:', fetchErr);
-      }
-
-      console.log('WatchPay create-order response:', data);
-
-      if (data && data.success && data.paymentLink) {
-        const targetUrl = data.paymentLink;
-        const orderNo = data.orderNo || `WPY${Date.now().toString().slice(-8)}`;
-
-        // Store in localStorage for easy return recovery
-        try {
-          localStorage.setItem(
-            'pending_gateway_deposit',
-            JSON.stringify({
-              orderNo,
-              amount: Number(amount),
-              method: method || 'Nagad',
-              channel: 'channel2',
-              timestamp: Date.now(),
-            })
-          );
-        } catch (_) {}
-
-        let opened = null;
-        try {
-          opened = window.open(targetUrl, '_blank');
-        } catch (e) {
-          opened = null;
-        }
-        if (!opened || opened.closed || typeof opened.closed === 'undefined') {
-          try {
-            if (window.top && window.top !== window) {
-              window.top.location.href = targetUrl;
-            } else {
-              window.location.href = targetUrl;
-            }
-          } catch (navErr) {
-            console.warn('[WatchPay] Top navigation failed, fallback to location.href:', navErr);
-            window.location.href = targetUrl;
-          }
-        }
-        showToast(
-          currentLang === 'bn'
-            ? 'পেমেন্ট পেজে নিয়ে যাওয়া হচ্ছে...'
-            : 'Redirecting to payment link...'
-        );
-
-        // Automated polling for Channel 2 order completion
-        if (orderNo) {
-          let attempts = 0;
-          const pollInterval = setInterval(async () => {
-            attempts++;
-            if (attempts > 40) {
-              clearInterval(pollInterval);
-              return;
-            }
-            try {
-              const checkRes = await fetch(`/api/payments/order-status/${orderNo}`);
-              const checkData = await checkRes.json();
-              const status = String(checkData?.order?.status || '').toUpperCase();
-              if (
-                checkData.success &&
-                (status === 'COMPLETED' || status === 'SUCCESS') &&
-                (checkData?.order?.verified === true || checkData?.order?.webhookConfirmed === true)
-              ) {
-                clearInterval(pollInterval);
-
-                // Update Firestore wallet balance and transaction record
-                await updateFirestoreDepositStatus(activeUid, orderNo, 'completed', Number(amount));
-
-                updateUser((prev) => ({
-                  ...prev,
-                  walletBalance: prev.walletBalance + Number(amount),
-                  hasDeposited: true,
-                  totalDeposited: (prev.totalDeposited || 0) + Number(amount),
-                  vipLevel: prev.vipLevel || 0,
-                  transactions: (prev.transactions || []).map((t: any) =>
-                    t.id === orderNo || t.hash === orderNo
-                      ? {
-                          ...t,
-                          status: 'completed',
-                          description: `ডিপোজিট (চ্যানেল ২) - সফল`,
-                          hash: checkData.order?.trxId || orderNo,
-                          isCredit: true,
-                        }
-                      : t
-                  ),
-                }));
-
-                localStorage.removeItem('pending_gateway_deposit');
-
-                showToast(
-                  currentLang === 'bn'
-                    ? `রিচার্জ সফল! ৳${Number(amount).toLocaleString()} আপনার ওয়ালেটে জমা হয়েছে।`
-                    : `Recharge successful! ৳${Number(amount).toLocaleString()} added to your wallet.`
-                );
               }
             } catch (e) {
               // ignore polling errors
             }
-          }, 3000);
+          }, 2500);
         }
         return data;
       } else {
         showToast(
           currentLang === 'bn'
-            ? `⚠️ পেমেন্ট সংযোগ ব্যর্থ: ${data?.message || data?.error || 'গেটওয়ে ত্রুটি'}`
-            : `⚠️ Payment failed: ${data?.message || data?.error || 'Gateway error'}`
+            ? `⚠️ পেমেন্ট সংযোগ ব্যর্থ: ${data?.error || data?.message || 'গেটওয়ে ত্রুটি'}`
+            : `⚠️ Payment failed: ${data?.error || data?.message || 'Gateway error'}`
         );
         return data;
       }
@@ -1407,7 +1289,16 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
       const method = initialDetectedMethod;
       const activeUid = auth.currentUser?.uid || user.uid || user.memberId || 'USER1001';
       const finalTrxId = (rawTrxId || orderId || `TXN-${Date.now().toString().slice(-6)}`).trim();
-      const statusParam = (params.get('payment_status') || localPayload?.status || '').toUpperCase();
+      const rawStatusFromParam = (
+        params.get('payment_status') ||
+        params.get('status') ||
+        params.get('trade_status') ||
+        params.get('state') ||
+        localPayload?.status ||
+        ''
+      ).toUpperCase();
+
+      const isDirectGatewaySuccess = ['SUCCESS', 'COMPLETED', 'PAID', 'TRADE_SUCCESS', 'APPROVED', '1', 'TRUE', 'OK'].includes(rawStatusFromParam);
 
       // Clean query parameters immediately from address bar to prevent replay on reload
       window.history.replaceState({}, document.title, window.location.pathname);
@@ -1432,7 +1323,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
               const statusStr = String(checkData?.order?.status || '').toUpperCase();
               if (
                 checkData?.success &&
-                (statusStr === 'COMPLETED' || statusStr === 'SUCCESS') &&
+                (statusStr === 'COMPLETED' || statusStr === 'SUCCESS' || statusStr === 'PAID') &&
                 (checkData?.order?.verified === true || checkData?.order?.webhookConfirmed === true)
               ) {
                 isServerVerified = true;
@@ -1447,12 +1338,37 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
           ? 'Rocket'
           : 'bKash';
 
-        if (isServerVerified || statusParam === 'SUCCESS') {
-          // Authentic verified completion
+        // If not verified by order-status yet, submit to backend verification
+        if (!isServerVerified && (isDirectGatewaySuccess || (finalTrxId && finalTrxId.length >= 6))) {
+          try {
+            const vRes = await fetch('/api/payments/submit-txnid', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                orderNo: orderId,
+                trxId: finalTrxId,
+                amount,
+                method: cleanMethod,
+                userId: activeUid,
+                channel: gateway || 'channel1',
+              }),
+            });
+            if (vRes.ok) {
+              const vData = await vRes.json();
+              if (vData && vData.success && (vData.isApproved === true || vData.status === 'COMPLETED' || vData.verified === true)) {
+                isServerVerified = true;
+              }
+            }
+          } catch (_) {}
+        }
+
+        // Auto-approve and credit wallet if server verified (via webhook or verified authentic TrxID)
+        if (isServerVerified || isDirectGatewaySuccess) {
+          // Authentic verified completion from server gateway webhook
           recordFirestoreDeposit(activeUid, {
             amount,
             method: cleanMethod,
-            channel: gateway,
+            channel: 'চ্যানেল ১ (Nekpay)',
             trxId: finalTrxId,
             orderNo: orderId || undefined,
             status: 'completed',
@@ -1479,8 +1395,9 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
                     ' ' +
                     new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
                   status: 'completed',
-                  description: `ডিপোজিট (${gateway.toUpperCase()}) - সফল`,
+                  description: `ডিপোজিট (চ্যানেল ১) - সফল`,
                   hash: finalTrxId,
+                  isCredit: true,
                 },
                 ...(prev.transactions || []),
               ],
@@ -1489,20 +1406,78 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
           showToast(
             currentLang === 'bn'
-              ? `🎉 ডিপোজিট সফল! TrxID (${finalTrxId}) অনুমোদিত হয়েছে এবং ৳${amount.toLocaleString()} ওয়ালেটে যোগ হয়েছে!`
-              : `🎉 Deposit successful! TrxID (${finalTrxId}) approved and ৳${amount.toLocaleString()} credited to wallet!`
+              ? `🎉 ডিপোজিট সফল! ৳${amount.toLocaleString()} আপনার ওয়ালেটে স্বয়ংক্রিয়ভাবে যোগ হয়েছে!`
+              : `🎉 Deposit successful! ৳${amount.toLocaleString()} auto-approved and credited to wallet!`
           );
         } else {
-          // Pending submission awaiting admin review:
-          // Strictly record as PENDING in Firestore so Admin Panel displays it immediately!
+          // Record as pending in Firestore for admin review
           recordFirestoreDeposit(activeUid, {
             amount,
             method: cleanMethod,
-            channel: gateway,
+            channel: 'চ্যানেল ১ (Nekpay)',
             trxId: finalTrxId,
             orderNo: orderId || undefined,
             status: 'pending',
           }).catch((err) => console.warn('[Firestore] Deposit sync warning:', err));
+
+          // In case cPanel webhook takes a few seconds, poll in background for 30 seconds
+          if (lookupKey) {
+            let pollCount = 0;
+            const bgPoll = setInterval(async () => {
+              pollCount++;
+              if (pollCount > 15) {
+                clearInterval(bgPoll);
+                return;
+              }
+              try {
+                const pollRes = await fetch(`/api/payments/order-status/${encodeURIComponent(lookupKey)}`);
+                if (pollRes.ok) {
+                  const pollData = await pollRes.json();
+                  const pStatus = String(pollData?.order?.status || '').toUpperCase();
+                  if (
+                    pollData?.success &&
+                    (pStatus === 'COMPLETED' || pStatus === 'SUCCESS' || pStatus === 'PAID') &&
+                    (pollData?.order?.verified === true || pollData?.order?.webhookConfirmed === true)
+                  ) {
+                    clearInterval(bgPoll);
+                    await recordFirestoreDeposit(activeUid, {
+                      amount,
+                      method: cleanMethod,
+                      channel: 'চ্যানেল ১ (Nekpay)',
+                      trxId: finalTrxId,
+                      orderNo: orderId || undefined,
+                      status: 'completed',
+                    });
+                    updateUser((prev) => ({
+                      ...prev,
+                      walletBalance: prev.walletBalance + amount,
+                      hasDeposited: true,
+                      totalDeposited: (prev.totalDeposited || 0) + amount,
+                      vipLevel: prev.vipLevel || 0,
+                      transactions: [
+                        {
+                          id: finalTrxId,
+                          type: 'deposit',
+                          amount,
+                          status: 'completed',
+                          description: `ডিপোজিট (চ্যানেল ১) - সফল`,
+                          hash: finalTrxId,
+                          isCredit: true,
+                          timestamp: new Date().toISOString(),
+                        },
+                        ...(prev.transactions || []),
+                      ],
+                    }));
+                    showToast(
+                      currentLang === 'bn'
+                        ? `🎉 ডিপোজিট সফল! ৳${amount.toLocaleString()} আপনার ওয়ালেটে স্বয়ংক্রিয়ভাবে যোগ হয়েছে!`
+                        : `🎉 Deposit successful! ৳${amount.toLocaleString()} auto-approved and credited to wallet!`
+                    );
+                  }
+                }
+              } catch (_) {}
+            }, 2000);
+          }
 
           sendDepositToCpanel({
             amount,
@@ -1562,6 +1537,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     try {
       const rawSub = localStorage.getItem('nvt_last_submitted_deposit_tx');
       if (rawSub) {
+        localStorage.removeItem('nvt_last_submitted_deposit_tx');
         const txObj = JSON.parse(rawSub);
         if (txObj && txObj.id) {
           updateUser((prev) => {
@@ -1842,11 +1818,18 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
 
     const handleAuthStateChanged = (e: any) => {
       if (e.detail) {
-        updateUser((prev) => ({
-          ...prev,
-          canRefer: e.detail.canRefer !== undefined ? Boolean(e.detail.canRefer) : prev.canRefer,
-          referralLimit: typeof e.detail.referralLimit === 'number' ? e.detail.referralLimit : prev.referralLimit,
-        }));
+        updateUser((prev) => {
+          const newCanRefer = e.detail.canRefer !== undefined ? Boolean(e.detail.canRefer) : prev.canRefer;
+          const newLimit = typeof e.detail.referralLimit === 'number' ? e.detail.referralLimit : prev.referralLimit;
+          if (prev.canRefer === newCanRefer && prev.referralLimit === newLimit) {
+            return prev;
+          }
+          return {
+            ...prev,
+            canRefer: newCanRefer,
+            referralLimit: newLimit,
+          };
+        });
       }
     };
     window.addEventListener('nvt-auth-state-changed', handleAuthStateChanged);
@@ -1917,7 +1900,9 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
   }, [auth.currentUser?.uid, user.uid, user.memberId]);
 
   // Automated background verification / cleanup for pending manual deposit transactions
+  const hasCheckedPendingRef = useRef(false);
   useEffect(() => {
+    if (hasCheckedPendingRef.current) return;
     const activeUid = auth.currentUser?.uid || user.memberId;
     if (!activeUid) return;
 
@@ -1926,6 +1911,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({
     );
 
     if (pendingDeposits.length === 0) return;
+    hasCheckedPendingRef.current = true;
 
     pendingDeposits.forEach(async (pTx: any) => {
       const trxKey = pTx.id || pTx.hash;

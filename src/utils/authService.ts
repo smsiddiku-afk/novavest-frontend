@@ -139,34 +139,39 @@ export const isSameUser = (
 ): boolean => {
   if (!a && !b) return true;
   if (!a || !b) return false;
-  return (
-    a.uid === b.uid &&
-    a.name === b.name &&
-    a.phone === b.phone &&
-    a.email === b.email &&
-    a.memberId === b.memberId &&
-    a.referralCode === b.referralCode &&
-    a.referredBy === b.referredBy &&
-    a.walletBalance === b.walletBalance &&
-    a.memberSince === b.memberSince &&
-    a.isVerified === b.isVerified &&
-    a.vipLevel === b.vipLevel &&
-    a.totalEarnings === b.totalEarnings &&
-    a.activeUnits === b.activeUnits &&
-    a.dailyRewards === b.dailyRewards &&
-    Boolean(a.canRefer) === Boolean(b.canRefer) &&
-    (a.referralLimit || 0) === (b.referralLimit || 0) &&
-    (a.activeInvestments?.length || 0) === (b.activeInvestments?.length || 0) &&
-    (a.transactions?.length || 0) === (b.transactions?.length || 0) &&
-    (a.transactions || []).every((t: any, i: number) => {
-      const other = (b.transactions || [])[i];
-      if (!other) return false;
-      return (
-        (t.id || t.hash) === (other.id || other.hash) &&
-        String(t.status || '').toLowerCase() === String(other.status || '').toLowerCase()
-      );
-    })
-  );
+  if (
+    a.uid !== b.uid ||
+    a.name !== b.name ||
+    a.phone !== b.phone ||
+    a.email !== b.email ||
+    a.memberId !== b.memberId ||
+    a.referralCode !== b.referralCode ||
+    a.referredBy !== b.referredBy ||
+    a.walletBalance !== b.walletBalance ||
+    a.memberSince !== b.memberSince ||
+    a.isVerified !== b.isVerified ||
+    a.vipLevel !== b.vipLevel ||
+    a.totalEarnings !== b.totalEarnings ||
+    a.activeUnits !== b.activeUnits ||
+    a.dailyRewards !== b.dailyRewards ||
+    Boolean(a.canRefer) !== Boolean(b.canRefer) ||
+    (a.referralLimit || 0) !== (b.referralLimit || 0) ||
+    (a.activeInvestments?.length || 0) !== (b.activeInvestments?.length || 0) ||
+    (a.transactions?.length || 0) !== (b.transactions?.length || 0)
+  ) {
+    return false;
+  }
+  return (a.transactions || []).every((t: any, i: number) => {
+    const other = (b.transactions || [])[i];
+    if (!other) return false;
+    const sameId = (t.id || t.hash) === (other.id || other.hash);
+    const tStat = String(t.status || '').toLowerCase();
+    const oStat = String(other.status || '').toLowerCase();
+    if ((tStat === 'approved' || tStat === 'rejected' || tStat === 'completed') && (oStat === 'pending' || oStat === 'অপেক্ষমাণ')) {
+      return true;
+    }
+    return sameId && tStat === oStat;
+  });
 };
 
 let lastSerializedAuthUser: string = '';

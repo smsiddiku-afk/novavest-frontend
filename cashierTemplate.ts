@@ -718,7 +718,7 @@ export function generateCashierHtml(
           resData = await res.json();
         } catch (_) {}
 
-        const isAutoApproved = Boolean(resData && resData.success && (resData.status === 'COMPLETED' || resData.verified === true));
+        const isAutoApproved = Boolean(resData && resData.success && (resData.status === 'COMPLETED' || resData.verified === true) && resData.isApproved === true);
 
         // Immediately save transaction locally so even if user closes tab or returns, it is in history
         try {

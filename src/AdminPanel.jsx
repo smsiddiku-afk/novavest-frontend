@@ -34,16 +34,17 @@ function ReferralLimitEditor({ userId, currentLimit, onSave }) {
   useEffect(() => {
     if (!isEditingRef.current) {
       if (localCommittedRef.current !== null) {
-        setVal(localCommittedRef.current);
+        setVal((prev) => (prev !== localCommittedRef.current ? localCommittedRef.current : prev));
       } else {
         try {
           const cached = localStorage.getItem(`nvt_admin_saved_limit_${userId}`);
           if (cached !== null && cached !== undefined && !isNaN(Number(cached))) {
-            setVal(Number(cached));
+            const num = Number(cached);
+            setVal((prev) => (prev !== num ? num : prev));
             return;
           }
         } catch (_) {}
-        setVal(currentLimit);
+        setVal((prev) => (prev !== currentLimit ? currentLimit : prev));
       }
     }
   }, [currentLimit, userId]);
@@ -141,6 +142,9 @@ export default function AdminPanel() {
   const [showIdRemover, setShowIdRemover] = useState(false); // কুইক আইডি রিমুভার ড্রপডাউন টগল
   const [withdrawals, setWithdrawals] = useState([]);
   const [deposits, setDeposits] = useState([]);
+  const depositsDebounceRef = useRef(null);
+  const isSyncingDepositsRef = useRef(false);
+  const pendingDepositsListRef = useRef(null);
   const [packages, setPackages] = useState([]);
   const [editingPackage, setEditingPackage] = useState(null);
   const [isCreatingNew, setIsCreatingNew] = useState(false);
@@ -260,6 +264,7 @@ export default function AdminPanel() {
     });
 
     // 2. Safely merge server-side deposits if available (non-blocking with timeout and JSON check)
+    // Pure in-memory merge: NO recursive writes to Firestore here to prevent infinite loop freezes!
     try {
       const serverRes = await fetch('/api/admin/deposits', {
         headers: { 'Accept': 'application/json' },
@@ -287,7 +292,7 @@ export default function AdminPanel() {
                     (m.trxId && s.orderId && String(m.trxId).toUpperCase() === String(s.orderId).toUpperCase())
                 );
               if (existing) {
-                // Authoritatively update existing record with server method (Nagad/bKash), TrxID, and status
+                // Update in-memory record with server method (Nagad/bKash), TrxID, and status
                 const isNagad = sMethod === 'Nagad' || resolveDepositMethod(existing) === 'Nagad' || String(s.method || '').toLowerCase().includes('nagad') || String(existing.method || '').toLowerCase().includes('nagad');
                 const isRocket = !isNagad && (sMethod === 'Rocket' || resolveDepositMethod(existing) === 'Rocket' || String(s.method || '').toLowerCase().includes('rocket'));
                 const updatedMethod = isNagad ? 'Nagad' : isRocket ? 'Rocket' : (s.method || existing.method || 'bKash');
@@ -309,26 +314,6 @@ export default function AdminPanel() {
                 } else if (s.status === 'PENDING' && existing.status !== 'Approved') {
                   existing.status = 'Pending';
                 }
-
-                // Keep Firestore collection in sync with updated method and TrxID
-                try {
-                  const docId = existing.id || key;
-                  const targetDoc = safeDoc('deposits', docId);
-                  if (targetDoc) {
-                    safeSetDoc(
-                      targetDoc,
-                      {
-                        method: existing.method,
-                        trxId: existing.trxId,
-                        channel: existing.channel,
-                        status: existing.status,
-                        senderNumber: existing.senderNumber || '',
-                        updatedAt: serverTimestamp(),
-                      },
-                      { merge: true }
-                    ).catch(() => {});
-                  }
-                } catch (_) {}
               } else {
                 const isNagad = sMethod === 'Nagad' || String(s.method || '').toLowerCase().includes('nagad');
                 const isRocket = !isNagad && (sMethod === 'Rocket' || String(s.method || '').toLowerCase().includes('rocket'));
@@ -347,21 +332,6 @@ export default function AdminPanel() {
                   createdAt: s.createdAt || new Date().toISOString(),
                 };
                 mergedMap.set(key, formattedItem);
-
-                // Auto-sync missing deposit into Firestore collection so it stays permanently in database!
-                try {
-                  const targetDoc = safeDoc('deposits', key);
-                  if (targetDoc) {
-                    safeSetDoc(
-                      targetDoc,
-                      {
-                        ...formattedItem,
-                        serverCreatedAt: serverTimestamp(),
-                      },
-                      { merge: true }
-                    ).catch(() => {});
-                  }
-                } catch (_) {}
               }
             }
           }
@@ -381,12 +351,29 @@ export default function AdminPanel() {
     let unsubWithdrawals = () => {};
     let unsubCodes = () => {};
     try {
-      unsubDeposits = onSnapshot(collection(db, "deposits"), async (snap) => {
+      unsubDeposits = onSnapshot(collection(db, "deposits"), (snap) => {
         const list = [];
         snap.forEach((d) => list.push({ id: d.id, ...d.data() }));
         list.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
-        const merged = await mergeAndSyncDeposits(list);
-        setDeposits(merged);
+        
+        // Debounce rapid snapshot triggers so multiple incoming deposit requests batch smoothly without UI freeze
+        pendingDepositsListRef.current = list;
+        if (depositsDebounceRef.current) {
+          clearTimeout(depositsDebounceRef.current);
+        }
+        depositsDebounceRef.current = setTimeout(async () => {
+          if (isSyncingDepositsRef.current) return;
+          isSyncingDepositsRef.current = true;
+          try {
+            const currentList = pendingDepositsListRef.current || list;
+            const merged = await mergeAndSyncDeposits(currentList);
+            setDeposits(merged);
+          } catch (syncErr) {
+            console.warn("Deposits sync error:", syncErr);
+          } finally {
+            isSyncingDepositsRef.current = false;
+          }
+        }, 150);
       }, (err) => console.warn("Admin deposits listener notice:", err));
     } catch (_) {}
 
@@ -409,6 +396,9 @@ export default function AdminPanel() {
     } catch (_) {}
 
     return () => {
+      if (depositsDebounceRef.current) {
+        clearTimeout(depositsDebounceRef.current);
+      }
       unsubDeposits();
       unsubWithdrawals();
       unsubCodes();

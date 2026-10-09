@@ -8,8 +8,73 @@ import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
 import { generateCashierHtml } from './cashierTemplate';
 import { sendOtpEmail, verifyOtpCode } from './src/server/emailOtpService';
+import { db } from './src/lib/firebase';
+import { doc, updateDoc, increment, setDoc, serverTimestamp, arrayUnion } from 'firebase/firestore';
 
 dotenv.config();
+
+// Helper to credit deposit and update Firestore atomically
+async function creditFirestoreUserDeposit(userId: string, orderId: string, amount: number, method: string = 'bKash', trxId?: string) {
+  if (!userId || amount <= 0) return;
+  try {
+    const finalTrx = trxId || orderId;
+    const cleanUid = String(userId).trim();
+    if (db) {
+      const userRef = doc(db, 'users', cleanUid);
+      await updateDoc(userRef, {
+        walletBalance: increment(amount),
+        totalDeposited: increment(amount),
+        hasDeposited: true,
+        updatedAt: serverTimestamp(),
+        transactions: arrayUnion({
+          id: finalTrx,
+          type: 'deposit',
+          amount: Number(amount),
+          method: method || 'bKash',
+          status: 'completed',
+          description: `ডিপোজিট (চ্যানেল ১) - সফল`,
+          channel: `চ্যানেল ১ (${method || 'bKash'})`,
+          isCredit: true,
+          hash: finalTrx,
+          timestamp: new Date().toISOString(),
+        }),
+      }).catch(async () => {
+        // If user doc not found directly, search by memberId
+        try {
+          const { collection, query, where, getDocs } = await import('firebase/firestore');
+          const uCol = collection(db, 'users');
+          const qSnap = await getDocs(query(uCol, where('memberId', '==', cleanUid)));
+          if (!qSnap.empty) {
+            await updateDoc(qSnap.docs[0].ref, {
+              walletBalance: increment(amount),
+              totalDeposited: increment(amount),
+              hasDeposited: true,
+              updatedAt: serverTimestamp(),
+            });
+          }
+        } catch (_) {}
+      });
+
+      const depositRef = doc(db, 'deposits', orderId);
+      await setDoc(depositRef, {
+        id: orderId,
+        userId: cleanUid,
+        amount: Number(amount),
+        method: method || 'bKash',
+        channel: `চ্যানেল ১ (${method || 'bKash'})`,
+        trxId: finalTrx,
+        orderNo: orderId,
+        status: 'Approved',
+        isApproved: true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }, { merge: true }).catch(() => {});
+      console.log(`[Firestore Auto-Approved & Credited] User: ${cleanUid}, Amount: ৳${amount}, Order: ${orderId}`);
+    }
+  } catch (err: any) {
+    console.warn('[Firestore Credit Notice in server.ts]:', err?.message || err);
+  }
+}
 
 const __filenameResolved = typeof __filename !== 'undefined' ? __filename : '';
 const __dirnameResolved = typeof __dirname !== 'undefined' ? __dirname : process.cwd();
@@ -201,6 +266,50 @@ async function startServer() {
       if (order.orderId) ordersDatabase.set(order.orderId, order);
       if (order.trxId) ordersDatabase.set(order.trxId, order);
       saveOrdersToDisk();
+
+      // Atomically credit user wallet balance when approved
+      if (isApprove) {
+        const targetUid = order.userId || userId;
+        const depAmount = order.amount || Number(amount) || 0;
+        const depMethod = order.method || 'Nagad';
+        const finalTrx = order.trxId || cleanKey;
+        if (targetUid && depAmount > 0) {
+          try {
+            const uRec = usersBackupMap.get(targetUid) || Array.from(usersBackupMap.values()).find(
+              (u: any) => u.uid === targetUid || u.memberId === targetUid
+            );
+            if (uRec) {
+              uRec.walletBalance = (Number(uRec.walletBalance) || 0) + depAmount;
+              uRec.totalDeposited = (Number(uRec.totalDeposited) || 0) + depAmount;
+              uRec.hasDeposited = true;
+              uRec.updatedAt = new Date().toISOString();
+              const existingTxns = Array.isArray(uRec.transactions) ? uRec.transactions : [];
+              const alreadyHasTxn = existingTxns.some((t: any) => t.id === finalTrx || t.hash === finalTrx);
+              if (!alreadyHasTxn) {
+                uRec.transactions = [
+                  {
+                    id: finalTrx,
+                    type: 'deposit',
+                    amount: depAmount,
+                    method: depMethod,
+                    status: 'completed',
+                    description: `ডিপোজিট TrxID: ${finalTrx} (অনুমোদিত)`,
+                    channel: `${depMethod} (চ্যানেল ১)`,
+                    isCredit: true,
+                    hash: finalTrx,
+                    timestamp: new Date().toISOString(),
+                  },
+                  ...existingTxns,
+                ];
+              }
+              saveUsersBackupToDisk();
+            }
+            creditFirestoreUserDeposit(targetUid, order.orderId || cleanKey, depAmount, depMethod, finalTrx);
+          } catch (creditErr) {
+            console.warn('[Admin Approve Credit Warning]:', creditErr);
+          }
+        }
+      }
 
       // Forward callback to cPanel backend
       const cpanelPayload = {
@@ -1399,7 +1508,7 @@ async function startServer() {
     if (!rawLink || typeof rawLink !== 'string') return rawLink;
     const cleanOrigin = clientOrigin.replace(/\/+$/, '');
     const cleanMethod = String(method || '').toLowerCase().includes('nagad') ? 'Nagad' : String(method || '').toLowerCase().includes('rocket') ? 'Rocket' : 'bKash';
-    const returnTarget = `${cleanOrigin}/profile?payment_status=PENDING&payment_return=1&orderNo=${encodeURIComponent(orderNo)}&amount=${amount}&channel=${encodeURIComponent(channel)}&method=${encodeURIComponent(cleanMethod)}&gateway=${encodeURIComponent(channel)}`;
+    const returnTarget = `${cleanOrigin}/payment-result?payment_status=SUCCESS&payment_return=1&orderNo=${encodeURIComponent(orderNo)}&amount=${amount}&channel=channel1&method=${encodeURIComponent(cleanMethod)}&gateway=nekpay`;
 
     let processed = rawLink;
 
@@ -1680,7 +1789,7 @@ async function startServer() {
 
       const clientOrigin = getClientOrigin(req);
       const preOrderNo = `NEK-${Date.now()}`;
-      const returnTarget = `${clientOrigin.replace(/\/+$/, '')}/profile?payment_status=PENDING&payment_return=1&orderNo=${encodeURIComponent(preOrderNo)}&amount=${numAmount}&channel=channel1&method=${encodeURIComponent(method)}&gateway=nekpay`;
+      const returnTarget = `${clientOrigin.replace(/\/+$/, '')}/payment-result?payment_status=PENDING&payment_return=1&orderNo=${encodeURIComponent(preOrderNo)}&amount=${numAmount}&channel=channel1&method=${encodeURIComponent(method)}&gateway=nekpay`;
       const cpanelCallbackUrl = `${CPANEL_API_BASE_URL}/nekpay-callback`;
 
       const postBody = {
@@ -2097,7 +2206,7 @@ async function startServer() {
     const rawStatus = String(payload.status || payload.trade_status || payload.state || '').toUpperCase();
     const amount = Number(payload.amount || payload.money || payload.pay_money) || 0;
 
-    const isSuccess = ['SUCCESS', 'COMPLETED', 'PAID', '1', 'TRUE', 'OK'].includes(rawStatus);
+    const isSuccess = ['SUCCESS', 'COMPLETED', 'PAID', 'APPROVED', 'TRADE_SUCCESS', '1', 'TRUE', 'OK'].includes(rawStatus);
 
     const rawMethod = String(
       payload.method ||
@@ -2147,6 +2256,8 @@ async function startServer() {
             uRec.updatedAt = new Date().toISOString();
             saveUsersBackupToDisk();
           }
+          // Also credit directly in Firestore atomically
+          creditFirestoreUserDeposit(order.userId, orderNo, Number(order.amount), order.method || detectedMethod || 'bKash', trxId);
         } catch (_) {}
       }
     } else if (orderNo || trxId) {
@@ -2167,6 +2278,9 @@ async function startServer() {
         rawCallback: payload,
       });
       saveOrdersToDisk();
+      if (isSuccess && payload.userId && amount > 0) {
+        creditFirestoreUserDeposit(payload.userId, key, amount, finalMethod, trxId);
+      }
     }
 
     addLog({
@@ -2258,8 +2372,8 @@ async function startServer() {
         });
         if (remoteRes.ok) {
           const remoteData: any = await remoteRes.json();
-          const remoteStatus = String(remoteData.status || '').toUpperCase();
-          if (remoteStatus === 'COMPLETED' || remoteStatus === 'SUCCESS' || remoteStatus === 'PAID') {
+          const remoteStatus = String(remoteData.status || remoteData.payment_status || '').toUpperCase();
+          if (['COMPLETED', 'SUCCESS', 'PAID', 'APPROVED', 'TRADE_SUCCESS', 'OK', '1', 'TRUE'].includes(remoteStatus)) {
             if (!order) {
               order = {
                 orderId: cleanKey,
@@ -2267,14 +2381,18 @@ async function startServer() {
                 amount: Number(remoteData.amount) || 0,
                 status: 'COMPLETED',
                 verified: true,
-                channel: remoteData.gateway?.toLowerCase() || 'watchpay',
-                channelName: remoteData.gateway || 'WatchPay',
-                createdAt: new Date().toISOString(),
+                webhookConfirmed: true,
+                channel: 'channel1',
+                channelName: 'চ্যানেল ১ (Nekpay)',
+                method: remoteData.method || 'bKash',
+                userId: remoteData.userId,
+                createdAt: remoteData.createdAt || new Date().toISOString(),
                 updatedAt: new Date().toISOString(),
               };
             } else {
               order.status = 'COMPLETED';
               order.verified = true;
+              order.webhookConfirmed = true;
               order.trxId = remoteData.trxId || order.trxId || cleanKey;
               if (remoteData.amount) order.amount = Number(remoteData.amount);
               order.updatedAt = new Date().toISOString();
@@ -2282,6 +2400,11 @@ async function startServer() {
             ordersDatabase.set(cleanKey, order);
             if (order.orderId) ordersDatabase.set(order.orderId, order);
             if (order.trxId) ordersDatabase.set(order.trxId, order);
+            saveOrdersToDisk();
+
+            if (order.userId && order.amount > 0) {
+              creditFirestoreUserDeposit(order.userId, cleanKey, Number(order.amount), order.method || 'bKash', order.trxId);
+            }
           }
         }
       } catch (_) {
@@ -2600,28 +2723,74 @@ async function startServer() {
     const cleanTrxId = validation.cleanId || rawTrx.toUpperCase();
     const isAuthentic = Boolean(validation.isValid);
 
-    // Check if an existing order was already completed
+    // Check if an existing order was already completed by official gateway webhook (check both orderNo and trxId)
+    const existingByTrx = ordersDatabase.get(cleanTrxId) || ordersDatabase.get(cleanTrxId.toUpperCase()) || null;
+    const matchedVerifiedOrder = (existingByOrder && existingByOrder.verified && existingByOrder.webhookConfirmed)
+      ? existingByOrder
+      : (existingByTrx && existingByTrx.verified && existingByTrx.webhookConfirmed)
+      ? existingByTrx
+      : null;
+
     const isSameOrderCompleted = Boolean(
-      existingByOrder &&
-      (existingByOrder.status === 'COMPLETED' || existingByOrder.status === 'SUCCESS') &&
-      existingByOrder.verified === true
+      matchedVerifiedOrder &&
+      (matchedVerifiedOrder.status === 'COMPLETED' || matchedVerifiedOrder.status === 'SUCCESS')
     );
 
-    // If TrxID has already been claimed/approved, strictly flag as duplicate
-    const isDuplicateTrxId = usedApprovedTrxIds.has(cleanTrxId) && (!existingByOrder || existingByOrder.trxId !== cleanTrxId);
+    // REPLAY ATTACK CHECK:
+    // If TrxID was already approved and credited, reject to prevent replay/duplicate exploitation
+    if (usedApprovedTrxIds.has(cleanTrxId)) {
+      return res.status(400).json({
+        success: false,
+        verified: false,
+        isApproved: false,
+        status: 'REJECTED',
+        isDuplicate: true,
+        reason: 'এই TrxID ইতোপূর্বে ব্যবহৃত ও অনুমোদিত হয়েছে',
+        message: `⚠️ এই TrxID (${cleanTrxId}) ইতোপূর্বে অনুমোদিত হয়েছে। একই TrxID একাধিকবার ব্যবহার করা যাবে না।`,
+      });
+    }
 
-    // Auto-approve authentic TrxIDs:
-    // If the TrxID format is authentic, valid and not a duplicate/fake, it is immediately auto-approved!
-    const isAutoApproved = Boolean(!isDuplicateTrxId && (isAuthentic || isSameOrderCompleted));
+    // AUTO-APPROVAL LOGIC:
+    // Real authentic TrxID submitted by user OR order verified by gateway webhook is automatically approved!
+    // Fake or dummy format patterns (e.g., TEST, FAKE, 12345678) remain PENDING awaiting admin review.
+    const isAutoApproved = Boolean(isAuthentic || isSameOrderCompleted);
     const orderStatus = isAutoApproved ? 'COMPLETED' : 'PENDING';
     const isVerified = isAutoApproved;
 
     if (isAutoApproved) {
       usedApprovedTrxIds.add(cleanTrxId);
 
-      // Instantly update user's balance and deposit history in server memory and disk
+      // Link and complete existing pending order if present
+      if (existingByOrder) {
+        existingByOrder.status = 'COMPLETED';
+        existingByOrder.verified = true;
+        existingByOrder.webhookConfirmed = true;
+        existingByOrder.trxId = cleanTrxId;
+        existingByOrder.updatedAt = new Date().toISOString();
+        ordersDatabase.set(orderNo, existingByOrder);
+      } else {
+        // Also check if user has a recent pending order of same amount (e.g. from gateway checkout)
+        for (const [k, ord] of ordersDatabase.entries()) {
+          if (
+            ord &&
+            (ord.userId === userId || !ord.userId) &&
+            ord.status === 'PENDING' &&
+            Math.abs(Number(ord.amount) - numAmount) < 1
+          ) {
+            ord.status = 'COMPLETED';
+            ord.verified = true;
+            ord.webhookConfirmed = true;
+            ord.trxId = cleanTrxId;
+            ord.updatedAt = new Date().toISOString();
+            ordersDatabase.set(k, ord);
+            break;
+          }
+        }
+      }
+
+      // Atomically update user balance
       try {
-        const targetUserId = userId || existingByOrder?.userId;
+        const targetUserId = userId || matchedVerifiedOrder?.userId || existingByOrder?.userId;
         if (targetUserId) {
           const userRec = usersBackupMap.get(targetUserId) || Array.from(usersBackupMap.values()).find(
             (u: any) => u.uid === targetUserId || u.memberId === targetUserId || (senderPhone && u.phone === senderPhone)
@@ -2641,7 +2810,7 @@ async function startServer() {
                   amount: numAmount,
                   method,
                   status: 'completed',
-                  description: `ডিপোজিট TrxID: ${cleanTrxId} (স্বয়ংক্রিয় অনুমোদিত)`,
+                  description: `ডিপোজিট TrxID: ${cleanTrxId} (স্বয়ংক্রিয় অনুমোদিত)`,
                   channel: `${method} (${channel === 'channel2' ? 'চ্যানেল ২' : 'চ্যানেল ১'})`,
                   isCredit: true,
                   hash: cleanTrxId,
@@ -2652,6 +2821,7 @@ async function startServer() {
             }
             saveUsersBackupToDisk();
           }
+          creditFirestoreUserDeposit(targetUserId, orderNo, numAmount, method, cleanTrxId);
         }
       } catch (userCreditErr) {
         console.warn('[User Balance Credit Notice]', userCreditErr);
@@ -2664,8 +2834,8 @@ async function startServer() {
       amount: numAmount,
       method,
       senderPhone,
-      channel,
-      channelName: channel === 'gogopay' ? 'Go-Go-Pay' : channel === 'channel1' ? `চ্যানেল ১ (${method})` : channel === 'channel2' ? `চ্যানেল ২ (${method})` : `${method} (Manual TrxID)`,
+      channel: channel || 'channel1',
+      channelName: `চ্যানেল ১ (${method})`,
       status: orderStatus,
       verified: isVerified,
       webhookConfirmed: isVerified,
@@ -2724,15 +2894,14 @@ async function startServer() {
     return res.json({
       success: true,
       verified: isVerified,
+      isApproved: isAutoApproved,
       status: orderStatus,
       isFake: !isAuthentic,
       reason: validation.reason,
       order: orderRecord,
       message: isVerified
-        ? `🎉 TrxID সফলভাবে যাচাই হয়েছে এবং ৳${numAmount.toLocaleString()} স্বয়ংক্রিয়ভাবে অনুমোদিত হয়েছে!`
-        : isDuplicateTrxId
-        ? `এই TrxID (${cleanTrxId}) ইতোপূর্বে ব্যবহৃত হয়েছে। অ্যাডমিন ম্যানুয়াল যাচাইয়ের জন্য অপেক্ষমাণ (Pending) রাখা হয়েছে।`
-        : `TrxID (${cleanTrxId}) জমা নেওয়া হয়েছে। অ্যাডমিন বিকাশ/নগদে যাচাই করার পর ওয়ালেটে টাকা যোগ হবে (অপেক্ষমাণ)।`,
+        ? `🎉 ট্রানজাকশন আইডি (${cleanTrxId}) সফলভাবে যাচাই ও অটো-এপ্রুভ হয়েছে এবং ৳${numAmount.toLocaleString()} ওয়ালেটে যোগ হয়েছে!`
+        : `TrxID (${cleanTrxId}) জমা নেওয়া হয়েছে। অ্যাডমিন পর্যালোচনার পর ওয়ালেটে টাকা যোগ হবে (অপেক্ষমাণ)।`,
     });
   });
 
@@ -2943,6 +3112,14 @@ async function startServer() {
       }
     }
     return res.json({ success: true, method: cleanMethod });
+  });
+
+  // ───────────────────────────────────────────────────────────
+  // PAYMENT RESULT REDIRECT (Direct gateway return to /profile)
+  // ───────────────────────────────────────────────────────────
+  app.get(['/payment-result', '/pay/payment-result'], (req, res) => {
+    const queryStr = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+    res.redirect(`/profile${queryStr}`);
   });
 
   // ───────────────────────────────────────────────────────────

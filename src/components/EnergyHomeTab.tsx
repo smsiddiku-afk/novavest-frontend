@@ -701,7 +701,7 @@ export const EnergyHomeTab: React.FC<EnergyHomeTabProps> = ({
   // Keep activeCharitySlide within valid range
   useEffect(() => {
     if (charityBanners.length === 0) {
-      setActiveCharitySlide(0);
+      setActiveCharitySlide((prev) => (prev !== 0 ? 0 : prev));
     } else if (activeCharitySlide >= charityBanners.length) {
       setActiveCharitySlide(0);
     }
